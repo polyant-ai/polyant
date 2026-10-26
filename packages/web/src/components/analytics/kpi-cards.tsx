@@ -7,15 +7,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { AnalyticsOverview } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
+import { useFormat } from "@/lib/use-format";
 
 interface KpiCardsProps {
   data: AnalyticsOverview;
-}
-
-function formatCost(value: number) {
-  return value < 1
-    ? `$${value.toFixed(4)}`
-    : `$${value.toFixed(2)}`;
 }
 
 function formatNumber(value: number) {
@@ -63,11 +58,12 @@ function TrendBadge({ value, lowerIsBetter = false }: { value: number | null; lo
 
 export function KpiCards({ data }: KpiCardsProps) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
   const cards = [
     {
       label: t("analytics.kpi.cost"),
-      value: formatCost(data.totalCost),
+      value: fmt.currency(data.totalCost),
       trend: data.trends.cost,
       icon: DollarSign,
     },

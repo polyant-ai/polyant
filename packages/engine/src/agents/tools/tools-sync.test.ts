@@ -214,7 +214,7 @@ describe("syncToolsToDb", () => {
       { id: "id-verify", name: "verifyDocument" },
       { id: "id-unused", name: "neverEnabled" },
     ]);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await syncToolsToDb();
 
@@ -227,7 +227,7 @@ describe("syncToolsToDb", () => {
   it("stays silent when no pruned tool was enabled anywhere", async () => {
     mockGetToolRegistry.mockReturnValue(new Map([["coreTool", toolDef("coreTool")]]));
     mockDeleteReturning.mockResolvedValue([{ id: "id-unused", name: "neverEnabled" }]);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await syncToolsToDb();
 

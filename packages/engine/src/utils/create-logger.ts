@@ -2,8 +2,10 @@
 
 /**
  * Shared logger factory for colored, timestamped console output.
- * Used by pipeline-logger, room-logger, webhook-logger, etc.
+ * Used by pipeline-logger and the module loggers.
  */
+
+import { errMsg } from "./error.js";
 
 export const COLORS = {
   reset: "\x1b[0m",
@@ -101,13 +103,32 @@ export function shouldLog(level: LogLevel): boolean {
 export interface Logger {
   debug(prefix: string, msg: string): void;
   info(prefix: string, msg: string): void;
-  warn(prefix: string, msg: string): void;
+  warn(prefix: string, msg: string, err?: unknown): void;
   error(prefix: string, msg: string, err?: unknown): void;
+}
+
+type LogTee = (level: "info" | "warn" | "error", line: string) => void;
+let tee: LogTee | null = null;
+
+/**
+ * Register a second destination for every formatted line (the daily log file,
+ * see `installFileLogger`). Lines are written to stdout/stderr directly, so
+ * the file logger's `console.*` interception never sees them.
+ */
+export function setLogTee(fn: LogTee | null): void {
+  tee = fn;
 }
 
 /**
  * Create a structured logger with colored, timestamped output.
  * The `defaultColor` is used for info-level messages.
+ *
+ * `warn` and `error` accept an optional error value. At normal levels only its
+ * sanitized message is appended to the line, followed by the messages (and
+ * codes) of its `cause` chain, up to three levels. When LOG_LEVEL=debug and the value
+ * is an `Error` with a stack, the stack is also written (each line sanitized
+ * like the message) through the same stdout/stderr and log-tee path. Other
+ * values are logged as their string form and never gain a stack.
  */
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
@@ -117,24 +138,79 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${sanitizeForLog(prefix)}]${COLORS.reset} ${sanitizeForLog(msg)}`;
   }
 
+  function emit(level: "info" | "warn" | "error", prefix: string, msg: string): void {
+    const line = fmt(level, prefix, msg);
+    (level === "info" ? process.stdout : process.stderr).write(line + "\n");
+    tee?.(level, line);
+  }
+
+  const MAX_CAUSE_DEPTH = 3;
+
+  /**
+   * Message of an error for the log. drizzle-orm's DrizzleQueryError carries
+   * "Failed query: <sql>\nparams: <values>" and the values are row content
+   * (message bodies, tool arguments, PII), so only the parameterised SQL is kept.
+   * Recognised by shape (message prefix plus a `params` property) so the logger
+   * stays free of a drizzle import.
+   */
+  function messageForLog(err: unknown): string {
+    if (err instanceof Error && err.message.startsWith("Failed query:") && "params" in err) {
+      const query = (err as { query?: unknown }).query;
+      return typeof query === "string" ? `Failed query: ${query}` : err.message.split("\nparams:")[0];
+    }
+    return errMsg(err);
+  }
+
+  /** Message of an error, with its driver/system code (SQLSTATE, ECONNREFUSED) when it has one. */
+  function describeCause(cause: unknown): string {
+    const code = (cause as { code?: unknown } | null)?.code;
+    const text = sanitizeForLog(messageForLog(cause));
+    return typeof code === "string" || typeof code === "number"
+      ? `${text} [${sanitizeForLog(String(code))}]`
+      : text;
+  }
+
+  /** The `cause` chain, outermost first, up to MAX_CAUSE_DEPTH levels. */
+  function causeChain(err: unknown): string[] {
+    const reasons: string[] = [];
+    let current: unknown = err instanceof Error ? err.cause : undefined;
+    while (current != null && reasons.length < MAX_CAUSE_DEPTH) {
+      reasons.push(describeCause(current));
+      current = current instanceof Error ? current.cause : undefined;
+    }
+    return reasons;
+  }
+
+  function emitWithError(level: "warn" | "error", prefix: string, msg: string, err: unknown): void {
+    const detail = err == null ? "" : [sanitizeForLog(messageForLog(err)), ...causeChain(err)].join(" ← ");
+    emit(level, prefix, detail ? `${msg} — ${detail}` : msg);
+    if (err instanceof Error && err.stack && shouldLog("debug")) {
+      // The message (possibly several lines) is already printed above: start at
+      // the first frame. A stack with no frame lines falls back to skipping line 1.
+      const lines = err.stack.split("\n");
+      const firstFrame = lines.findIndex((l) => /^\s+at /.test(l));
+      for (const frame of lines.slice(firstFrame === -1 ? 1 : firstFrame)) {
+        if (frame.trim()) emit(level, prefix, frame);
+      }
+    }
+  }
+
   return {
     debug(prefix: string, msg: string): void {
       if (!shouldLog("debug")) return;
-      process.stdout.write(fmt("info", prefix, msg) + "\n");
+      emit("info", prefix, msg);
     },
     info(prefix: string, msg: string): void {
       if (!shouldLog("info")) return;
-      process.stdout.write(fmt("info", prefix, msg) + "\n");
+      emit("info", prefix, msg);
     },
-    warn(prefix: string, msg: string): void {
+    warn(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("warn")) return;
-      process.stderr.write(fmt("warn", prefix, msg) + "\n");
+      emitWithError("warn", prefix, msg, err);
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const errMsg = sanitizeForLog(err instanceof Error ? err.message : String(err ?? ""));
-      const full = errMsg ? `${msg} — ${errMsg}` : msg;
-      process.stderr.write(fmt("error", prefix, full) + "\n");
+      emitWithError("error", prefix, msg, err);
     },
   };
 }

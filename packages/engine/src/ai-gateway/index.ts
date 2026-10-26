@@ -20,6 +20,9 @@ import {
 import { DEFAULT_PROVIDER } from "./model-catalog.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../instances/instance-meta.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 
 let initialized = false;
@@ -30,7 +33,7 @@ export function initAIGateway(db?: unknown) {
   aiLogger.initialize(db as Parameters<typeof aiLogger.initialize>[0]);
   initialized = true;
 
-  console.log("AI Gateway initialized");
+  log.info("ai-gateway", "AI Gateway initialized");
 }
 
 /* ------------------------------------------------------------------ */

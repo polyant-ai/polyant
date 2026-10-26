@@ -4,7 +4,6 @@
 
 import { useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AgentTourPrompt } from "@/components/onboarding/agent-tour-prompt";
 import { TourOverlay } from "@/components/onboarding/tour-overlay";
 import { Wizard } from "@/components/onboarding/wizard";
 import { useOnboarding } from "@/lib/onboarding/onboarding-context";
@@ -50,7 +49,6 @@ export function OnboardingHost() {
     <>
       {wizard.open && inWorkspace && <Wizard />}
       <TourOverlay />
-      <AgentTourPrompt />
     </>
   );
 }

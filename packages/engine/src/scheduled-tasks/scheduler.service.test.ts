@@ -251,7 +251,7 @@ describe("SchedulerService", () => {
       });
       mockRunLog.findDanglingRuns.mockImplementation(async () => {
         calls.push("findDanglingRuns");
-        return ["run-orphan"];
+        return [{ id: "run-orphan", taskId: "task-orphan" }];
       });
       mockRunLog.failDanglingRuns.mockImplementation(async () => {
         calls.push("failDanglingRuns");
@@ -281,7 +281,7 @@ describe("SchedulerService", () => {
       mockStore.findStuckRunning.mockResolvedValue([task]);
       mockRunLog.findDanglingRuns.mockImplementation(async () => {
         calls.push("findDanglingRuns");
-        return ["run-a"];
+        return [{ id: "run-a", taskId: "task-orphan" }];
       });
       mockStore.clearRunningMarker.mockImplementation(async () => {
         calls.push("clearRunningMarker");
@@ -368,7 +368,7 @@ describe("SchedulerService", () => {
       // Here the failure IS the task's own behaviour: it had its declared time and did not
       // finish, so the retry backoff is the right response.
       mockStore.findStuckRunning.mockResolvedValue([runningFor(31 * 60_000)]);
-      mockRunLog.findDanglingRuns.mockResolvedValue(["run-hung"]);
+      mockRunLog.findDanglingRuns.mockResolvedValue([{ id: "run-hung", taskId: "task-hung" }]);
       schedulerService.initialize(noopHandler);
 
       await schedulerService.tick();

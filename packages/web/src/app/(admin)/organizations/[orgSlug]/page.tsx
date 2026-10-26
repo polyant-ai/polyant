@@ -3,6 +3,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/context";
+import { PageHeader } from "@/components/layout/page-header";
 import { api } from "@/lib/api";
 import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
 import { FirstStepsCard } from "@/components/onboarding/first-steps-card";
@@ -12,10 +13,10 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-semibold tracking-tight">
-        {t("dashboard.title")}
-      </h1>
-      <p className="mt-2 text-muted-foreground">{t("dashboard.subtitle")}</p>
+      <PageHeader
+        title={t("dashboard.title")}
+        subtitle={t("dashboard.subtitle")}
+      />
 
       <FirstStepsCard />
 

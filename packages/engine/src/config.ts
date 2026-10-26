@@ -53,14 +53,6 @@ function stripEmptyStrings(value: unknown): unknown {
 const configSchema = z.preprocess(stripEmptyStrings, z.object({
   // Database
   postgres: z.object({
-    host: z.string().default("localhost"),
-    port: z.coerce.number().default(5432),
-    database: z.string().default("polyant"),
-    user: z.string().default("polyant"),
-    // Defaulted, not required: a local Postgres on `trust` auth has no password,
-    // and `POSTGRES_PASSWORD=` is how an operator says so. Without the default,
-    // `stripEmptyStrings` would turn that into a boot failure.
-    password: z.string().default(""),
     databaseUrl: z.string(),
     /**
      * TLS to Postgres. Only the literal `"true"` enables it.
@@ -199,24 +191,6 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
-/** Parse individual components from DATABASE_URL when individual POSTGRES_* vars are missing. */
-function parseDatabaseUrl(): { user: string; password: string; host: string; port: string; database: string } | null {
-  const url = process.env.DATABASE_URL;
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return {
-      user: decodeURIComponent(parsed.username),
-      password: decodeURIComponent(parsed.password),
-      host: parsed.hostname,
-      port: parsed.port || "5432",
-      database: parsed.pathname.replace(/^\//, ""),
-    };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Assemble the connection string from whichever form the deployment provides.
  * Both are first-class: `DATABASE_URL` is what a managed provider hands you,
@@ -224,9 +198,8 @@ function parseDatabaseUrl(): { user: string; password: string; host: string; por
  * each one from a separate field of the Aurora secret and cannot read a secret's
  * value at synth time to build a URL.
  *
- * The credentials are percent-encoded, which `parseDatabaseUrl` above already
- * assumed by decoding them. Interpolated raw, a password containing `@`, `/` or
- * `:` produced a URL that parses as a different host.
+ * The credentials are percent-encoded: interpolated raw, a password containing
+ * `@`, `/` or `:` produced a URL that parses as a different host.
  */
 export function buildDatabaseUrl(env: Record<string, string | undefined> = process.env): string {
   if (env.DATABASE_URL) return env.DATABASE_URL;
@@ -239,14 +212,8 @@ export function buildDatabaseUrl(env: Record<string, string | undefined> = proce
 }
 
 function loadConfig(): Config {
-  const dbUrlParsed = parseDatabaseUrl();
   const result = configSchema.safeParse({
     postgres: {
-      host: process.env.POSTGRES_HOST ?? dbUrlParsed?.host,
-      port: process.env.POSTGRES_PORT ?? dbUrlParsed?.port,
-      database: process.env.POSTGRES_DB ?? dbUrlParsed?.database,
-      user: process.env.POSTGRES_USER ?? dbUrlParsed?.user,
-      password: process.env.POSTGRES_PASSWORD ?? dbUrlParsed?.password,
       databaseUrl: buildDatabaseUrl(),
       ssl: process.env.POSTGRES_SSL,
       poolMax: process.env.POSTGRES_POOL_MAX,

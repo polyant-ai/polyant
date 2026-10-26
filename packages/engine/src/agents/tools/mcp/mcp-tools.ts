@@ -11,9 +11,11 @@ import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, usesSharedAccount, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
 import { McpSharedOAuthProvider } from "./mcp-shared-oauth-provider.js";
-import { mcpLog } from "./mcp-logger.js";
 import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
 import { errMsg } from "../../../utils/error.js";
+import { createLogger } from "../../../utils/create-logger.js";
+
+const mcpLog = createLogger();
 
 export interface McpBuildResult {
   tools: Record<string, Tool>;
@@ -168,7 +170,7 @@ export async function buildMcpTools(opts: {
     try {
       await assertSafeMcpUrlResolved(server.url);
     } catch (e) {
-      mcpLog.warn("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
+      mcpLog.error("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
       continue;
     }
 

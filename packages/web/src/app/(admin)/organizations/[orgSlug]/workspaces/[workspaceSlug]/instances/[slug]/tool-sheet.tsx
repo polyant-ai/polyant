@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { AlertTriangle, ChevronRight, MinusCircle } from "lucide-react";
@@ -11,14 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getUserErrorMessage } from "@/lib/api";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { ListDrawer } from "@/components/list-drawer";
 import type { ToolState } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { SecretSpecField, secretSpecDescription, secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
@@ -60,27 +53,15 @@ interface Props {
 function ToolDescription({ summary, description }: { summary: string; description: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const ref = useRef<HTMLParagraphElement>(null);
   const full = description.trim();
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight);
-  }, [summary, open]);
-
-  const expandable = overflows || full !== summary;
+  // The summary itself is the drawer's description line; what is offered here is the rest.
+  if (full === summary) return null;
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <SheetDescription ref={ref} className="line-clamp-3">
-        {summary}
-      </SheetDescription>
-      {expandable && (
-        <CollapsibleTrigger className="group mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
-          {open ? t("tools.descriptionLess") : t("tools.descriptionMore")}
-        </CollapsibleTrigger>
-      )}
+      <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+        {open ? t("tools.descriptionLess") : t("tools.descriptionMore")}
+      </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 space-y-1">
         <p className="text-xs font-medium text-muted-foreground">{t("tools.agentDescription")}</p>
         <p className="max-h-[40vh] overflow-y-auto whitespace-pre-line pr-2 text-sm text-muted-foreground">{full}</p>
@@ -149,119 +130,120 @@ export function ToolSheet({
 
   return (
     <>
-    <Sheet open={tool !== null} onOpenChange={(open) => !open && requestClose()}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
-        {tool && (
-          <>
-            <SheetHeader className="gap-2 border-b p-5 pr-12">
-              <SheetTitle className="font-mono text-base font-medium">{toolDisplayName(tool.name)}</SheetTitle>
-              <ToolDescription key={tool.name} summary={capabilitySummary(tool, locale)} description={tool.description} />
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Badge variant="secondary">{namespace ? pluginName(namespace) : t("tools.originCore")}</Badge>
-                <Badge variant="secondary">{categoryLabel(tool.category, locale)}</Badge>
-              </div>
-            </SheetHeader>
-
-            <div className="min-h-0 flex-1 space-y-8 overflow-y-auto p-5">
-              {lockReason && (
-                <div className="flex gap-2 rounded-md bg-warning/10 p-3 text-sm text-warning">
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                  <p>{lockReason}</p>
-                </div>
-              )}
-
-              <section className="space-y-4">
-                <h3 className="text-sm font-medium">{t("tools.params")}</h3>
-                {specs.length === 0 && providerSpecs.length === 0 && (
-                  <p className="text-sm text-muted-foreground">{t("tools.paramsNone")}</p>
-                )}
-                {specs.length > 0 && !params.canRead && (
-                  <p className="text-sm text-muted-foreground">{t("tools.paramsNoAccess")}</p>
-                )}
-                {specs.map((spec) =>
-                  params.canRead ? (
-                    <div key={spec.key} className="space-y-1.5">
-                      <SecretSpecField spec={spec} form={params} />
-                      <p className="text-xs text-muted-foreground">
-                        {t("tools.paramAskedBy", { names: askers(spec.key).join(", ") })}
-                      </p>
-                    </div>
-                  ) : (
-                    <div key={spec.key} className="space-y-1">
-                      <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
-                      <p className="text-xs text-muted-foreground">{secretSpecDescription(spec, locale) ?? t("tools.paramNoDescription")}</p>
-                    </div>
-                  ),
-                )}
-                {specs.length > 0 && params.canRead && pendingEnable && (
-                  <p className="text-xs text-muted-foreground">{t("tools.paramsBeforeTool")}</p>
-                )}
-                {providerSpecs.map((spec) => (
-                  <div key={spec.key} className="space-y-1">
-                    <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
-                    <Link href="?tab=settings" className="text-xs underline underline-offset-4">
-                      {t("tools.paramProviderCredential")}
-                    </Link>
-                  </div>
-                ))}
-              </section>
-
-              {siblings.length > 0 && namespace && (
-                <section className="space-y-3">
-                  <h3 className="flex items-baseline justify-between gap-2 text-sm font-medium">
-                    {t("tools.siblings", { plugin: pluginName(namespace) })}
-                    <span className="text-xs font-normal text-muted-foreground">{t("tools.siblingsHint")}</span>
-                  </h3>
-                  <ul className="divide-y rounded-md border">
-                    {siblings.map((sibling) => {
-                      const on = isEnabled(sibling.name);
-                      const id = `sibling-${sibling.name}`;
-                      return (
-                        <li key={sibling.name} className="flex items-center gap-3 px-3 py-1.5">
-                          <Switch
-                            id={id}
-                            checked={on}
-                            onCheckedChange={(checked) => (checked ? onEnable(sibling.name) : onDisable(sibling.name))}
-                          />
-                          <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-                            <span className="block truncate text-sm" title={capabilitySummary(sibling, locale)}>
-                              <span className="font-mono">{toolDisplayName(sibling.name)}</span>
-                              <span className="text-xs text-muted-foreground"> · {capabilitySummary(sibling, locale)}</span>
-                            </span>
-                          </label>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              )}
+    <ListDrawer
+      open={tool !== null}
+      onOpenChange={(open) => !open && requestClose()}
+      title={tool ? toolDisplayName(tool.name) : ""}
+      description={tool ? capabilitySummary(tool, locale) || tool.description : ""}
+      header={
+        tool && (
+          <div className="space-y-2">
+            <ToolDescription key={tool.name} summary={capabilitySummary(tool, locale)} description={tool.description} />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Badge variant="secondary">{namespace ? pluginName(namespace) : t("tools.originCore")}</Badge>
+              <Badge variant="secondary">{categoryLabel(tool.category, locale)}</Badge>
             </div>
+          </div>
+        )
+      }
+      // Disabling a tool is not a delete: it sits with the other actions, on the right.
+      actions={
+        tool &&
+        (alwaysEnabled ? (
+          <span className="text-sm text-muted-foreground">{t("tools.cannotDisable")}</span>
+        ) : (
+          <Button variant="outline" onClick={() => onDisable(tool.name)}>
+            <MinusCircle className="size-4" aria-hidden />
+            {t("tools.disable")}
+          </Button>
+        ))
+      }
+      primary={
+        // In the footer so it stays in view however long the parameter list is.
+        tool && specs.length > 0 && params.canRead ? (
+          <Button onClick={saveParams} disabled={!params.dirty || savingParams}>
+            {t("tools.paramsSave")}
+          </Button>
+        ) : undefined
+      }
+    >
+      {tool && (
+        <>
+              {lockReason && (
+            <div className="flex gap-2 rounded-md bg-warning/10 p-3 text-sm text-warning">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <p>{lockReason}</p>
+            </div>
+          )}
 
-            <SheetFooter className="flex-row justify-between border-t p-4">
-              {alwaysEnabled ? (
-                <span className="text-sm text-muted-foreground">{t("tools.cannotDisable")}</span>
+          <section className="space-y-4">
+            <h3 className="text-sm font-medium">{t("tools.params")}</h3>
+            {specs.length === 0 && providerSpecs.length === 0 && (
+              <p className="text-sm text-muted-foreground">{t("tools.paramsNone")}</p>
+            )}
+            {specs.length > 0 && !params.canRead && (
+              <p className="text-sm text-muted-foreground">{t("tools.paramsNoAccess")}</p>
+            )}
+            {specs.map((spec) =>
+              params.canRead ? (
+                <div key={spec.key} className="space-y-1.5">
+                  <SecretSpecField spec={spec} form={params} />
+                  <p className="text-xs text-muted-foreground">
+                    {t("tools.paramAskedBy", { names: askers(spec.key).join(", ") })}
+                  </p>
+                </div>
               ) : (
-                <Button variant="ghost" onClick={() => onDisable(tool.name)}>
-                  <MinusCircle className="size-4" aria-hidden />
-                  {t("tools.disable")}
-                </Button>
-              )}
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={requestClose}>
-                  {t("common.close")}
-                </Button>
-                {/* In the footer so it stays in view however long the parameter list is. */}
-                {specs.length > 0 && params.canRead && (
-                  <Button onClick={saveParams} disabled={!params.dirty || savingParams}>
-                    {t("tools.paramsSave")}
-                  </Button>
-                )}
+                <div key={spec.key} className="space-y-1">
+                  <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
+                  <p className="text-xs text-muted-foreground">{secretSpecDescription(spec, locale) ?? t("tools.paramNoDescription")}</p>
+                </div>
+              ),
+            )}
+            {specs.length > 0 && params.canRead && pendingEnable && (
+              <p className="text-xs text-muted-foreground">{t("tools.paramsBeforeTool")}</p>
+            )}
+            {providerSpecs.map((spec) => (
+              <div key={spec.key} className="space-y-1">
+                <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
+                <Link href="?tab=settings" className="text-xs underline underline-offset-4">
+                  {t("tools.paramProviderCredential")}
+                </Link>
               </div>
-            </SheetFooter>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
+            ))}
+          </section>
+
+          {siblings.length > 0 && namespace && (
+            <section className="space-y-3">
+              <h3 className="flex items-baseline justify-between gap-2 text-sm font-medium">
+                {t("tools.siblings", { plugin: pluginName(namespace) })}
+                <span className="text-xs font-normal text-muted-foreground">{t("tools.siblingsHint")}</span>
+              </h3>
+              <ul className="divide-y rounded-md border">
+                {siblings.map((sibling) => {
+                  const on = isEnabled(sibling.name);
+                  const id = `sibling-${sibling.name}`;
+                  return (
+                    <li key={sibling.name} className="flex items-center gap-3 px-3 py-1.5">
+                      <Switch
+                        id={id}
+                        checked={on}
+                        onCheckedChange={(checked) => (checked ? onEnable(sibling.name) : onDisable(sibling.name))}
+                      />
+                      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+                        <span className="block truncate text-sm" title={capabilitySummary(sibling, locale)}>
+                          <span className="font-mono">{toolDisplayName(sibling.name)}</span>
+                          <span className="text-xs text-muted-foreground"> · {capabilitySummary(sibling, locale)}</span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+        </>
+      )}
+    </ListDrawer>
 
     <UnsavedChangesDialog
       open={confirmDiscard}

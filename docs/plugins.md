@@ -53,11 +53,23 @@ export default defineTool({
     maxResults: z.number().nullable(),
   }),
   execute: async ({ query, maxResults }, ctx) => {
-    const key = ctx.secrets?.tavily_api_key;  // ctx: secrets, audit, state, apiKeys, instanceId…
+    const key = ctx.secrets?.tavily_api_key;  // ctx: secrets, audit, state, ai, abortSignal, instanceId…
     // … return a plain result …
   },
 });
 ```
+
+### Asking a model from a tool
+
+A tool that needs a short LLM answer calls `ctx.ai.chat({ system, messages, tier })`,
+as a hook does. The engine runs it through its AI gateway on the agent's provider
+and keys, as a service call of the turn: it is logged and priced like the turn's
+own calls, and `ctx.abortSignal` stops it once nobody waits for the result. The
+tool picks a tier (`fast`, `standard`, `heavy`) and the tier picks the model; the
+tool never names a provider or a model.
+`ctx.apiKeys` is still there for plugins that build their own client, and
+`ctx.ai` is absent on engines that predate it, so a plugin that supports older
+engines keeps a fallback.
 
 ### Text people read and text the model reads
 

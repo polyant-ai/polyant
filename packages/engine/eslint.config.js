@@ -30,6 +30,15 @@ export default tseslint.config(
       // "bundler"), lints, tests and builds — then throws ERR_MODULE_NOT_FOUND on
       // `node dist/index.js`. Nothing checked either direction before this rule.
       "polyant/relative-import-extension": ["error", { style: "js" }],
+      // One way to read a caught value's message: errMsg() in utils/error.ts.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "ConditionalExpression[test.type='BinaryExpression'][test.operator='instanceof'][test.right.name='Error'][consequent.property.name='message'][alternate.callee.name='String']",
+          message: "Use errMsg(err) from utils/error.ts instead of `err instanceof Error ? err.message : String(err)`.",
+        },
+      ],
     },
   },
   {

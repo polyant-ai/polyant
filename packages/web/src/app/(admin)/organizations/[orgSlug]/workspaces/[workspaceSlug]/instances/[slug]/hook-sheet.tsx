@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,15 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { getUserErrorMessage, type HookEvent, type HookFunctionInfo, type InstanceHook, type RequiredSecretSpec } from "@/lib/api";
+import { ListDrawer, DrawerDeleteButton } from "@/components/list-drawer";
 import { useI18n } from "@/lib/i18n/context";
 import { SecretSpecField, secretSpecDescription, secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
 import { hookSummary } from "./tools-tab-helpers";
@@ -223,54 +216,43 @@ export function HookSheet({ hook, fn, specs, params, onSaveSettings, onDelete, o
 
   return (
     <>
-      <Sheet open={hook !== null} onOpenChange={(open) => !open && requestClose()}>
-        <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
-          {hook && settings && (
-            <>
-              <SheetHeader className="gap-2 border-b p-5 pr-12">
-                <SheetTitle className={named ? "font-mono text-base font-medium" : "text-base font-medium"}>
-                  {named ? fnName : t("hooks.unknownAction")}
-                </SheetTitle>
-                <SheetDescription>{(fn && hookSummary(fn, locale)) || t("hooks.dialogDescription")}</SheetDescription>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Badge variant="secondary">{t(`hooks.events.${hook.event}`)}</Badge>
-                  {named && !fn && <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>}
-                </div>
-              </SheetHeader>
+      <ListDrawer
+        open={hook !== null}
+        onOpenChange={(open) => !open && requestClose()}
+        title={named ? fnName : t("hooks.unknownAction")}
+        description={(fn && hookSummary(fn, locale)) || t("hooks.dialogDescription")}
+        header={
+          hook && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Badge variant="secondary">{t(`hooks.events.${hook.event}`)}</Badge>
+              {named && !fn && <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>}
+            </div>
+          )
+        }
+        destructive={hook && <DrawerDeleteButton onClick={() => onDelete(hook)} />}
+        primary={
+          <Button onClick={save} disabled={!dirty || saving}>
+            {saving ? t("common.saving") : t("common.save")}
+          </Button>
+        }
+      >
+        {hook && settings && (
+          <>
+            {fn?.mutatesResponse && <StreamingWarning />}
 
-              <div className="flex-1 space-y-8 overflow-y-auto p-5">
-                {fn?.mutatesResponse && <StreamingWarning />}
+            <section className="space-y-4">
+              <h3 className="text-sm font-medium">{t("hooks.settings")}</h3>
+              <HookEventField value={settings} onChange={setSettings} />
+              <HookRunFields value={settings} onChange={setSettings} />
+            </section>
 
-                <section className="space-y-4">
-                  <h3 className="text-sm font-medium">{t("hooks.settings")}</h3>
-                  <HookEventField value={settings} onChange={setSettings} />
-                  <HookRunFields value={settings} onChange={setSettings} />
-                </section>
-
-                <section className="space-y-4">
-                  <h3 className="text-sm font-medium">{t("hooks.params")}</h3>
-                  <HookParamFields specs={specs} params={params} />
-                </section>
-              </div>
-
-              <SheetFooter className="flex-row justify-between border-t p-4">
-                <Button variant="ghost" className="text-destructive" onClick={() => onDelete(hook)}>
-                  <Trash2 className="size-4" aria-hidden />
-                  {t("common.delete")}
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={requestClose}>
-                    {t("common.close")}
-                  </Button>
-                  <Button onClick={save} disabled={!dirty || saving}>
-                    {saving ? t("common.saving") : t("common.save")}
-                  </Button>
-                </div>
-              </SheetFooter>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
+            <section className="space-y-4">
+              <h3 className="text-sm font-medium">{t("hooks.params")}</h3>
+              <HookParamFields specs={specs} params={params} />
+            </section>
+          </>
+        )}
+      </ListDrawer>
 
       <UnsavedChangesDialog open={confirmDiscard} onOpenChange={setConfirmDiscard} onDiscard={discard} />
     </>

@@ -6,8 +6,9 @@
  * DebugSheet
  *
  * Right-side panel that shows, for a single assistant turn, everything exchanged
- * with the AI API: the exact LLM request payload (full system prompt, the messages
- * array sent, and the tool definitions) plus the per-step tool I/O timeline.
+ * with the AI API, one tab per part: usage, the system prompt, the tool
+ * definitions, the history (the messages array sent), the per-step tool I/O
+ * timeline, and the conversation state the model read.
  *
  * The heavy payload is fetched on-demand (on open) via the per-message debug
  * endpoint, so the message list stays light. The payload is only present when the
@@ -18,12 +19,14 @@
  * conversationId + the DB message id + the instance slug.
  */
 
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import type { TranslationKey } from "@/lib/i18n/types";
 import { api } from "@/lib/api";
-import type { MessageDebug, CostBreakdown, MessageLatency } from "@/lib/api";
+import type { CostBreakdown, MessageDebug, MessageLatency, TurnModelCall } from "@/lib/api";
 import { Check, Copy, Cpu } from "lucide-react";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useResource } from "@/hooks/use-resource";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -32,13 +35,10 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
 import { MessageExtras } from "./message-extras";
+import { JsonTree } from "./json-tree";
+import { extractTurnState } from "./turn-state";
+import { ChipTabs, type ChipTab } from "@/components/layout/chip-tabs";
 import { useFormat } from "@/lib/use-format";
 
 export interface DebugSheetTarget {
@@ -65,31 +65,11 @@ export interface DebugSheetProps {
   target: DebugSheetTarget | null;
 }
 
-function JsonBlock({ value }: { value: unknown }) {
-  let text: string;
-  try {
-    text = JSON.stringify(value, null, 2);
-  } catch {
-    text = String(value);
-  }
-  return (
-    <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted/30 p-3 text-[11px] leading-relaxed">
-      {text}
-    </pre>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-/** Model + token/cost breakdown for the turn. Rendered from the target metadata. */
-function UsageSection({ target }: { target: DebugSheetTarget }) {
+/**
+ * Model + token/cost breakdown for the turn, from the target metadata, then how
+ * the turn arrived and the model calls it made, from the loaded debug data.
+ */
+function UsageSection({ target, debug }: { target: DebugSheetTarget; debug: MessageDebug | null }) {
   const { t } = useI18n();
   const fmt = useFormat();
   const prompt = target.promptTokens ?? 0;
@@ -99,9 +79,11 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
   const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
   const cost = target.cost;
 
-  if (!target.model && prompt === 0 && completion === 0) return null;
+  if (!target.model && prompt === 0 && completion === 0 && !debug?.turn && !debug?.modelCalls?.length) {
+    return <p className="text-sm text-muted-foreground">—</p>;
+  }
 
-  const fmtCost = (usd: number | undefined) => (usd != null ? `$${usd.toFixed(4)}` : "—");
+  const fmtCost = (usd: number | undefined) => (usd != null ? fmt.currency(usd) : "—");
   const rows: Array<{ label: string; tokens: number; cost: number | undefined }> = [
     { label: t("conversations.detail.pills.input"), tokens: regularInput, cost: cost?.input },
     ...(cacheRead > 0
@@ -114,19 +96,19 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
   ];
 
   return (
-    <Section title={t("message.debug.usage")}>
+    <div className="flex flex-col gap-2">
       {target.model && (
         <div className="flex items-center gap-2 text-sm">
           <Cpu className="h-4 w-4 text-muted-foreground" />
           <span className="font-mono">{target.model}</span>
           {target.provider && (
-            <span className="rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            <span className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground">
               {target.provider}
             </span>
           )}
         </div>
       )}
-      <table className="w-full text-xs tabular-nums">
+      <table className="w-full text-sm tabular-nums">
         <thead>
           <tr className="text-muted-foreground">
             <th className="py-1 text-left font-normal"></th>
@@ -149,8 +131,9 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
           </tr>
         </tbody>
       </table>
-      <DiagnosticsList target={target} />
-    </Section>
+      <DiagnosticsList target={target} turn={debug?.turn ?? null} />
+      {debug?.modelCalls && debug.modelCalls.length > 0 && <ModelCalls calls={debug.modelCalls} />}
+    </div>
   );
 }
 
@@ -158,8 +141,8 @@ function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
 }
 
-/** Latency breakdown + sampling knobs for the turn. */
-function DiagnosticsList({ target }: { target: DebugSheetTarget }) {
+/** Latency breakdown, sampling knobs, and how the turn arrived (channel, streaming, voice). */
+function DiagnosticsList({ target, turn }: { target: DebugSheetTarget; turn: MessageDebug["turn"] }) {
   const { t } = useI18n();
   const lat = target.latency;
   const rows: Array<{ label: string; value: string }> = [];
@@ -179,10 +162,25 @@ function DiagnosticsList({ target }: { target: DebugSheetTarget }) {
     });
   }
 
+  if (turn) {
+    rows.push({ label: t("message.debug.channel"), value: turn.channel });
+    rows.push({
+      label: t("message.debug.streaming"),
+      value: turn.streaming ? t("message.debug.thinkingOn") : t("message.debug.thinkingOff"),
+    });
+    // Only a voice turn was transcribed.
+    const stt = turn.speechToText;
+    if (stt) {
+      rows.push({ label: t("message.debug.sttProvider"), value: stt.provider });
+      if (stt.audioDurationSec != null) rows.push({ label: t("message.debug.audioDuration"), value: formatMs(stt.audioDurationSec * 1000) });
+      if (stt.durationMs != null) rows.push({ label: t("message.debug.sttDuration"), value: formatMs(stt.durationMs) });
+    }
+  }
+
   if (rows.length === 0) return null;
 
   return (
-    <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+    <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
       {rows.map((r) => (
         <div key={r.label} className="flex justify-between border-t py-1.5">
           <dt className="text-muted-foreground">{r.label}</dt>
@@ -193,191 +191,251 @@ function DiagnosticsList({ target }: { target: DebugSheetTarget }) {
   );
 }
 
-/**
- * The turn as one object, in the shape the sheet displays it.
- *
- * Built from `data`, never from the DOM: what is on screen is an accordion of
- * tool definitions and a step timeline, and selecting across that by hand is
- * the reason this button exists. `tools` is narrowed to the three fields the
- * sheet shows, so the export says the same thing the panel does.
- *
- * Returns null when there is nothing to hand over — no captured payload and no
- * steps — which is what disables the button rather than copying `{}`.
- */
-function turnExport(data: MessageDebug | null): Record<string, unknown> | null {
-  if (!data) return null;
-  const payload = data.debugPayload ?? null;
-  const steps = data.steps ?? [];
-  if (!payload && steps.length === 0) return null;
-  return {
-    // DEBUG was off at generation time: the three payload fields are absent
-    // rather than empty, so a reader cannot mistake "not captured" for "empty".
-    ...(payload
-      ? {
-          system: payload.system,
-          messages: payload.messages,
-          tools: payload.tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-          })),
-        }
-      : {}),
-    steps,
-  };
+const CALL_TYPE_KEY: Record<string, TranslationKey> = {
+  conversation: "message.debug.callConversation",
+  service: "message.debug.callService",
+  embedding: "message.debug.callEmbedding",
+};
+const OUTCOME: Record<string, { emoji: string; key: TranslationKey }> = {
+  ok: { emoji: "✅", key: "message.debug.outcomeOk" },
+  error: { emoji: "❌", key: "message.debug.outcomeError" },
+  aborted: { emoji: "⏹️", key: "message.debug.outcomeAborted" },
+};
+
+/** Date and time of a call to the millisecond: calls of one turn can share the second. */
+function callTime(iso: string | null, locale: string): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+  });
 }
 
-/** Copies the whole turn as JSON, and says so for a moment afterwards. */
-function CopyTurnButton({ data }: { data: MessageDebug | null }) {
+/**
+ * Every model call of the turn, in order: the answer and the service calls
+ * around it (titles, memory, summaries), with the failure class of one that
+ * did not return.
+ */
+function ModelCalls({ calls }: { calls: TurnModelCall[] }) {
+  const { t, locale } = useI18n();
+  const fmt = useFormat();
+  return (
+    <div className="mt-3 flex flex-col gap-1">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("message.debug.modelCalls")}</h3>
+      <table className="w-full text-sm tabular-nums">
+        <thead>
+          <tr className="text-muted-foreground">
+            <th className="py-1 text-left font-normal">{t("message.debug.callTime")}</th>
+            <th className="py-1 text-left font-normal">{t("message.debug.callType")}</th>
+            <th className="w-px py-1 text-left font-normal">{t("message.debug.callModel")}</th>
+            <th className="py-1 text-right font-normal">{t("message.debug.callDuration")}</th>
+            <th className="py-1 text-right font-normal">{t("message.debug.usageToken")}</th>
+            <th className="py-1 text-right font-normal">{t("message.debug.usageCost")}</th>
+            <th className="py-1 text-right font-normal">{t("message.debug.callOutcome")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {calls.map((call, i) => (
+            <tr key={i} className="border-t align-top">
+              <td className="whitespace-nowrap py-1.5 pr-3 text-muted-foreground">
+                {callTime(call.createdAt, locale)}
+              </td>
+              <td className="py-1.5">{CALL_TYPE_KEY[call.callType] ? t(CALL_TYPE_KEY[call.callType]) : call.callType}</td>
+              <td className="whitespace-nowrap py-1.5">
+                <span className="font-mono">{call.model}</span>
+                <span className="block text-xs text-muted-foreground">{call.provider}</span>
+              </td>
+              <td className="py-1.5 text-right">{formatMs(call.durationMs)}</td>
+              <td className="py-1.5 text-right">
+                {fmt.number(call.promptTokens)} / {fmt.number(call.completionTokens)}
+              </td>
+              <td className="py-1.5 text-right">{fmt.currency(call.costUsd)}</td>
+              <td className="py-1.5 text-right">
+                {OUTCOME[call.outcome] ? (
+                  <span
+                    role="img"
+                    title={t(OUTCOME[call.outcome].key)}
+                    aria-label={t(OUTCOME[call.outcome].key)}
+                    className="saturate-50"
+                  >
+                    {OUTCOME[call.outcome].emoji}
+                  </span>
+                ) : (
+                  call.outcome
+                )}
+                {call.errorKind && <span className="block text-xs text-destructive">{call.errorKind}</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Copies the open tab's content, and says so for a moment afterwards. Disabled
+ * while there is nothing to copy: the turn is loading or its payload was not
+ * captured.
+ */
+function CopyTabButton({ text }: { text: string | undefined }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const exportable = turnExport(data);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const handleCopy = async () => {
-    if (!exportable) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(exportable, null, 2));
-      setCopied(true);
-    } catch {
-      // A denied clipboard permission or an insecure origin: the failure is
-      // silent otherwise, and the user would be left believing they copied.
-      toast.error(t("message.debug.copyFailed"));
-    }
-  };
-
+  const { copy, copied } = useCopyToClipboard(2000, t("message.debug.copyFailed"));
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
       className="gap-1.5"
-      disabled={!exportable}
-      title={exportable ? undefined : t("message.debug.copyEmpty")}
-      onClick={handleCopy}
+      disabled={text === undefined}
+      onClick={() => text !== undefined && void copy(text)}
     >
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? t("message.debug.copied") : t("message.debug.copyAll")}
+      {copied ? t("message.debug.copied") : t("common.copy")}
     </Button>
   );
 }
 
-export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
+/**
+ * The sheet's content, mounted only while the sheet is open (the Radix content
+ * unmounts on close), so each opening loads the turn afresh and none shows the
+ * previous one's data while it does.
+ */
+function DebugSheetBody({ target }: { target: DebugSheetTarget }) {
   const { t } = useI18n();
-  const [data, setData] = useState<MessageDebug | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
+  const { data = null, error, loading } = useResource(
+    [target.conversationId, target.messageId, target.instanceId],
+    () => api.conversations.messageDebug(target.conversationId, target.messageId, target.instanceId),
+  );
 
-  useEffect(() => {
-    if (!open || !target) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(false);
-    setData(null);
-    api.conversations
-      .messageDebug(target.conversationId, target.messageId, target.instanceId)
-      .then((res) => {
-        if (!cancelled) setData(res);
-      })
-      .catch(() => {
-        if (!cancelled) setError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, target]);
-
+  const [tab, setTab] = useState("usage");
   const payload = data?.debugPayload ?? null;
+  const steps = data?.steps ?? [];
+  const turnState = payload ? extractTurnState(payload.messages) : null;
+
+  // The tabs that hold what the model read can be copied: the system prompt
+  // as its text, the messages and the conversation state as raw JSON.
+  const copies: Record<string, string | undefined> = {
+    prompt: payload?.system || undefined,
+    messages: payload ? JSON.stringify(payload.messages, null, 2) : undefined,
+    context: turnState ? JSON.stringify(turnState, null, 2) : undefined,
+  };
+  const copyable = tab in copies;
+
+  // The payload tabs wait for the fetch and say why they are empty; Usage is
+  // drawn from the message list and is there from the first frame.
+  const pending =
+    loading ? (
+      <p className="text-sm text-muted-foreground">{t("message.debug.loading")}</p>
+    ) : error !== undefined || !data ? (
+      <p className="text-sm text-destructive">{t("message.debug.error")}</p>
+    ) : null;
+  const noPayload = (
+    <p className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+      {t("message.debug.noPayload")}
+    </p>
+  );
+  const none = <p className="text-sm text-muted-foreground">—</p>;
+
+  const tabs: ChipTab[] = [
+    {
+      value: "usage",
+      label: t("message.debug.usage"),
+      children: <UsageSection target={target} debug={data} />,
+    },
+    {
+      value: "prompt",
+      label: t("message.debug.prompt"),
+      children:
+        pending ??
+        (payload ? (
+          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 text-[13px] leading-relaxed">
+            {payload.system || "—"}
+          </pre>
+        ) : (
+          noPayload
+        )),
+    },
+    {
+      value: "tools",
+      label: t("message.debug.tools"),
+      count: payload?.tools.length,
+      children:
+        pending ??
+        (!payload ? (
+          noPayload
+        ) : payload.tools.length === 0 ? (
+          none
+        ) : (
+          <ul className="divide-y">
+            {payload.tools.map((tool) => (
+              <li key={tool.name} className="py-2.5 first:pt-0">
+                <span className="font-mono text-sm">{tool.name}</span>
+                {tool.description && (
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{tool.description}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )),
+    },
+    {
+      value: "messages",
+      label: t("message.debug.messages"),
+      count: payload?.messages.length,
+      children: pending ?? (payload ? <JsonTree value={payload.messages} /> : noPayload),
+    },
+    {
+      value: "steps",
+      label: t("message.debug.steps"),
+      count: data ? steps.length : undefined,
+      children: pending ?? (steps.length > 0 ? <MessageExtras steps={steps} /> : none),
+    },
+    {
+      value: "context",
+      label: t("message.debug.context"),
+      children:
+        pending ??
+        (!payload ? noPayload : turnState ? <JsonTree value={turnState} /> : (
+          <p className="text-sm text-muted-foreground">{t("message.debug.noContext")}</p>
+        )),
+    },
+  ];
 
   return (
+    <>
+      <SheetHeader className="pr-12">
+        <SheetTitle>{t("message.debug.title")}</SheetTitle>
+        {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
+        <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
+      </SheetHeader>
+
+      {/* The tab row and its copy action stay put; only the open tab's body
+          scrolls, so the action is in reach however long the content is. */}
+      <ChipTabs
+        tabs={tabs}
+        value={tab}
+        onValueChange={setTab}
+        ariaLabel={t("message.debug.title")}
+        className="min-h-0 flex-1 gap-4 px-4"
+        listClassName="flex-wrap"
+        contentClassName="-mx-4 min-h-0 flex-1 overflow-y-auto px-4 pb-8"
+        actions={copyable ? <CopyTabButton key={tab} text={copies[tab]} /> : undefined}
+      />
+    </>
+  );
+}
+
+export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
+  return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
-        <SheetHeader>
-          {/* The copy action sits in the header, beside the title: the thing it
-              copies is several screens tall, so an action at the bottom would be
-              reachable only after the scrolling it exists to spare. */}
-          <div className="flex items-center justify-between gap-2 pr-8">
-            <SheetTitle>{t("message.debug.title")}</SheetTitle>
-            <CopyTurnButton data={data} />
-          </div>
-          {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
-          <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
-        </SheetHeader>
-
-        <div className="flex flex-col gap-5 px-4 pb-8">
-          {target && <UsageSection target={target} />}
-          {loading && <p className="text-sm text-muted-foreground">{t("message.debug.loading")}</p>}
-          {error && <p className="text-sm text-destructive">{t("message.debug.error")}</p>}
-
-          {!loading && !error && data && (
-            <>
-              {payload ? (
-                <>
-                  <Section title={t("message.debug.systemPrompt")}>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 text-[11px] leading-relaxed">
-                      {payload.system || "—"}
-                    </pre>
-                  </Section>
-
-                  <Section title={t("message.debug.messages")}>
-                    <JsonBlock value={payload.messages} />
-                  </Section>
-
-                  <Section title={t("message.debug.tools")}>
-                    {payload.tools.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">—</p>
-                    ) : (
-                      <Accordion type="multiple" className="flex flex-col gap-2">
-                        {payload.tools.map((tool) => (
-                          <AccordionItem
-                            key={tool.name}
-                            value={tool.name}
-                            className="rounded-md border bg-background/50 last:border-b"
-                          >
-                            <AccordionTrigger className="px-2 py-2 font-mono text-xs font-semibold">
-                              {tool.name}
-                            </AccordionTrigger>
-                            <AccordionContent className="px-2">
-                              {tool.description && (
-                                <p className="text-[11px] text-muted-foreground">{tool.description}</p>
-                              )}
-                              {tool.parameters != null && (
-                                <div className="mt-2">
-                                  <div className="mb-1 text-[11px] text-muted-foreground">
-                                    {t("message.debug.toolParams")}
-                                  </div>
-                                  <JsonBlock value={tool.parameters} />
-                                </div>
-                              )}
-                            </AccordionContent>
-                          </AccordionItem>
-                        ))}
-                      </Accordion>
-                    )}
-                  </Section>
-                </>
-              ) : (
-                <p className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-                  {t("message.debug.noPayload")}
-                </p>
-              )}
-
-              {data.steps && data.steps.length > 0 && (
-                <Section title={t("message.debug.steps")}>
-                  <MessageExtras steps={data.steps} />
-                </Section>
-              )}
-            </>
-          )}
-        </div>
+      <SheetContent side="right" className="gap-0 overflow-hidden">
+        {target && <DebugSheetBody target={target} />}
       </SheetContent>
     </Sheet>
   );

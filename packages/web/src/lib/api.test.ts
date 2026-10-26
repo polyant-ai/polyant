@@ -134,7 +134,20 @@ describe("request() — workspace scoping", () => {
 
     await api.me.get();
 
-    expect(headerFrom(fetchFn)).toBeUndefined();
+    // Empty, which the engine reads as absent.
+    expect(headerFrom(fetchFn)).toBeFalsy();
+  });
+
+  it("asks for the caller's tenancy without naming the tenant in the address", async () => {
+    // A mistyped workspace in the URL used to make the engine answer 403 here, which
+    // the panel showed as "you belong to no organization" instead of a 404.
+    at("/organizations/acme/workspaces/typo/instances");
+    const fetchFn = mockFetch(mockResponse({ organizations: [] }));
+
+    await api.me.get();
+
+    const headers = fetchFn.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["X-Workspace-Slug"]).toBe("");
   });
 
   it("decodes the segment — the header carries the raw slug", async () => {
@@ -362,5 +375,35 @@ describe("api.members", () => {
     await api.members.assign("u/2", "member", "acme corp");
 
     expect(sentUrl(fetchFn).pathname).toBe("/api/organizations/acme%20corp/members/u%2F2");
+  });
+});
+
+// The room backlog and activity routes validate `limit` as 1..200 and answer 400
+// for 0, so a zero limit is left out of the query like an absent one. Offset 0 is valid.
+describe("room list queries", () => {
+  async function urlOf(call: () => Promise<unknown>): Promise<string> {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await call();
+      return String(fetchMock.mock.calls[0][0]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  it("leaves a zero limit out of the backlog query and keeps a zero offset", async () => {
+    expect(await urlOf(() => api.room.backlog("acme", { limit: 0, offset: 0 }))).toBe(
+      "/api/instances/acme/room/backlog?offset=0",
+    );
+    expect(await urlOf(() => api.room.backlog("acme", { limit: 20 }))).toBe(
+      "/api/instances/acme/room/backlog?limit=20",
+    );
+  });
+
+  it("leaves a zero limit out of the activity query", async () => {
+    expect(await urlOf(() => api.room.activity("acme", { logType: "daily", limit: 0 }))).toBe(
+      "/api/instances/acme/room/activity?logType=daily",
+    );
   });
 });

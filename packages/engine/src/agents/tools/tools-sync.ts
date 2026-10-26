@@ -6,6 +6,9 @@ import { db } from "../../database/client.js";
 import { tools } from "./tools.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { skillTools } from "../../skills/schema.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Set of tool names that are considered "global" — always available to every
@@ -122,8 +125,9 @@ export async function syncToolsToDb(): Promise<void> {
     const enabled = new Set(enabledToolIds);
     const droppedEnablements = pruned.filter((r) => enabled.has(r.id)).map((r) => r.name);
     if (droppedEnablements.length > 0) {
-      console.warn(
-        `[tools] Removed tools that agents had enabled, because no loaded tool or plugin ` +
+      log.warn(
+        "tools",
+        `Removed tools that agents had enabled, because no loaded tool or plugin ` +
           `provides them any more: ${droppedEnablements.join(", ")}. Those agents no longer ` +
           `have them; re-enable a replacement from each agent's Tools tab.`,
       );

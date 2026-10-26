@@ -1,32 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+import { contactConversationId } from "../channels/outbound-conversation.js";
+import { TtlCache } from "../utils/ttl-cache.js";
 
-interface TriggerEntry {
-  conversationId: string;
-  expiresAt: number;
-}
+const TRIGGER_TTL_MS = 24 * 60 * 60 * 1000;
 
-const triggers = new Map<string, TriggerEntry>();
-
-function buildKey(instanceId: string, channelType: string, channelId: string): string {
-  return `${instanceId}:${channelType}:${channelId}`;
-}
+// A contact who never replies leaves an entry nobody reads again; the cache's
+// own sweep and size bound are what remove it.
+const triggers = new TtlCache<string, string>({ maxSize: 10_000, ttlMs: TRIGGER_TTL_MS });
 
 export function registerTrigger(
   instanceId: string,
   channelType: string,
   channelId: string,
   conversationId: string,
-  ttlMs: number = DEFAULT_TTL_MS,
 ): void {
-  // Entries for contacts who never reply are never read again, so expired ones are swept on write.
-  clearExpiredTriggers();
-  const key = buildKey(instanceId, channelType, channelId);
-  triggers.set(key, {
-    conversationId,
-    expiresAt: Date.now() + ttlMs,
-  });
+  triggers.set(contactConversationId(instanceId, channelType, channelId), conversationId);
 }
 
 export function getActiveTrigger(
@@ -34,31 +23,5 @@ export function getActiveTrigger(
   channelType: string,
   channelId: string,
 ): string | null {
-  const key = buildKey(instanceId, channelType, channelId);
-  const entry = triggers.get(key);
-
-  if (!entry) {
-    return null;
-  }
-
-  if (Date.now() >= entry.expiresAt) {
-    triggers.delete(key);
-    return null;
-  }
-
-  return entry.conversationId;
-}
-
-export function clearExpiredTriggers(): void {
-  const now = Date.now();
-  for (const [key, entry] of triggers) {
-    if (now >= entry.expiresAt) {
-      triggers.delete(key);
-    }
-  }
-}
-
-/** Number of stored triggers, expired or not. Exposed for tests. */
-export function activeTriggerCount(): number {
-  return triggers.size;
+  return triggers.get(contactConversationId(instanceId, channelType, channelId)) ?? null;
 }

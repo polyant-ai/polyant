@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatRelativeTime, truncate } from "./format";
+import { formatCurrency, formatCurrencyTick, formatRelativeTime, formatUsd, lastDays, toIsoDay, truncate } from "./format";
 
 // Simple translation mock
 const t = (key: string, params?: Record<string, string | number>) => {
@@ -26,35 +26,35 @@ describe("formatRelativeTime", () => {
   });
 
   it("returns em dash for null date", () => {
-    expect(formatRelativeTime(null, t as never)).toBe("\u2014");
+    expect(formatRelativeTime(null, t as never, "en")).toBe("\u2014");
   });
 
   it("returns 'just now' for dates less than a minute ago", () => {
     const date = new Date("2024-06-15T11:59:30Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toBe("instances.time.justNow");
+    expect(formatRelativeTime(date, t as never, "en")).toBe("instances.time.justNow");
   });
 
   it("returns minutes ago for dates within the last hour", () => {
     const date = new Date("2024-06-15T11:45:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.minutesAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=15");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.minutesAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=15");
   });
 
   it("returns hours ago for dates within the last day", () => {
     const date = new Date("2024-06-15T06:00:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.hoursAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=6");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.hoursAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=6");
   });
 
   it("returns days ago for dates within the last month", () => {
     const date = new Date("2024-06-10T12:00:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.daysAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=5");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.daysAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=5");
   });
 
   it("returns locale date string for dates older than 30 days", () => {
     const date = new Date("2024-01-01T12:00:00Z").toISOString();
-    const result = formatRelativeTime(date, t as never);
+    const result = formatRelativeTime(date, t as never, "en");
     // Should be a date string, not a translation key
     expect(result).not.toContain("instances.time");
   });
@@ -75,5 +75,51 @@ describe("truncate", () => {
 
   it("handles empty string", () => {
     expect(truncate("", 10)).toBe("");
+  });
+});
+
+describe("toIsoDay and lastDays", () => {
+  it("formats a calendar day as YYYY-MM-DD", () => {
+    expect(toIsoDay(new Date(2026, 6, 4))).toBe("2026-07-04");
+  });
+
+  it("spans from N days back to today, both inclusive", () => {
+    expect(lastDays(30, new Date(2026, 6, 31))).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+  });
+});
+
+describe("formatUsd", () => {
+  it("keeps four decimals so a sub-cent cost is not rounded away", () => {
+    expect(formatUsd(0.01234, "en")).toBe("$0.0123");
+    expect(formatUsd(0, "en")).toBe("$0.0000");
+  });
+
+  it("writes the amount in the UI's locale", () => {
+    expect(formatUsd(12345.5, "it")).toBe("$12.345,5000");
+  });
+});
+
+describe("formatCurrency", () => {
+  it("puts the minus sign before the currency symbol", () => {
+    expect(formatCurrency(-1.5, "en-US")).toBe("-$1.50");
+  });
+
+  it("keeps four digits for sub-unit amounts and the locale separators", () => {
+    expect(formatCurrency(0.0125, "en-US")).toBe("$0.0125");
+    expect(formatCurrency(12345.5, "it")).toBe("$12.345,50");
+  });
+});
+
+describe("formatCurrencyTick", () => {
+  it("never prints a tiny axis value in exponent form", () => {
+    // Catches "$5.5e-8" on the cost axis when a day costs a fraction of a cent.
+    expect(formatCurrencyTick(5.5e-8, "en-US")).toBe("$0.000000055");
+    expect(formatCurrencyTick(5.5e-8, "it")).toBe("$0,000000055");
+  });
+
+  it("uses the locale separators and no trailing zeros", () => {
+    expect(formatCurrencyTick(0.002, "it")).toBe("$0,002");
+    expect(formatCurrencyTick(1.5, "it")).toBe("$1,5");
+    expect(formatCurrencyTick(0, "en-US")).toBe("$0");
   });
 });

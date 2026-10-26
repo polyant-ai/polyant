@@ -5,11 +5,15 @@ import { toWhatsAppText } from "./whatsapp-format.js";
 import { renderTemplateBody } from "./render-template.js";
 import type { ChannelAdapter, Attachment, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
 import { contactChannelId } from "../../outbound-conversation.js";
-import { transcribeAudio } from "../../audio-transcription.js";
+import { transcribeInbound } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
 import { resolveTwilioCredentials, type WhatsAppConfig } from "./resolve-credentials.js";
+import { contactConversationId } from "../../outbound-conversation.js";
+import { createLogger } from "../../../utils/create-logger.js";
+import { errMsg } from "../../../utils/error.js";
+
+const log = createLogger();
 
 export type { WhatsAppConfig };
 
@@ -29,7 +33,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       this.cfg.whatsappNumber,
     );
     this.onMessage = onMessage;
-    console.log(`WhatsApp (Twilio) adapter initialized for instance "${sanitizeForLog(this.instanceSlug)}"`);
+    log.info("whatsapp", `Twilio adapter initialized for instance "${this.instanceSlug}"`);
   }
 
   /** Called by the webhook controller when an inbound message arrives. */
@@ -50,7 +54,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     // Download media attachments from Twilio, split audio vs non-audio
     let attachments: Attachment[] | undefined;
     let body = params.body;
-    const audioMetadataExtras: Record<string, unknown> = {};
+    let audioMetadata: Record<string, unknown> | undefined;
 
     if (params.media?.length) {
       const downloaded = await Promise.all(
@@ -61,27 +65,19 @@ export class WhatsAppAdapter implements ChannelAdapter {
       const audios = valid.filter((a) => (a.mimeType ?? "").startsWith("audio/"));
       const nonAudios = valid.filter((a) => !(a.mimeType ?? "").startsWith("audio/"));
 
-      const transcripts: string[] = [];
-      for (const a of audios) {
-        if (!a.data) continue;
-        const result = await transcribeAudio({
-          audio: a.data,
-          mimeType: a.mimeType ?? "audio/ogg",
+      if (audios.length > 0) {
+        const transcribed = await transcribeInbound({
           instanceSlug: this.instanceSlug,
-          conversationId: `${params.instanceId}:whatsapp:${params.from}`,
+          conversationId: contactConversationId(params.instanceId, "whatsapp", params.from),
+          text: body,
+          clips: audios.flatMap((a) => (a.data ? [{ audio: a.data, mimeType: a.mimeType ?? "audio/ogg" }] : [])),
         });
-        if (!result.ok) {
-          await this.sendMessage(params.from, { text: result.userReply });
-          return result.userReply;
+        if (!transcribed.ok) {
+          await this.sendMessage(params.from, { text: transcribed.reply });
+          return transcribed.reply;
         }
-        transcripts.push(result.text);
-        Object.assign(audioMetadataExtras, {
-          audio: { ...result.metadata, latencyMs: result.latencyMs },
-        });
-      }
-
-      if (transcripts.length > 0) {
-        body = body ? [body, ...transcripts].join("\n") : transcripts.join("\n");
+        body = transcribed.text;
+        audioMetadata = transcribed.metadata;
       }
       if (nonAudios.length > 0) attachments = nonAudios;
     }
@@ -95,9 +91,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       attachments,
       metadata: {
         messageSid: params.messageSid,
-        ...(Object.keys(audioMetadataExtras).length > 0
-          ? { originalKind: "audio", ...audioMetadataExtras }
-          : {}),
+        ...audioMetadata,
       },
     });
 
@@ -129,7 +123,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       }
       return { type: isImage ? "image" : "file", data, mimeType: contentType, fileName };
     } catch (err) {
-      console.error("[whatsapp] Media download failed (%s):", url, err);
+      log.error("whatsapp", `Media download failed (${url})`, err);
       return null;
     }
   }
@@ -141,7 +135,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       body = toWhatsAppText(msg.text);
     } catch (err) {
       // Formatting failed — fall back to the raw text so the message is never lost
-      console.warn(`[whatsapp] Markdown conversion failed, sending raw text:`, err);
+      log.warn("whatsapp", `Markdown conversion failed, sending raw text: ${errMsg(err)}`);
     }
     const mediaUrl = Array.isArray(msg.mediaUrl)
       ? msg.mediaUrl
@@ -185,7 +179,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     try {
       await this.client.sendTypingIndicator(messageSid);
     } catch (err) {
-      console.error("[whatsapp] Typing indicator failed for %s:", messageSid, err);
+      log.error("whatsapp", `Typing indicator failed for ${messageSid}`, err);
     }
   }
 
@@ -212,12 +206,9 @@ export class WhatsAppAdapter implements ChannelAdapter {
       // credential material — only the error message.
       const isWrongModeError = err instanceof Error && /auth token/i.test(err.message);
       if (isWrongModeError) {
-        console.warn("[whatsapp] Signature validation skipped: %s", err.message);
+        log.warn("whatsapp", `Signature validation skipped: ${err.message}`);
       } else {
-        console.error(
-          "[whatsapp] Signature validation threw unexpectedly:",
-          err instanceof Error ? err.message : String(err),
-        );
+        log.error("whatsapp", "Signature validation threw unexpectedly", err);
       }
       return false;
     }

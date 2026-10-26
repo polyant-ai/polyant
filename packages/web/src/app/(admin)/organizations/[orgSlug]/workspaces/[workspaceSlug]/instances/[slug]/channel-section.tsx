@@ -6,7 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { ChannelEnabledToggle } from "./channel-enabled-toggle";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChannelDef, ChannelState } from "./channels-tab";
 
@@ -66,45 +66,11 @@ export function ChannelSection({
           <p className="text-sm text-muted-foreground">{t(def.helpKey)}</p>
         </div>
         <div className="flex items-center gap-2">
-          {/*
-            ON/OFF as two joined buttons, not a switch.
-
-            A switch shows a POSITION and leaves you to read which end is
-            which — which is why it needed a word beside it, and why before
-            that it needed the label "Canale attivo" that only repeated what
-            a switch means. Two segments state both options and highlight the
-            one in force: nothing to interpret, and the same control shape the
-            channel picker above already uses.
-
-            The Trash that sat here is gone: it removed the channel's stored
-            config, which for the person looking at it was indistinguishable
-            from switching it off — a destructive-looking control for a state
-            this one already owns.
-          */}
-          <div
-            role="group"
-            aria-label={t("channels.enabledLabel")}
-            className="inline-flex overflow-hidden rounded-md border"
-          >
-            {[true, false].map((on) => (
-              <button
-                key={String(on)}
-                type="button"
-                aria-pressed={state.enabled === on}
-                disabled={savingChannel === def.type}
-                onClick={() => onToggleEnabled(def.type, on)}
-                className={cn(
-                  "px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
-                  on ? "border-r" : undefined,
-                  state.enabled === on
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary",
-                )}
-              >
-                {t(on ? "common.on" : "common.off")}
-              </button>
-            ))}
-          </div>
+          <ChannelEnabledToggle
+            enabled={state.enabled}
+            disabled={savingChannel === def.type}
+            onChange={(on) => onToggleEnabled(def.type, on)}
+          />
         </div>
       </div>
 

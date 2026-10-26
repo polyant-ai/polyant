@@ -23,6 +23,31 @@ import { exportSkillsCatalog, exportSingleSkill, importSkillsCatalog } from "./s
 import type { RequiredEnvEntry } from "../utils/frontmatter.js";
 import { errMsg } from "../utils/error.js";
 
+/** `skills.name` is `varchar(255)`. */
+const DISPLAY_NAME_MAX = 255;
+const DESCRIPTION_MAX = 2000;
+
+/**
+ * The two texts people edit on a skill, checked at the boundary. `displayName` may be
+ * left out (the name stays as it is) but never blank; `description` may be empty.
+ * The slug is not an input here at all: agents read a skill by slug.
+ */
+function parseSkillTexts(body: { displayName?: unknown; description?: unknown }): { displayName?: string; description: string } {
+  if (typeof body.description !== "string") throw new BadRequestException("Description must be a string");
+  if (body.description.length > DESCRIPTION_MAX) {
+    throw new BadRequestException(`Description must be at most ${DESCRIPTION_MAX} characters`);
+  }
+  if (body.displayName === undefined) return { description: body.description };
+  if (typeof body.displayName !== "string" || body.displayName.trim() === "") {
+    throw new BadRequestException("Name must not be empty");
+  }
+  const displayName = body.displayName.trim();
+  if (displayName.length > DISPLAY_NAME_MAX) {
+    throw new BadRequestException(`Name must be at most ${DISPLAY_NAME_MAX} characters`);
+  }
+  return { displayName, description: body.description };
+}
+
 @Controller("api/skills")
 export class SkillsController {
   constructor(@Inject(SkillsService) private readonly skillsService: SkillsService) {}
@@ -84,8 +109,8 @@ export class SkillsController {
 
   @Put(":name")
   @RequirePermission(Permission.SKILL_CATALOG_WRITE)
-  async update(@Param("name") name: string, @Body() body: { description: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[]; changelog?: string }) {
-    const skill = await this.skillsService.updateSkill(name, body);
+  async update(@Param("name") name: string, @Body() body: { displayName?: string; description: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[]; changelog?: string }) {
+    const skill = await this.skillsService.updateSkill(name, { ...body, ...parseSkillTexts(body) });
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
     return skill;
   }

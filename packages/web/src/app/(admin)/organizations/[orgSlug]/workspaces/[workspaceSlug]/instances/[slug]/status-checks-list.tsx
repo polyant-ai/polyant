@@ -4,9 +4,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { CheckCircle2, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type { AgentCheck } from "./status-checks";
@@ -27,10 +29,25 @@ import type { StatusChecksState } from "./use-status-checks";
  * says so and says how many checks ran — an empty area would read as "not loaded
  * yet", which is exactly the wrong reading for a page about whether things work.
  */
+const parseOpen = (raw: string) => (raw === "open" ? true : raw === "closed" ? false : undefined);
+
+/**
+ * Open or closed, remembered per reader in `localStorage` (a reader's own
+ * convenience, so a missing store just means open). Open by default.
+ */
+function useAttentionOpen(): [boolean, (open: boolean) => void] {
+  const { data: session } = useSession();
+  const userId = session?.user?.id ?? "anonymous";
+  return usePersistedState<boolean>(`polyant:agent-attention-box:${userId}`, true, parseOpen, (v) =>
+    v ? "open" : "closed",
+  );
+}
+
 export function StatusChecks({ status }: { status: StatusChecksState }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const { checks, loading } = status;
+  const [open, setOpen] = useAttentionOpen();
 
   if (loading) {
     return <Skeleton className="h-28 w-full" />;
@@ -42,13 +59,25 @@ export function StatusChecks({ status }: { status: StatusChecksState }) {
   return (
     <div className="space-y-4">
       <Card className="gap-0 overflow-hidden py-0">
-        <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
+        {/* The heading is the button that folds the box, and it carries the count. */}
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={cn("flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-muted/50", open && "border-b")}
+        >
+          <ChevronDown
+            aria-hidden
+            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")}
+          />
           <span className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
             {t("status.checks.attention")}
           </span>
-          {alerts.length > 0 && <span className="text-xs tabular-nums text-muted-foreground">{alerts.length}</span>}
-        </div>
-        {alerts.length > 0 ? (
+          {alerts.length > 0 && (
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">{alerts.length}</span>
+          )}
+        </button>
+        {!open ? null : alerts.length > 0 ? (
           <ul className="divide-y">
             {alerts.map((check) => (
               <CheckRow key={check.id} check={check} pathname={pathname} />

@@ -182,8 +182,8 @@ describe.skipIf(!DB_AVAILABLE)("scheduled task run claims (integration)", () => 
     // A new run B is created after the observation.
     const runB = await runLog.createRun(id, asInstanceSlug(task!.instanceId), "scheduled");
 
-    expect(observed).toEqual([runA]);
-    expect(await runLog.failDanglingRuns(observed, "orphaned")).toBe(1);
+    expect(observed).toEqual([{ id: runA, taskId: id }]);
+    expect(await runLog.failDanglingRuns(observed.map((r) => r.id), "orphaned")).toBe(1);
     const { runs } = await runLog.listRuns(asInstanceSlug(task!.instanceId), { taskId: id });
     expect(runs.find((r) => r.id === runA)?.status).toBe("error");
     expect(runs.find((r) => r.id === runB)?.status).toBe("running");

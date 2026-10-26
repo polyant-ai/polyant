@@ -11,6 +11,7 @@ export {
   listDocuments,
   getDocument,
   deleteDocument,
+  setDocumentEnabled,
   deleteAllKnowledgeForInstance,
   countChunks,
   countDocuments,

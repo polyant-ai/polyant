@@ -111,6 +111,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   h.pathname.value = "/organizations/acme";
   h.tab.value = null;
   h.params.value = { workspaceSlug: "general" };
@@ -303,57 +304,16 @@ describe("the interface tour", () => {
 });
 
 describe("the agent-tour offer", () => {
-  beforeEach(() => {
+  // The break this catches: an unsolicited «want a tour of this page?» bubble coming back on an agent's page.
+  it("is never shown on an agent's page: the introduction starts from the Help menu only", async () => {
     onboardingFromEngine = state(SEEN);
     onboardingFromEngine.agentTour = "new";
     h.pathname.value = "/organizations/acme/workspaces/general/instances/support";
-  });
-
-  it("appears on a real agent's page and starts the tour on Yes", async () => {
-    const user = userEvent.setup();
-    mount();
-    expect(await screen.findByText("Want a tour of this page?")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Yes" }));
-    expect(await screen.findByRole("heading", { name: "Status" })).toBeInTheDocument();
-    expect(patches()).toContainEqual({ agentTour: "seen" });
-  });
-
-  it("does not appear for an agent that does not exist", async () => {
-    h.getInstance.mockRejectedValue(new Error("404"));
-    mount();
-    await waitFor(() => expect(h.getInstance).toHaveBeenCalled());
-    await act(async () => {});
-    expect(screen.queryByText("Want a tour of this page?")).not.toBeInTheDocument();
-  });
-
-  it("does not appear outside an agent's page", async () => {
-    h.pathname.value = "/organizations/acme/workspaces/general/instances";
     mount();
     await act(async () => {});
-    expect(screen.queryByText("Want a tour of this page?")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByText(/of this page\?/)).not.toBeInTheDocument();
     expect(h.getInstance).not.toHaveBeenCalled();
-  });
-
-  it("does not appear once the tour was seen", async () => {
-    onboardingFromEngine = state({ ...SEEN, agentTour: "seen" });
-    mount();
-    await act(async () => {});
-    expect(screen.queryByText("Want a tour of this page?")).not.toBeInTheDocument();
-  });
-
-  it("Not now hides it without recording anything", async () => {
-    const user = userEvent.setup();
-    mount();
-    await user.click(await screen.findByRole("button", { name: "Not now" }));
-    expect(screen.queryByText("Want a tour of this page?")).not.toBeInTheDocument();
-    expect(h.update).not.toHaveBeenCalled();
-  });
-
-  it("Don't show again records it", async () => {
-    const user = userEvent.setup();
-    mount();
-    await user.click(await screen.findByRole("button", { name: "Don't show again" }));
-    expect(lastPatch()).toEqual({ agentTour: "dismissed" });
   });
 });
 
@@ -394,7 +354,7 @@ describe("the Help menu", () => {
     const user = userEvent.setup();
     mount();
     await user.click(screen.getByRole("button", { name: /Help/ }));
-    await user.click(await screen.findByRole("menuitem", { name: /Interface tour/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Introduction to the interface/ }));
     expect(await screen.findByRole("heading", { name: "The Dashboard" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Exit" }));
 
@@ -407,12 +367,12 @@ describe("the Help menu", () => {
     const user = userEvent.setup();
     const first = mount();
     await user.click(screen.getByRole("button", { name: /Help/ }));
-    expect(screen.queryByRole("menuitem", { name: /Tour of this page/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Introduction to this page/ })).not.toBeInTheDocument();
     first.unmount();
 
     h.pathname.value = "/organizations/acme/workspaces/general/instances/support";
     mount();
     await user.click(screen.getByRole("button", { name: /Help/ }));
-    expect(await screen.findByRole("menuitem", { name: /Tour of this page/ })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: /Introduction to this page/ })).toBeInTheDocument();
   });
 });

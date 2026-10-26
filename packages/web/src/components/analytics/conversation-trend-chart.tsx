@@ -21,23 +21,22 @@ import {
 import type { DailyTrendRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 
-const chartConfig = {
-  conversations: {
-    label: "Conversations",
-    color: "var(--chart-1)",
-  },
-  messages: {
-    label: "Messages",
-    color: "var(--chart-2)",
-  },
-} satisfies ChartConfig;
-
 interface ConversationTrendChartProps {
   data: DailyTrendRow[];
 }
 
 export function ConversationTrendChart({ data }: ConversationTrendChartProps) {
   const { t } = useI18n();
+  const chartConfig = {
+    conversations: {
+      label: t("analytics.kpi.conversations"),
+      color: "var(--chart-1)",
+    },
+    messages: {
+      label: t("analytics.kpi.messages"),
+      color: "var(--chart-2)",
+    },
+  } satisfies ChartConfig;
 
   return (
     <Card>

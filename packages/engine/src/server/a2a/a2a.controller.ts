@@ -5,11 +5,13 @@ import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from "@a2a-js/sdk/server/express";
 import { Public } from "../../auth/decorators/public.decorator.js";
-import { a2aLog } from "./a2a-logger.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { resolveInstanceConfig, type InstanceConfig } from "../../instances/config-resolver.js";
 import { validateInstanceApiKey } from "../openai/instance-api-key-auth.js";
 import { A2aHandlerRegistry } from "./a2a-handler.registry.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const a2aLog = createLogger();
 
 const noop = (): void => {};
 

@@ -18,17 +18,7 @@ import {
 } from "@/components/ui/chart";
 import type { DailyTrendRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-
-const chartConfig = {
-  cost: {
-    label: "Cost ($)",
-    color: "var(--chart-2)",
-  },
-  tokens: {
-    label: "Tokens",
-    color: "var(--chart-1)",
-  },
-} satisfies ChartConfig;
+import { useFormat } from "@/lib/use-format";
 
 interface CostTrendChartProps {
   data: DailyTrendRow[];
@@ -36,6 +26,17 @@ interface CostTrendChartProps {
 
 export function CostTrendChart({ data }: CostTrendChartProps) {
   const { t, locale } = useI18n();
+  const fmt = useFormat();
+  const chartConfig = {
+    cost: {
+      label: t("analytics.chart.cost"),
+      color: "var(--chart-2)",
+    },
+    tokens: {
+      label: t("analytics.chart.tokens"),
+      color: "var(--chart-1)",
+    },
+  } satisfies ChartConfig;
 
   return (
     <Card>
@@ -68,7 +69,7 @@ export function CostTrendChart({ data }: CostTrendChartProps) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={(v) => `$${v}`}
+              tickFormatter={(v) => fmt.currencyTick(Number(v))}
             />
             <ChartTooltip
               content={
@@ -77,6 +78,21 @@ export function CostTrendChart({ data }: CostTrendChartProps) {
                     const d = new Date(String(v));
                     return d.toLocaleDateString(locale);
                   }}
+                  formatter={(value) => (
+                    <div className="flex flex-1 items-center justify-between gap-4 leading-none">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <span
+                          aria-hidden
+                          className="size-2.5 shrink-0 rounded-[2px]"
+                          style={{ backgroundColor: "var(--color-cost)" }}
+                        />
+                        {chartConfig.cost.label}
+                      </span>
+                      <span className="font-mono font-medium tabular-nums text-foreground">
+                        {fmt.currency(Number(value))}
+                      </span>
+                    </div>
+                  )}
                 />
               }
             />

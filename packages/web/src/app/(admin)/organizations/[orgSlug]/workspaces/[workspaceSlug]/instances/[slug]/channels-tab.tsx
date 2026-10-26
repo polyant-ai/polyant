@@ -28,16 +28,12 @@ interface Props {
   instance: Instance;
   onInstanceUpdate: (instance: Instance) => void;
   /**
-   * Every time this panel learns the channel list — on load, and after a save or a
-   * removal — so the picker above it can repaint its live dots.
-   *
-   * The picker used to re-fetch the list itself, keyed on which channel was
-   * selected: switching a channel on left its dot stale until you navigated to
-   * another channel and back, because nothing told the picker anything had
-   * changed. Pushing the list up from the one component that already reloads it
-   * costs no extra request.
+   * The agent's channel list, read once by the section above, which also draws the
+   * picker's dots from it. This panel computes the state of its own channel from it.
    */
-  onChannelsLoaded?: (channels: ChannelConfig[]) => void;
+  channels: ChannelConfig[];
+  /** After a save or a removal: the section reads the list again and the new one arrives as `channels`. */
+  onChannelsChanged: () => void;
 }
 
 export interface ChannelState {
@@ -88,21 +84,40 @@ const CHANNEL_DEFS = [
 
 export type ChannelDef = (typeof CHANNEL_DEFS)[number];
 
+function statesFrom(channels: ChannelConfig[]): Record<string, ChannelState> {
+  const states: Record<string, ChannelState> = {};
+  for (const def of CHANNEL_DEFS) {
+    const existing = channels.find((c) => c.channelType === def.type);
+    states[def.type] = {
+      enabled: existing?.enabled ?? false,
+      config: {},
+      existingConfig: existing?.config ?? {},
+      dirty: false,
+    };
+  }
+  return states;
+}
+
 export function ChannelsTab({
   slug,
   channelType,
   instance,
   onInstanceUpdate,
-  onChannelsLoaded,
+  channels,
+  onChannelsChanged,
 }: Props) {
   const { t } = useI18n();
-  const [loading, setLoading] = useState(true);
-  const [channelStates, setChannelStates] = useState<Record<string, ChannelState>>({});
-  // Raw list, kept alongside the derived `channelStates`: WhatsAppChannelCard
-  // owns its own form state and needs the untransformed ChannelConfig (with
-  // `authMode` and — in apiKey mode — the masked credentials), not the
-  // flattened shape the generic field-list renderer works from.
-  const [rawChannels, setRawChannels] = useState<ChannelConfig[]>([]);
+  const [channelStates, setChannelStates] = useState<Record<string, ChannelState>>(() => statesFrom(channels));
+  // WhatsAppChannelCard owns its own form state and needs the untransformed
+  // ChannelConfig (with `authMode` and — in apiKey mode — the masked credentials),
+  // not the flattened shape the generic field-list renderer works from.
+  const rawChannels = channels;
+  // A new list (after a save) replaces what was typed: its fields are the saved ones.
+  const [seenChannels, setSeenChannels] = useState(channels);
+  if (seenChannels !== channels) {
+    setSeenChannels(channels);
+    setChannelStates(statesFrom(channels));
+  }
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
   const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
   const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
@@ -155,30 +170,6 @@ export function ChannelsTab({
     },
   });
 
-  useEffect(() => {
-    api.channels.list(slug).then((res) => {
-      initStates(res.channels);
-    }).catch(() => {
-      toast.error(t("channels.tab.saveFailed"));
-    }).finally(() => setLoading(false));
-  }, [slug, t]);
-
-  function initStates(chList: ChannelConfig[]) {
-    onChannelsLoaded?.(chList);
-    setRawChannels(chList);
-    const states: Record<string, ChannelState> = {};
-    for (const def of CHANNEL_DEFS) {
-      const existing = chList.find((c) => c.channelType === def.type);
-      states[def.type] = {
-        enabled: existing?.enabled ?? false,
-        config: {},
-        existingConfig: existing?.config ?? {},
-        dirty: false,
-      };
-    }
-    setChannelStates(states);
-  }
-
   function updateField(channelType: string, key: string, value: string) {
     setChannelStates((prev) => ({
       ...prev,
@@ -227,9 +218,8 @@ export function ChannelsTab({
 
       await api.channels.set(slug, channelType, payload, state.enabled);
 
-      // Refresh from server
-      const res = await api.channels.list(slug);
-      initStates(res.channels);
+      setChannelStates((prev) => ({ ...prev, [channelType]: { ...prev[channelType], config: {}, dirty: false } }));
+      onChannelsChanged();
 
       toast.success(t("channels.tab.saved"));
     } catch (err) {
@@ -239,14 +229,6 @@ export function ChannelsTab({
     }
   }
 
-
-  if (loading) {
-    return <div className="animate-pulse space-y-4">
-      <div className="h-48 rounded-lg bg-muted" />
-      <div className="h-48 rounded-lg bg-muted" />
-      <div className="h-48 rounded-lg bg-muted" />
-    </div>;
-  }
 
   return (
     <div className="space-y-8">
@@ -263,9 +245,7 @@ export function ChannelsTab({
               key={def.type}
               slug={slug}
               channel={rawChannels.find((c) => c.channelType === def.type) ?? null}
-              onChanged={() => {
-                void api.channels.list(slug).then((res) => initStates(res.channels));
-              }}
+              onChanged={onChannelsChanged}
             />
           );
         }

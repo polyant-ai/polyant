@@ -14,6 +14,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
 import { resolveWorkspaceIdForPrincipal } from "./store.js";
+import { UPDATABLE_INSTANCE_KEYS } from "./instance-fields.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
 import { instanceChannels } from "./channels.schema.js";
@@ -43,6 +44,9 @@ import { importScheduledTasks } from "./scheduled-tasks.import.js";
 import { importMcpServers } from "./mcp-servers.import.js";
 import { importSecrets } from "./secrets.import.js";
 import type { ImportWarning, ImportResult } from "./import.types.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export type { ImportWarning, ImportResult } from "./import.types.js";
 export { importChannels, importMcpServers };
@@ -73,6 +77,38 @@ function parseBundle(rawBundle: unknown): ExportInstanceData {
 // ---------------------------------------------------------------------------
 // Import as new instance
 // ---------------------------------------------------------------------------
+
+/**
+ * The agent's own scalar columns, as a bundle supplies them.
+ *
+ * ONE list, shared by the insert (import-new) and the update
+ * (import-overwrite) path: they carried a copy each, ~30 fields transcribed
+ * twice, and `export-coverage.guardrail.test.ts` compares export against
+ * import — not insert against update. A field added to one list and forgotten
+ * in the other restores an agent differently depending on which path ran, with
+ * nothing failing.
+ *
+ * `embeddingProvider`/`embeddingDim` are deliberately NOT here: they are set
+ * only on a fresh agent (no vectors to lose). Switching an existing agent's
+ * embedder wipes every memory and knowledge vector, which is gated behind
+ * `confirmWipe` on `PATCH /api/instances/:slug` and out of scope for an import.
+ */
+export function instanceScalarFields(data: ExportInstanceData) {
+  // Absent from an older bundle, an optional field is `undefined`, which leaves
+  // the column out of the statement: a new agent gets the default and an
+  // overwrite keeps the target's own value.
+  const fields = Object.fromEntries(IMPORTED_SCALAR_KEYS.map((key) => [key, data[key]])) as Pick<
+    ExportInstanceData,
+    (typeof IMPORTED_SCALAR_KEYS)[number]
+  >;
+  return { ...fields, icon: data.icon ?? null };
+}
+
+/** Every writable column except the embedder, which only a fresh agent sets. */
+const IMPORTED_SCALAR_KEYS = UPDATABLE_INSTANCE_KEYS.filter(
+  (key): key is Exclude<(typeof UPDATABLE_INSTANCE_KEYS)[number], "embeddingProvider"> =>
+    key !== "embeddingProvider",
+);
 
 /**
  * Create a brand-new agent from an exported bundle.
@@ -113,50 +149,12 @@ export async function importNewInstance(
     const [inst] = await tx
       .insert(instances)
       .values({
+        ...instanceScalarFields(data),
         slug,
-        name: data.name,
-        description: data.description,
-        status: data.status,
-        provider: data.provider,
-        model: data.model,
-        memoryEnabled: data.memoryEnabled,
-        knowledgeEnabled: data.knowledgeEnabled,
-        langsmithEnabled: data.langsmithEnabled,
-        langsmithProject: data.langsmithProject,
-        authEnabled: data.authEnabled,
-        thinkingEnabled: data.thinkingEnabled,
-        thinkingLevel: data.thinkingLevel,
-        temperature: data.temperature,
-        stateInPromptEnabled: data.stateInPromptEnabled,
-        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
-        datetimeTimezone: data.datetimeTimezone,
-        datetimeLocale: data.datetimeLocale,
-        dedupSimilarityThreshold: data.dedupSimilarityThreshold,
-        messageSoftDebounceMs: data.messageSoftDebounceMs,
-        messageTypingDelayMs: data.messageTypingDelayMs,
-        messageMaxRestarts: data.messageMaxRestarts,
-        cacheEnabled: data.cacheEnabled,
-        cacheTtl: data.cacheTtl,
-        a2aEnabled: data.a2aEnabled,
-        toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
-        debugEnabled: data.debugEnabled,
-        // Absent from an older bundle: undefined leaves the column out of the
-        // statement, so a new agent gets the default and an overwrite keeps
-        // the target's own value.
-        attachmentStorageEnabled: data.attachmentStorageEnabled,
-        sttProvider: data.sttProvider,
         // Embedding provider/dim only set here (fresh instance — no vectors to
         // lose). Overwrite import intentionally never touches them.
         embeddingProvider: data.embeddingProvider,
         embeddingDim: data.embeddingDim,
-        optoutEnabled: data.optoutEnabled,
-        optoutStopKeywords: data.optoutStopKeywords,
-        optoutResumeKeywords: data.optoutResumeKeywords,
-        optoutClosingMessage: data.optoutClosingMessage,
-        optoutResumeMessage: data.optoutResumeMessage,
-        optoutInjectPromptHint: data.optoutInjectPromptHint,
-        webContextFieldMapping: data.webContextFieldMapping,
-        icon: data.icon ?? null,
         workspaceId,
       })
       .returning({ id: instances.id });
@@ -243,46 +241,9 @@ export async function importOverwriteInstance(
     await tx
       .update(instances)
       .set({
-        name: data.name,
-        description: data.description,
-        status: data.status,
-        provider: data.provider,
-        model: data.model,
-        memoryEnabled: data.memoryEnabled,
-        knowledgeEnabled: data.knowledgeEnabled,
-        langsmithEnabled: data.langsmithEnabled,
-        langsmithProject: data.langsmithProject,
-        authEnabled: data.authEnabled,
-        thinkingEnabled: data.thinkingEnabled,
-        thinkingLevel: data.thinkingLevel,
-        temperature: data.temperature,
-        stateInPromptEnabled: data.stateInPromptEnabled,
-        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
-        datetimeTimezone: data.datetimeTimezone,
-        datetimeLocale: data.datetimeLocale,
-        dedupSimilarityThreshold: data.dedupSimilarityThreshold,
-        messageSoftDebounceMs: data.messageSoftDebounceMs,
-        messageTypingDelayMs: data.messageTypingDelayMs,
-        messageMaxRestarts: data.messageMaxRestarts,
-        cacheEnabled: data.cacheEnabled,
-        cacheTtl: data.cacheTtl,
-        a2aEnabled: data.a2aEnabled,
-        toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
-        debugEnabled: data.debugEnabled,
-        attachmentStorageEnabled: data.attachmentStorageEnabled,
-        sttProvider: data.sttProvider,
-        optoutEnabled: data.optoutEnabled,
-        optoutStopKeywords: data.optoutStopKeywords,
-        optoutResumeKeywords: data.optoutResumeKeywords,
-        optoutClosingMessage: data.optoutClosingMessage,
-        optoutResumeMessage: data.optoutResumeMessage,
-        optoutInjectPromptHint: data.optoutInjectPromptHint,
-        webContextFieldMapping: data.webContextFieldMapping,
-        icon: data.icon ?? null,
+        ...instanceScalarFields(data),
         // NB: embeddingProvider/embeddingDim are deliberately NOT updated here —
-        // switching an existing instance's embedder wipes all vectors (memories +
-        // knowledge). That destructive switch is gated behind `confirmWipe` on
-        // PATCH /api/instances/:slug and is out of scope for an import.
+        // see `instanceScalarFields`.
         updatedAt: sql`now()`,
       })
       .where(eq(instances.id, instanceId));
@@ -373,7 +334,7 @@ async function finishCommittedImport(instanceId: InstanceUuid, slug: string, war
     // Outside the import transaction: it opens its own.
     await recomputeInstanceTools(instanceId);
   } catch (err) {
-    console.error("[import] tool recompute failed for agent %s after a committed import:", instanceId, err);
+    log.error("import", `tool recompute failed for agent ${instanceId} after a committed import`, err);
     warnings.push({
       type: "tool_recompute_failed",
       message: "The agent was imported, but its tool access could not be recomputed; save its tools again to apply it.",

@@ -1,27 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
-import { runHooks, firstHalt, firstReplaceResponse, hookProvenance, warnUnhonoredControls } from "../hooks/hook-runner.js";
-import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
+import { runDirectTurn, persistDirectReply, postProcessDirectTurn, recordDirectTurnTrace } from "../agents/direct-turn.js";
+import type { HookEventPayload } from "../hooks/hook-types.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { channelManager } from "../channels/channel-manager.js";
-import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
-import { extractMemories } from "../memory/extractor.js";
 import { listAndMarkPendingEventsProcessing, markEventsCompleted } from "../webhooks/webhook-backlog.store.js";
 import { appendDailyLog } from "./activity-log.store.js";
 import type { RoomConfig } from "./room.store.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { setRoomConversationId } from "./room.store.js";
-import { generateConversationTitle } from "../utils/title-generator.js";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
-import { roomLog } from "./room-logger.js";
 import { projectEventPayload } from "./payload-projection.js";
 import { eventDefinitions, eventSources } from "../webhooks/webhooks.schema.js";
 import { db } from "../database/client.js";
 import { eq, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const roomLog = createLogger();
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -31,11 +30,6 @@ function estimateTokens(text: string): number {
 // (see #84) and stayed private, so every later place that put somebody else's
 // text into a prompt did it plainly — the webhook engine and <channel_identity>
 // among them. Same functions, same behaviour, one importable home.
-
-// The Room is supervise-direct: there is no replay loop, so `regenerate` and
-// `injectContext` cannot be acted on here. Declaring what IS honored keeps the
-// warning honest if a control is added or implemented later.
-const ROOM_HOOK_CONTROLS = ["halt", "replaceResponse"] as const;
 
 export async function executeRoomCycle(
   room: RoomConfig,
@@ -167,8 +161,7 @@ export async function executeRoomCycle(
     return new ConversationStateBuffer(conversationId, instanceSlug);
   });
 
-  // Hook context shared by the pre-LLM (message_received) and post-LLM
-  // (response_generated) runs. Room is supervise-direct, so wire it manually.
+  // Room is supervise-direct, so its hook payload is wired here.
   const hookPayload: HookEventPayload = {
     instance: { slug: instanceSlug },
     conversation: { id: conversationId },
@@ -176,60 +169,26 @@ export async function executeRoomCycle(
     user: { name: "room" },
     message: { text: messageToSupervise },
   };
-  const hookCtx: HookRunContext = {
-    instanceId: instanceSlug,
-    conversationId,
-    secrets: instanceConfig.secrets,
-    apiKeys: instanceConfig.apiKeys,
-    provider: instanceConfig.provider,
-    model: instanceConfig.model,
-    flags: {
-      memory: instanceConfig.memoryEnabled,
-      knowledge: instanceConfig.knowledgeEnabled,
-      thinking: instanceConfig.thinkingEnabled,
-      debug: instanceConfig.debugEnabled,
-      stateInPrompt: instanceConfig.stateInPromptEnabled,
-      toolResultsInHistory: instanceConfig.toolResultsInHistoryEnabled,
-    },
-    state: stateBuffer.api(),
-  };
-  // Pre-LLM hook (halt-capable). Only message_received fires here (see the
-  // halt-and-respond spec §6). Keep the summaries for provenance on halt.
-  const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
-  warnUnhonoredControls(preHookSummaries, "room", ROOM_HOOK_CONTROLS);
-  const halt = firstHalt(preHookSummaries);
 
-  let result: SupervisorOutput | undefined;
-  if (!halt) {
-    try {
-      result = await supervise({
-        message: messageToSupervise,
-        conversationHistory: history,
-        instanceId: instanceSlug,
-        conversationId,
-        provider: instanceConfig.provider,
-        model: instanceConfig.model,
-        apiKeys: instanceConfig.apiKeys,
-        secrets: instanceConfig.secrets,
-        memoryEnabled: instanceConfig.memoryEnabled,
-        thinkingEnabled: instanceConfig.thinkingEnabled,
-        debugEnabled: instanceConfig.debugEnabled,
-        datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
-        datetime: instanceConfig.datetime,
-        cacheConfig: instanceConfig.cacheConfig,
-        // The Room mandate the operator edits in the panel. It used to reach
-        // only the token estimate below, so a saved prompt looked delivered and
-        // was not (#380).
-        roomPrompt: room.prompt || undefined,
-        includeHarness: new Set(["room"]),
-        stateBuffer,
-        // Room mints a FRESH conversationId every cycle — no stable per-turn
-        // storage and no browser to authorize. Leave MCP oauth servers off
-        // (design spec §8.3); see SupervisorInput.allowOAuth.
-        allowOAuth: false,
-      });
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+  const outcome = await runDirectTurn({
+    source: "room",
+    instanceSlug,
+    instanceConfig,
+    conversationId,
+    stateBuffer,
+    hookPayload,
+    log: roomLog,
+    scope: "RoomCycle",
+    supervisorExtras: {
+      conversationHistory: history,
+      // The Room mandate the operator edits in the panel. It used to reach
+      // only the token estimate below, so a saved prompt looked delivered and
+      // was not (#380).
+      roomPrompt: room.prompt || undefined,
+      includeHarness: new Set(["room"]),
+    },
+    onSuperviseError: async (err) => {
+      const errorMsg = errMsg(err);
       roomLog.error("RoomCycle", `supervise() failed for ${instanceSlug}`, err);
 
       // Mark events as completed with error so they don't stay stuck in "processing"
@@ -248,43 +207,14 @@ export async function executeRoomCycle(
       const errContent = `———— ${errTimestamp} | ${errTriggers.join(" + ")} | ERROR ————\n${errorMsg.slice(0, 500)}`;
       await appendDailyLog(room.instanceId, errContent, pendingEvents.length)
         .catch((e) => roomLog.error("RoomCycle", "Failed to write error to activity log", e));
-
-      return;
-    }
-  }
-
-  // Post-LLM hook (response-replacement capable). Room has no streaming, so a
-  // replace always applies. Only runs in the non-halt path (result is defined).
-  // response_generated hooks can also write state, so run before the flush below.
-  let replace: ReturnType<typeof firstReplaceResponse>;
-  let postHooks = preHookSummaries; // default to pre-summaries so provenance covers the halt case
-  if (!halt) {
-    postHooks = await runHooks(
-      "response_generated",
-      // Room is supervise-direct with no replay loop, so regenerationCount is always 0.
-      { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
-      hookCtx,
-    );
-    warnUnhonoredControls(postHooks, "room", ROOM_HOOK_CONTROLS);
-    replace = firstReplaceResponse(postHooks);
-  }
-
-  const finalText = halt ? halt.message : replace ? replace.message : result!.text;
-  // Provenance: the pre-LLM halt or the post-LLM replace that authored the reply.
-  const provenance = halt ? hookProvenance(preHookSummaries) : hookProvenance(postHooks);
-
-  // Commit conversation state (commit-on-success): reached only after supervise
-  // succeeded (the catch above returns) and the response_generated hooks ran.
-  // Errors logged, not propagated.
-  try {
-    await stateBuffer.flush();
-  } catch (err) {
-    roomLog.error("RoomCycle", `failed to flush conversation state for ${conversationId}`, err);
-  }
+    },
+  });
+  if (!outcome) return;
+  const { finalText, result, halted } = outcome;
 
   // On halt, deliver the canned reply to the room's outbound channel — room never
   // auto-sends (the agent uses room_send_message). Best-effort.
-  if (halt && room.outboundChannel && room.outboundTarget) {
+  if (halted && room.outboundChannel && room.outboundTarget) {
     try {
       await channelManager.sendOutbound(instanceSlug, room.outboundChannel, room.outboundTarget, finalText);
     } catch (err) {
@@ -292,9 +222,7 @@ export async function executeRoomCycle(
     }
   }
 
-  await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}), ...(provenance ? { metadata: provenance } : {}) },
-  ]);
+  await persistDirectReply(conversationId, outcome);
 
   // Mark events as completed
   if (pendingEventIds.length > 0) {
@@ -304,24 +232,14 @@ export async function executeRoomCycle(
   // Persist active conversationId so harness tools (e.g. compact_room_history) can find it
   await setRoomConversationId(room.instanceId, conversationId);
 
-  // Fire-and-forget post-processing
-  const postProcess = async () => {
-    await generateConversationTitle({
-      conversationId,
-      instanceId: instanceSlug,
-      provider: instanceConfig.provider,
-      apiKeys: instanceConfig.apiKeys,
-      content: `Events: ${pendingEvents.length}${humanMessage ? ", Human message received" : ""}\nAssistant: ${finalText.slice(0, 300)}`,
-      context: "This is a Room event processing conversation.",
-    });
-
-    if (instanceConfig.memoryEnabled !== false) {
-      extractMemories(conversationId, instanceSlug, instanceConfig.apiKeys, instanceConfig.provider).catch((err) =>
-        roomLog.error("PostProcess", "Memory extraction failed", err),
-      );
-    }
-  };
-  postProcess().catch((err) => roomLog.error("PostProcess", "post-processing error", err));
+  postProcessDirectTurn({
+    conversationId,
+    instanceSlug,
+    instanceConfig,
+    titleContent: `Events: ${pendingEvents.length}${humanMessage ? ", Human message received" : ""}\nAssistant: ${finalText.slice(0, 300)}`,
+    titleContext: "This is a Room event processing conversation.",
+    log: roomLog,
+  });
 
   const now = new Date();
   const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
@@ -336,17 +254,5 @@ export async function executeRoomCycle(
     roomLog.error("RoomCycle", `Failed to write activity log for ${instanceSlug}`, err);
   }
 
-  traceStore.record({
-    conversationId,
-    instanceId: instanceSlug,
-    channel: "room",
-    contextPrepMs,
-    toolBuildingMs: result?.toolBuildingMs ?? 0,
-    llmCallMs: result?.durationMs ?? 0,
-    totalMs: Date.now() - cycleStart,
-    promptTokens: result?.usage?.promptTokens ?? 0,
-    completionTokens: result?.usage?.completionTokens ?? 0,
-    toolCalls: result?.toolCallTraces,
-    isStreaming: false,
-  });
+  recordDirectTurnTrace({ conversationId, instanceSlug, channel: "room", contextPrepMs, cycleStart, result });
 }

@@ -3,6 +3,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -11,7 +12,6 @@ import {
   MessageSquareCode,
   Brain,
   Zap,
-  ScrollText,
   Settings,
   Activity,
   Users,
@@ -22,7 +22,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
@@ -35,11 +34,12 @@ import {
   type Destination,
 } from "@/lib/nav/destination";
 import { cn } from "@/lib/utils";
-import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
+import type { NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
 import { useTenant } from "@/lib/tenant/tenant-context";
+import { useTourActive } from "@/lib/onboarding/onboarding-context";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -55,12 +55,12 @@ const overviewDefs: NavItemDef[] = [
   { titleKey: "nav.instances", path: "/instances", scope: "workspace", icon: Bot },
   { titleKey: "nav.conversations", path: "/conversations", scope: "workspace", icon: MessageSquare },
   { titleKey: "nav.playground", path: "/playground", scope: "workspace", icon: MessageSquareCode },
-  { titleKey: "nav.activity", path: "/activity", scope: "workspace", icon: Activity },
   { titleKey: "nav.memory", path: "/memory", scope: "workspace", icon: Brain },
   // The skill catalog is global — it is NOT workspace-scoped yet, so its URL
   // must not pretend otherwise. See the workspace-scoped-skills spec.
   { titleKey: "nav.skills", path: "/skills", scope: "deployment", icon: Zap },
-  { titleKey: "nav.auditLogs", path: "/audit-logs", scope: "org", icon: ScrollText },
+  // One entry for what happened: tool calls, hooks, webhooks, scheduled runs, live.
+  { titleKey: "nav.monitor", path: "/monitor", scope: "workspace", icon: Activity },
 ];
 
 // Members administers the ORGANIZATION's people. Its route is gated by
@@ -124,6 +124,7 @@ export function AppSidebar(
 ) {
   const { user, ...sidebarProps } = props;
   const { t } = useI18n();
+  const tourActive = useTourActive();
 
   const tenant = useTenant();
   const params = useParams<{ orgSlug?: string; workspaceSlug?: string }>();
@@ -165,16 +166,29 @@ export function AppSidebar(
     : orgManagementDefs;
 
   return (
-    <Sidebar collapsible="icon" {...sidebarProps}>
+    // While the guided tour points into the drawer it must stay open and let the
+    // tour's own bubble be used, so the drawer is not modal for that time (a modal
+    // one traps focus and closes on any press outside it).
+    <Sidebar
+      collapsible="icon"
+      mobileModal={!tourActive}
+      onMobileInteractOutside={(event) => {
+        if ((event.target as Element | null)?.closest?.("[data-tour-layer]")) event.preventDefault()
+      }}
+      {...sidebarProps}
+    >
       <SidebarHeader>
-        <div className="flex h-10 items-center gap-2 px-2">
+        <Link
+          href="/"
+          className="flex h-10 items-center gap-2 rounded-md px-2 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Bot className="size-4" />
           </div>
           <span className="truncate text-base font-semibold group-data-[collapsible=icon]:hidden">
             Polyant
           </span>
-        </div>
+        </Link>
       </SidebarHeader>
 
       <SidebarContent data-tour="nav">
@@ -200,10 +214,6 @@ export function AppSidebar(
           )}
         </div>
       </SidebarContent>
-
-      <SidebarFooter>
-        {user && <NavUser user={user} />}
-      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

@@ -126,8 +126,8 @@ describe("TraceStore", () => {
 
       for (let i = 0; i < 1010; i++) store.record(makeEntry({ totalMs: i }));
       fail(new Error("DB down"));
-      // Fake timers are on; let the rejected flushes run their catch blocks.
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      // Fake timers are on; let the rejected batch and its row-by-row retry settle.
+      for (let i = 0; i < 200; i++) await Promise.resolve();
 
       const valuesFn2 = vi.fn().mockResolvedValue(undefined);
       mockDb.insert.mockReturnValue({ values: valuesFn2 });

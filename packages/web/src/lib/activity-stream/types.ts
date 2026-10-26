@@ -105,38 +105,6 @@ export interface FeedEvent {
   handoff?: AgentHandoffMeta;
 }
 
-export const PERSONA_META: Record<Persona, { emoji: string; label: string; short: string }> = {
-  agent: { emoji: "🔵", label: "Agent", short: "AG" },
-  thinking: { emoji: "🧠", label: "Thinking", short: "TK" },
-};
-
-/**
- * Tailwind tokens used by the avatar background, the left-border accent and
- * the focus ring on the spotlight card. Designed to read consistently across
- * both light and dark themes.
- */
-export interface PersonaAccent {
-  bg: string;
-  fg: string;
-  border: string;
-  ring: string;
-}
-
-export const PERSONA_ACCENTS: Record<Persona, PersonaAccent> = {
-  agent: {
-    bg: "bg-blue-500/15",
-    fg: "text-blue-600 dark:text-blue-400",
-    border: "border-l-blue-500",
-    ring: "ring-blue-500/40",
-  },
-  thinking: {
-    bg: "bg-violet-400/15",
-    fg: "text-violet-600 dark:text-violet-400",
-    border: "border-l-violet-400",
-    ring: "ring-violet-400/40",
-  },
-};
-
 /**
  * Visual category of an event — drives the kind pill on each row. The first
  * three are derived from the legacy fields (presence of tool, persona); the

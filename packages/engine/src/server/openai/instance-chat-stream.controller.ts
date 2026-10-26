@@ -8,6 +8,10 @@ import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 /**
  * Native typed-SSE streaming: `chat/stream` is the Web channel's endpoint (public, key-gated), `playground/stream` is the panel's own (session-gated).
@@ -187,9 +191,7 @@ export class InstanceChatStreamController {
             });
             break;
           case "error": {
-            const detail = event.error instanceof Error
-              ? event.error.message
-              : String(event.error ?? "Unknown error");
+            const detail = event.error == null ? "Unknown error" : errMsg(event.error);
             send("error", { message: detail });
             break;
           }
@@ -209,7 +211,7 @@ export class InstanceChatStreamController {
           send("hook-execution", exec);
         }
       } catch (err) {
-        console.error("[chat/stream] post-process error:", err);
+        log.error("chat/stream", "post-process error", err);
       }
       // Echo the persisted conversation + assistant message ids so the client can
       // later fetch the per-message debug payload without ordinal-matching.

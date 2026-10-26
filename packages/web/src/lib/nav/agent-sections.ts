@@ -4,15 +4,13 @@
  * The agent's navigation: every section is a SIDEBAR row, grouped under headings.
  * No tab row.
  *
- * Two changes at once, and the second is the one that mattered. Moving the
- * sections into the sidebar removed the "which macro was that in?" step — the
- * whole vocabulary is visible and every section is one click away. But it also
- * exposed the real defect: several destinations held a single toggle. A section is
- * a place you GO; a lone switch is a row on a page. So the count came down by
- * merging what nobody read apart:
+ * Moving the sections into the sidebar removed the "which macro was that in?"
+ * step: the whole vocabulary is visible and every section is one click away. A
+ * section is a place you GO; a lone switch is a row on a page. So the count came
+ * down by merging what nobody read apart:
  *
- * - **Strumenti**: the internal tools and the external MCP servers answer the same
- *   question ("what can this agent do"), so they are one page.
+ * - **Strumenti** and **MCP** answer the same question ("what can this agent do")
+ *   and sit side by side under Risorse, each with its own row.
  * - **Credenziali** and **Parametri** are gone as destinations: a key is set beside
  *   what uses it. A provider key sits in the Modello block of the task that reads
  *   it (conversation, embeddings, transcription), a tool's key in that tool's
@@ -20,9 +18,12 @@
  * - **Avanzate**: memory, the per-turn parameters and the tracing were three
  *   different destinations for one subject — what the engine carries into a turn
  *   and what it keeps after.
- * - **Attività**: conversations, saved memories and the run log were workspace-wide
- *   pages only, so finding one agent's meant opening a filter. The engine already
- *   takes `instanceId` on all of them.
+ * - **Panoramica** also holds the agent's conversations and its run log (Monitor):
+ *   they were workspace-wide pages only, so finding one agent's meant opening a
+ *   filter. The engine already takes `instanceId` on all of them.
+ *
+ * Six groups, in this order: Panoramica, Configurazione, Conoscenza, Risorse,
+ * Automazioni, Governance. Registry order is row order.
  *
  * **The address is still `?tab=<section>`.** There is no alias table: a `?tab=`
  * value that no longer names a section degrades to the landing page like any other
@@ -34,28 +35,28 @@
 
 import {
   Gauge,
-  Brain,
   Settings2,
   Webhook,
   Shield,
-  BarChart3,
+  LayoutDashboard,
   MessageSquareText,
   Wrench,
-  GraduationCap,
+  Zap,
   BookOpen,
   Anchor,
   Activity,
   IdCard,
-  Info,
-  MessagesSquare,
+  MessageSquare,
   SlidersHorizontal,
   Cpu,
   Radio,
   CalendarClock,
-  History,
   DoorOpen,
   EyeOff,
   Plug,
+  Brain,
+  Library,
+  Boxes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -64,10 +65,10 @@ import type { TranslationKey } from "@/lib/i18n/types";
 export type AgentMacro =
   | "overview"
   | "configuration"
-  | "behaviour"
+  | "knowledge"
+  | "resources"
   | "automation"
-  | "governance"
-  | "activity";
+  | "governance";
 
 export interface AgentSectionDef {
   /** The `?tab=` value — this section's address and its stable key. */
@@ -94,39 +95,44 @@ export const AGENT_MACROS: readonly {
   icon: LucideIcon;
 }[] = [
   { macro: "overview", titleKey: "instances.macro.overview", icon: Gauge },
-  // Configurazione before Comportamento: what the agent IS and what runs it comes
-  // before what it says. A new agent is configured first, and the order is read
-  // top-down.
+  // Configuration before knowledge and resources: what the agent IS and what runs
+  // it comes before what it knows and can use. A new agent is configured first,
+  // and the order is read top-down.
   { macro: "configuration", titleKey: "instances.macro.configuration", icon: Settings2 },
-  { macro: "behaviour", titleKey: "instances.macro.behaviour", icon: Brain },
+  { macro: "knowledge", titleKey: "instances.macro.knowledge", icon: Library },
+  { macro: "resources", titleKey: "instances.macro.resources", icon: Boxes },
   { macro: "automation", titleKey: "instances.macro.automation", icon: Webhook },
   { macro: "governance", titleKey: "instances.macro.governance", icon: Shield },
-  // Last: it is where you go to find out what happened, which is a different
-  // errand from configuring the agent — and the one you arrive with least often.
-  { macro: "activity", titleKey: "instances.macro.activity", icon: Activity },
 ];
 
 export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
-  // Panoramica — whether the agent is well, and what it did over a period.
+  // Panoramica — whether the agent is well, what it did over a period, what it
+  // has been saying, and the run log behind it.
   { tab: "overview", titleKey: "instances.detail.tabStatus", macro: "overview", icon: IdCard, descriptionKey: "agentSection.overview" },
-  { tab: "analytics", titleKey: "instances.detail.tabAnalytics", macro: "overview", icon: BarChart3, descriptionKey: "agentSection.analytics" },
+  { tab: "analytics", titleKey: "instances.detail.tabAnalytics", macro: "overview", icon: LayoutDashboard, descriptionKey: "agentSection.analytics" },
+  { tab: "conversations", titleKey: "nav.conversations", macro: "overview", icon: MessageSquare, descriptionKey: "agentSection.conversations" },
+  { tab: "logs", titleKey: "instances.detail.tabLogs", macro: "overview", icon: Activity, descriptionKey: "agentSection.logs" },
 
   // Configurazione — what the agent IS, what runs it, and how it is reached.
-  { tab: "general", titleKey: "instances.detail.tabGeneral", macro: "configuration", icon: Info, descriptionKey: "agentSection.general" },
-  { tab: "settings", titleKey: "instances.detail.tabSettings", macro: "configuration", icon: Cpu, descriptionKey: "agentSection.settings" },
+  { tab: "general", titleKey: "instances.detail.tabGeneral", macro: "configuration", icon: Settings2, descriptionKey: "agentSection.general" },
+  { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "configuration", icon: MessageSquareText, descriptionKey: "agentSection.prompts" },
   // No Credenziali row: a provider key is set in the Modello section, in the
   // block of the task that uses it, next to the choice that needs it.
+  { tab: "settings", titleKey: "instances.detail.tabSettings", macro: "configuration", icon: Cpu, descriptionKey: "agentSection.settings" },
   // ONE section for every channel: the channel is picked inside it.
   { tab: "channels", titleKey: "instances.detail.tabChannels", macro: "configuration", icon: Radio, descriptionKey: "agentSection.channels" },
+  // Memory, the per-turn parameters and the tracing.
+  { tab: "params", titleKey: "instances.detail.tabParams", macro: "configuration", icon: SlidersHorizontal, descriptionKey: "agentSection.params" },
 
-  // Comportamento — what the agent knows, can do, and how it answers. Hooks belong
-  // HERE rather than with the automations: a hook intercepts the lifecycle to
-  // change the reply, which is behaviour, not scheduling.
-  { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "behaviour", icon: MessageSquareText, descriptionKey: "agentSection.prompts" },
-  // The parameters a tool declares are configured in that tool's own panel, and
-  // a hook's on the Hooks page: a key exists because something asked for it, so
-  // it is set beside that thing rather than on a page of loose fields.
-  { tab: "tools", titleKey: "instances.detail.tabTools", macro: "behaviour", icon: Wrench, descriptionKey: "agentSection.tools" },
+  // Conoscenza — what the agent knows and remembers.
+  { tab: "knowledge", titleKey: "instances.detail.tabKnowledge", macro: "knowledge", icon: BookOpen, descriptionKey: "agentSection.knowledge" },
+  { tab: "memories", titleKey: "nav.memory", macro: "knowledge", icon: Brain, descriptionKey: "agentSection.memories" },
+
+  // Risorse — what the agent can use. The parameters a tool declares are
+  // configured in that tool's own panel: a key exists because something asked for
+  // it, so it is set beside that thing rather than on a page of loose fields.
+  { tab: "skills", titleKey: "instances.detail.tabSkills", macro: "resources", icon: Zap, descriptionKey: "agentSection.skills" },
+  { tab: "tools", titleKey: "instances.detail.tabTools", macro: "resources", icon: Wrench, descriptionKey: "agentSection.tools" },
   /*
     External MCP servers — a section of its own, after the tools and their keys.
 
@@ -138,25 +144,17 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
     of forty switches that has its own search and filters. Its own row is one
     click; the bottom of another page is not addressable at all.
   */
-  { tab: "mcp", titleKey: "instances.detail.tabMcp", macro: "behaviour", icon: Plug, descriptionKey: "agentSection.mcp" },
-  { tab: "skills", titleKey: "instances.detail.tabSkills", macro: "behaviour", icon: GraduationCap, descriptionKey: "agentSection.skills" },
-  { tab: "knowledge", titleKey: "instances.detail.tabKnowledge", macro: "behaviour", icon: BookOpen, descriptionKey: "agentSection.knowledge" },
-  { tab: "hooks", titleKey: "instances.detail.tabHooks", macro: "behaviour", icon: Anchor, descriptionKey: "agentSection.hooks" },
-  // Memory, the per-turn parameters and the tracing.
-  { tab: "params", titleKey: "instances.detail.tabParams", macro: "behaviour", icon: SlidersHorizontal, descriptionKey: "agentSection.params" },
+  { tab: "mcp", titleKey: "instances.detail.tabMcp", macro: "resources", icon: Plug, descriptionKey: "agentSection.mcp" },
 
-  // Automazioni — what makes the agent act with nobody asking.
+  // Automazioni — what makes the agent act. A hook intercepts the lifecycle, the
+  // others fire on an event or a schedule.
+  { tab: "hooks", titleKey: "instances.detail.tabHooks", macro: "automation", icon: Anchor, descriptionKey: "agentSection.hooks" },
   { tab: "webhooks", titleKey: "triggers.webhooks", macro: "automation", icon: Webhook, descriptionKey: "agentSection.webhooks" },
   { tab: "scheduled", titleKey: "triggers.scheduled", macro: "automation", icon: CalendarClock, descriptionKey: "agentSection.scheduled" },
   { tab: "room", titleKey: "instances.detail.tabRoom", macro: "automation", icon: DoorOpen, descriptionKey: "agentSection.room" },
 
   // Governance — what ships here is the data-privacy section.
   { tab: "privacy", titleKey: "instances.detail.tabPrivacy", macro: "governance", icon: EyeOff, descriptionKey: "agentSection.privacy" },
-
-  // Attività — what this agent has DONE.
-  { tab: "conversations", titleKey: "nav.conversations", macro: "activity", icon: MessagesSquare, descriptionKey: "agentSection.conversations" },
-  { tab: "memories", titleKey: "nav.memory", macro: "activity", icon: Brain, descriptionKey: "agentSection.memories" },
-  { tab: "logs", titleKey: "instances.detail.tabLogs", macro: "activity", icon: History, descriptionKey: "agentSection.logs" },
 ];
 
 /**

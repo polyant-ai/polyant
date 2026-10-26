@@ -3,6 +3,9 @@
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_BODY_SIZE = 16_384;
@@ -303,9 +306,7 @@ export default defineTool({
         // actionable cause + full trace for observability (DNS, ECONNREFUSED,
         // TLS, AbortError, ...).
         const detail = describeFetchError(err);
-        console.error(
-          `httpRequest tool error [${method} ${url}]: ${detail.trace}`,
-        );
+        log.error("http-request", `tool error [${method} ${url}]: ${detail.trace}`);
         ctx.audit.log({
           action: "integration.httpRequest",
           details: {

@@ -42,6 +42,7 @@ import { ActivityStreamModule } from "../activity-stream/activity-stream.module.
 import { OptoutsModule } from "./optouts/optouts.module.js";
 import { MembersModule } from "./members/members.module.js";
 import { ApiKeysModule } from "./api-keys/api-keys.module.js";
+import { MonitorModule } from "./monitor/monitor.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
 import { throttleTracker } from "./throttle-tracker.js";
 import { resolvePlatformSettingsOrDefaults } from "../platform/platform-settings.store.js";
@@ -81,6 +82,7 @@ import { PlatformSettingsController } from "./platform-settings/platform-setting
     OptoutsModule,
     MembersModule,
     ApiKeysModule,
+    MonitorModule,
     OrganizationsModule,
   ],
   providers: [

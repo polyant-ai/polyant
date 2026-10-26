@@ -14,6 +14,7 @@ import {
   type ToolContext,
 } from "../tools/registry.js";
 import { artifactApiFor } from "../tools/artifact-store.js";
+import { agentAi } from "../../ai-gateway/agent-ai.js";
 import type { Attachment } from "../../channels/types.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { auditStore } from "../../audit/audit.store.js";
@@ -40,6 +41,10 @@ import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
 import { emitToolStart } from "../../activity-stream/emitters/emit-tool.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 export interface SupervisorInput {
   message: string;
@@ -238,7 +243,7 @@ function wrapToolWithAudit(
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
-          console.error(`🔧 TOOL ERROR [${name}]`, (output as Record<string, unknown>).error);
+          log.error("supervisor", `tool error [${name}]`, (output as Record<string, unknown>).error);
         }
         if (signals && output != null && typeof output === "object") {
           const out = output as Record<string, unknown>;
@@ -258,7 +263,7 @@ function wrapToolWithAudit(
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
         auditStore.patchDuration(name, instanceId, durationMs);
-        emitToolEnd({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        emitToolEnd({ kind: "error", message: errMsg(err) });
         throw err;
       }
     },
@@ -277,6 +282,8 @@ interface BuildToolsOptions {
   model?: string;
   /** The turn's cancellation signal, handed to a spawnTask sub-agent. */
   abortSignal?: AbortSignal;
+  /** The turn's tracing, so a tool's `ctx.ai` call is traced with the turn. */
+  langsmith?: ChatRequest["langsmith"];
   conversationId?: string;
   toolCallTraces?: ToolCallTrace[];
   includeHarness?: Set<string>;
@@ -290,7 +297,7 @@ interface BuildToolsOptions {
 
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
-  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, model, abortSignal, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
+  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, model, abortSignal, langsmith, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
   // No rows means no tools. This used to mean "enable everything", which made
   // the empty tool set indistinguishable from the full one: disabling every
   // tool in the panel granted the agent the entire registry instead of none of
@@ -335,6 +342,9 @@ async function buildTools(opts: BuildToolsOptions) {
         // Bound to THIS conversation: a handle minted in another one is not
         // takeable here, so the store needs no per-tool authorization of its own.
         artifacts: artifactApiFor(instanceId, conversationId),
+        // No `model`: a pinned model would override the tier the tool asks for.
+        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId }),
+        abortSignal,
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
       ctx.oauth = makeOAuthAccess(ctx);
@@ -347,7 +357,7 @@ async function buildTools(opts: BuildToolsOptions) {
       // Record key, so no reverse mapping is needed on the tool-call round-trip.
       const modelToolName = toModelToolName(name);
       if (modelToolName in tools) {
-        console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
+        log.warn("supervisor", `Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
         continue;
       }
       tools[modelToolName] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
@@ -387,7 +397,7 @@ async function buildTools(opts: BuildToolsOptions) {
       const targetSlug = agentToolTarget(entryName)!;
       const target = targets.get(targetSlug);
       if (!target) {
-        console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
+        log.warn("supervisor", `agent tool '${entryName}': target instance not found`);
         continue;
       }
       // Tenancy backstop, independent of how the row got into instance_tools:
@@ -399,12 +409,12 @@ async function buildTools(opts: BuildToolsOptions) {
         targetSlug === instanceId ||
         (callerScope !== null && callerScope.organizationId === target.organizationId);
       if (!sameOrg) {
-        console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
+        log.error("supervisor", `agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;
       if (!adapter) {
-        console.warn(`[supervisor] agent tool '${entryName}': target has 'agent' channel disabled`);
+        log.warn("supervisor", `agent tool '${entryName}': target has 'agent' channel disabled`);
         continue;
       }
       const synth = buildAgentInvokeTool({
@@ -443,7 +453,7 @@ async function buildTools(opts: BuildToolsOptions) {
   // only bounds their blast radius. Moving the merge before this point would
   // silently hand every MCP tool to every sub-agent.
   if (enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId, provider, model, abortSignal);
+    const spawnTool = createTaskTool({ ...tools }, { apiKeys, instanceId, conversationId, provider, model, abortSignal });
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
@@ -546,6 +556,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     provider: input.provider,
     model: input.model,
     abortSignal: input.abortSignal,
+    langsmith: input.langsmith,
     conversationId: input.conversationId,
     toolCallTraces,
     includeHarness: input.includeHarness,
@@ -574,7 +585,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   try {
     for (const [name, mcpTool] of Object.entries(mcp.tools)) {
       if (name in tools) {
-        console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+        log.warn("supervisor", `MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
         continue;
       }
       // MCP tools bypass buildTools' per-tool ctx (they're pre-built by the SDK),
@@ -621,6 +632,66 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * The ChatRequest and call options both entry points hand to the gateway, so a
+ * new request field is added once.
+ */
+function buildChatArgs(
+  input: SupervisorInput,
+  ctx: SupervisorContext,
+): [ChatRequest, ChatCallOptions] {
+  return [
+    {
+      tier: "standard",
+      provider: input.provider,
+      model: input.model,
+      thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
+      apiKeys: input.apiKeys,
+      langsmith: input.langsmith,
+      system: ctx.systemPrompt,
+      messages: ctx.messages,
+      tools: ctx.tools,
+      maxSteps: 15,
+      abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
+    },
+    {
+      conversationId: input.conversationId,
+      instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
+    },
+  ];
+}
+
+/** Map a gateway response to the supervisor's output; `ttfbMs` only exists on the streamed path. */
+function toSupervisorOutput(
+  response: Awaited<ReturnType<typeof chat>>,
+  ctx: SupervisorContext,
+  ttfbMs?: number,
+): SupervisorOutput {
+  return {
+    text: response.text,
+    steps: response.steps,
+    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+    usage: response.usage,
+    model: response.model,
+    provider: response.provider,
+    ...(response.cost ? { cost: response.cost } : {}),
+    thinking: response.thinking,
+    temperature: response.temperature,
+    durationMs: response.durationMs,
+    toolBuildingMs: ctx.toolBuildingMs,
+    toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
+    ...(ttfbMs !== undefined ? { ttfbMs } : {}),
+    replyHandled: ctx.signals.replyHandled || undefined,
+    replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+  };
+}
+
 export async function superviseStream(input: SupervisorInput): Promise<SupervisorStreamOutput> {
   const ctx = await prepareSupervisor(input);
 
@@ -630,30 +701,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
   // chance to attach, so close here instead.
   let stream: Awaited<ReturnType<typeof chatStream>>;
   try {
-    stream = await chatStream(
-      {
-        tier: "standard",
-        provider: input.provider,
-        model: input.model,
-        thinking: input.thinkingEnabled ?? false,
-        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-        ...(input.temperature != null ? { temperature: input.temperature } : {}),
-        apiKeys: input.apiKeys,
-        langsmith: input.langsmith,
-        system: ctx.systemPrompt,
-        messages: ctx.messages,
-        tools: ctx.tools,
-        maxSteps: 15,
-        abortSignal: input.abortSignal,
-        captureDebug: input.debugEnabled ?? false,
-        cacheConfig: input.cacheConfig,
-      },
-      {
-        conversationId: input.conversationId,
-        instanceId: ctx.instanceId,
-        agentCallMetadata: input.agentCallMetadata,
-      }
-    );
+    stream = await chatStream(...buildChatArgs(input, ctx));
   } catch (err) {
     await ctx.mcpClose().catch(() => { /* best-effort */ });
     throw err;
@@ -675,24 +723,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
   const completed = stream.response
     .then((response) => {
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
-      return {
-        text: response.text,
-        steps: response.steps,
-        ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-        usage: response.usage,
-        model: response.model,
-        provider: response.provider,
-        ...(response.cost ? { cost: response.cost } : {}),
-        thinking: response.thinking,
-        temperature: response.temperature,
-        durationMs: response.durationMs,
-        toolBuildingMs: ctx.toolBuildingMs,
-        toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-        ttfbMs,
-        replyHandled: ctx.signals.replyHandled || undefined,
-        replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-        ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-      };
+      return toSupervisorOutput(response, ctx, ttfbMs);
     })
     .finally(() => ctx.mcpClose());
 
@@ -707,50 +738,11 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
   const ctx = await prepareSupervisor(input);
 
   try {
-    const response = await chat(
-      {
-        tier: "standard",
-        provider: input.provider,
-        model: input.model,
-        thinking: input.thinkingEnabled ?? false,
-        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-        ...(input.temperature != null ? { temperature: input.temperature } : {}),
-        apiKeys: input.apiKeys,
-        langsmith: input.langsmith,
-        system: ctx.systemPrompt,
-        messages: ctx.messages,
-        tools: ctx.tools,
-        maxSteps: 15,
-        abortSignal: input.abortSignal,
-        captureDebug: input.debugEnabled ?? false,
-        cacheConfig: input.cacheConfig,
-      },
-      {
-        conversationId: input.conversationId,
-        instanceId: ctx.instanceId,
-        agentCallMetadata: input.agentCallMetadata,
-      }
-    );
+    const response = await chat(...buildChatArgs(input, ctx));
 
     pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
 
-    return {
-      text: response.text,
-      steps: response.steps,
-      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-      usage: response.usage,
-      model: response.model,
-      provider: response.provider,
-      ...(response.cost ? { cost: response.cost } : {}),
-      thinking: response.thinking,
-      temperature: response.temperature,
-      durationMs: response.durationMs,
-      toolBuildingMs: ctx.toolBuildingMs,
-      toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-      replyHandled: ctx.signals.replyHandled || undefined,
-      replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-      ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-    };
+    return toSupervisorOutput(response, ctx);
   } finally {
     // Non-streamed: the turn is fully done by the time we get here (success or
     // throw) — safe to tear down MCP clients synchronously.

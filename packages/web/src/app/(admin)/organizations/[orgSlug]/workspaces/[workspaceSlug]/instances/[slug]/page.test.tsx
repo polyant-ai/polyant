@@ -16,7 +16,7 @@
  *    row gone, the heading is the only thing on the page saying where you are.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import type { Instance } from "@/lib/api";
 
@@ -334,6 +334,33 @@ describe("InstanceDetailPage — sections", () => {
       expect(heading.nextElementSibling?.textContent).toMatch(new RegExp(`^agentSection\\.${value}`));
       unmount();
     }
+  });
+
+  it("shows the agent's icon left of its name, and a bot glyph when it has none", async () => {
+    mockInstancesGet.mockResolvedValue({ instance: makeInstance({ icon: "/icons/sofia.png" }) });
+    const { unmount } = render(<InstanceDetailPage />);
+    // Catches a header that names the agent but drops the picture the agents list shows.
+    expect((await screen.findByTestId("agent-icon")).tagName).toBe("IMG");
+    unmount();
+
+    mockInstancesGet.mockResolvedValue({ instance: makeInstance({ icon: null }) });
+    render(<InstanceDetailPage />);
+    expect((await screen.findByTestId("agent-icon")).tagName.toLowerCase()).toBe("svg");
+  });
+
+  it("puts icon, name, slug and status in one centred row, with the icon sharing the name's row", async () => {
+    render(<InstanceDetailPage />);
+    const icon = await screen.findByTestId("agent-icon");
+    const name = screen.getByRole("heading", { level: 1 });
+    // The icon and the name sit in the same centred group, so the icon cannot drift above the text.
+    expect(icon.parentElement).toBe(name.parentElement);
+    expect(icon.parentElement?.className).toMatch(/items-center/);
+    // Slug and status follow in one group beside it, wrapping beneath only on a narrow screen.
+    const meta = screen.getByTestId("agent-header-meta");
+    expect(meta.parentElement?.className).toMatch(/flex-wrap/);
+    expect(meta.parentElement?.className).toMatch(/items-center/);
+    expect(meta.parentElement).toBe(icon.parentElement?.parentElement);
+    expect(meta.textContent).toContain("test-instance");
   });
 
   it("falls back to the overview for an unknown `?tab=` value", async () => {

@@ -3,7 +3,7 @@
 "use client";
 
 import { SearchCode } from "lucide-react";
-import { MarkdownRenderer } from "./markdown-renderer";
+import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { SystemActivity } from "@/components/messages/system-activity";

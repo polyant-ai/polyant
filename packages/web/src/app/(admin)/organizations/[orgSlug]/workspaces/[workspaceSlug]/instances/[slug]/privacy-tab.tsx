@@ -2,14 +2,19 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Plus } from "lucide-react";
+import { ListDrawer } from "@/components/list-drawer";
+import { ListBadgeCell, ListHead, ListMetaCell, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { ListEmpty, ListLoading, ListNoResults } from "@/components/list-states";
+import { useListView } from "@/components/use-list-view";
 import {
   Select,
   SelectContent,
@@ -17,22 +22,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableHeader, TableRow } from "@/components/ui/table";
 import { api, getUserErrorMessage, type Instance, type OptoutContact } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-import { formatDate } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 interface Props {
   instance: Instance;
-  onSaved?: () => void;
+  onUpdate?: (instance: Instance) => void;
 }
 
 // Channels whose inbound gate + outbound suppression actually honor opt-out
@@ -54,57 +55,42 @@ function parseKeywords(s: string): string[] {
     .filter(Boolean);
 }
 
-function sameKeywords(input: string, base: string[]): boolean {
-  const parsed = parseKeywords(input);
-  return parsed.length === base.length && parsed.every((k, i) => k === base[i]);
-}
-
-export function PrivacyTab({ instance, onSaved }: Props) {
+export function PrivacyTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
   // ── Config form state ──────────────────────────────────────────────
-  const [enabled, setEnabled] = useState(instance.optoutEnabled);
-  const [stopKeywords, setStopKeywords] = useState(
-    instance.optoutStopKeywords.join(", "),
-  );
-  const [resumeKeywords, setResumeKeywords] = useState(
-    instance.optoutResumeKeywords.join(", "),
-  );
-  const [closingMsg, setClosingMsg] = useState(instance.optoutClosingMessage ?? "");
-  const [resumeMsg, setResumeMsg] = useState(instance.optoutResumeMessage ?? "");
-  const [injectHint, setInjectHint] = useState(instance.optoutInjectPromptHint);
+  const { draft, set, isDirty } = useDraft({
+    enabled: instance.optoutEnabled,
+    stopKeywords: instance.optoutStopKeywords.join(", "),
+    resumeKeywords: instance.optoutResumeKeywords.join(", "),
+    closingMsg: instance.optoutClosingMessage ?? "",
+    resumeMsg: instance.optoutResumeMessage ?? "",
+    injectHint: instance.optoutInjectPromptHint,
+  });
+  const { enabled, stopKeywords, resumeKeywords, closingMsg, resumeMsg, injectHint } = draft;
   const [saving, setSaving] = useState(false);
 
   // ── Contacts table state ───────────────────────────────────────────
-  const [contacts, setContacts] = useState<OptoutContact[]>([]);
-  const [loadingContacts, setLoadingContacts] = useState(true);
+  const { data, error: contactsError, loading: loadingContacts, reload: refreshContacts } = useResource(
+    ["optouts", instance.slug],
+    () => api.optouts.list(instance.slug, { status: "opted_out" }),
+  );
+  const contacts: OptoutContact[] = data?.optouts ?? [];
 
   // ── Opt-out-a-contact form state ───────────────────────────────────
   const [newChannelType, setNewChannelType] = useState<string>(OPTOUT_CHANNELS[0]);
   const [newChannelId, setNewChannelId] = useState("");
   const [addingContact, setAddingContact] = useState(false);
-
-  const refreshContacts = async () => {
-    setLoadingContacts(true);
-    try {
-      const res = await api.optouts.list(instance.slug, { status: "opted_out" });
-      setContacts(res.optouts);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("privacy.loadContactsFailed")));
-    } finally {
-      setLoadingContacts(false);
-    }
-  };
-
-  useEffect(() => {
-    void refreshContacts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.slug]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [openContact, setOpenContact] = useState<OptoutContact | null>(null);
+  const visibleContacts = useListView(contacts, search, (c) => [c.channelId, c.channelType, c.source], (c) => c.channelId);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.instances.update(instance.slug, {
+      const { instance: updated } = await api.instances.update(instance.slug, {
         optoutEnabled: enabled,
         optoutStopKeywords: parseKeywords(stopKeywords),
         optoutResumeKeywords: parseKeywords(resumeKeywords),
@@ -112,7 +98,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
         optoutResumeMessage: resumeMsg.trim() || null,
         optoutInjectPromptHint: injectHint,
       });
-      onSaved?.();
+      onUpdate?.(updated);
       toast.success(t("privacy.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.saveFailed")));
@@ -121,21 +107,14 @@ export function PrivacyTab({ instance, onSaved }: Props) {
     }
   };
 
-  const isDirty =
-    enabled !== instance.optoutEnabled ||
-    !sameKeywords(stopKeywords, instance.optoutStopKeywords) ||
-    !sameKeywords(resumeKeywords, instance.optoutResumeKeywords) ||
-    closingMsg.trim() !== (instance.optoutClosingMessage ?? "") ||
-    resumeMsg.trim() !== (instance.optoutResumeMessage ?? "") ||
-    injectHint !== instance.optoutInjectPromptHint;
-
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
 
   const handleReEnable = async (contact: OptoutContact) => {
     try {
       await api.optouts.optIn(instance.slug, contact.channelType, contact.channelId);
       toast.success(t("privacy.reEnableSuccess"));
-      await refreshContacts();
+      setOpenContact(null);
+      refreshContacts();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.reEnableFailed")));
     }
@@ -151,7 +130,8 @@ export function PrivacyTab({ instance, onSaved }: Props) {
       toast.success(t("privacy.optOutContactSuccess"));
       setNewChannelType(OPTOUT_CHANNELS[0]);
       setNewChannelId("");
-      await refreshContacts();
+      setAddOpen(false);
+      refreshContacts();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.optOutContactFailed")));
     } finally {
@@ -160,20 +140,16 @@ export function PrivacyTab({ instance, onSaved }: Props) {
   };
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="space-y-8">
       {/* ── GDPR opt-out config ──────────────────────────────────────── */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("privacy.title")}</Label>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("privacy.description")}
-          </p>
-        </div>
+      <section className="max-w-2xl space-y-4 rounded-lg border p-4">
+        {/* The section's own title (the agent page's) already says "GDPR opt-out". */}
+        <p className="text-sm text-muted-foreground">{t("privacy.description")}</p>
 
         {/* Enable toggle */}
         <div className="flex items-center justify-between border-t pt-4">
           <Label>{t("privacy.enable")}</Label>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
+          <Switch checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
         </div>
 
         {enabled && (
@@ -184,7 +160,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
               <Input
                 id="stop-keywords"
                 value={stopKeywords}
-                onChange={(e) => setStopKeywords(e.target.value)}
+                onChange={(e) => set("stopKeywords", e.target.value)}
                 placeholder="STOP, UNSUBSCRIBE"
               />
               <p className="text-xs text-muted-foreground">
@@ -198,7 +174,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
               <Input
                 id="resume-keywords"
                 value={resumeKeywords}
-                onChange={(e) => setResumeKeywords(e.target.value)}
+                onChange={(e) => set("resumeKeywords", e.target.value)}
                 placeholder="START, SUBSCRIBE"
               />
             </div>
@@ -209,7 +185,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
               <Textarea
                 id="closing-msg"
                 value={closingMsg}
-                onChange={(e) => setClosingMsg(e.target.value)}
+                onChange={(e) => set("closingMsg", e.target.value)}
                 placeholder={t("privacy.closingMessagePlaceholder")}
                 rows={3}
               />
@@ -221,7 +197,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
               <Textarea
                 id="resume-msg"
                 value={resumeMsg}
-                onChange={(e) => setResumeMsg(e.target.value)}
+                onChange={(e) => set("resumeMsg", e.target.value)}
                 placeholder={t("privacy.resumeMessagePlaceholder")}
                 rows={3}
               />
@@ -237,76 +213,111 @@ export function PrivacyTab({ instance, onSaved }: Props) {
                   {t("privacy.injectHintHelp")}
                 </p>
               </div>
-              <Switch checked={injectHint} onCheckedChange={setInjectHint} />
+              <Switch checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
             </div>
           </>
         )}
       </section>
 
       {/* ── Opted-out contacts ───────────────────────────────────────── */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("privacy.contactsTitle")}</Label>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("privacy.contactsDescription")}
-          </p>
+      <section className="space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Label className="text-base font-medium">{t("privacy.contactsTitle")}</Label>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("privacy.contactsDescription")}
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="mr-1 size-4" />
+            {t("privacy.add")}
+          </Button>
         </div>
 
-        {loadingContacts ? (
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </div>
+        {contactsError ? (
+          <LoadFailed message={t("privacy.loadContactsFailed")} onRetry={refreshContacts} />
+        ) : loadingContacts ? (
+          <ListLoading className="mt-4" />
         ) : contacts.length === 0 ? (
-          <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {t("privacy.contactsEmpty")}
-          </p>
+          <ListEmpty className="mt-4" title={t("privacy.contactsEmpty")} />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("privacy.channel")}</TableHead>
-                <TableHead>{t("privacy.contact")}</TableHead>
-                <TableHead>{t("privacy.date")}</TableHead>
-                <TableHead>{t("privacy.source")}</TableHead>
-                <TableHead className="w-[110px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {contacts.map((c) => (
-                <TableRow key={`${c.channelType}:${c.channelId}`}>
-                  <TableCell className="font-medium">{c.channelType}</TableCell>
-                  <TableCell className="font-mono text-xs">{c.channelId}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {c.updatedAt ? formatDate(c.updatedAt) : "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{c.source}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleReEnable(c)}
+          <div>
+            <ListToolbar value={search} onChange={setSearch} />
+            {visibleContacts.length === 0 ? (
+              <ListNoResults />
+            ) : (
+              <ListTable>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <ListHead>{t("privacy.contact")}</ListHead>
+                    <ListHead className="w-32">{t("privacy.channel")}</ListHead>
+                    <ListHead className="w-36">{t("privacy.date")}</ListHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleContacts.map((c) => (
+                    <ListRow
+                      key={`${c.channelType}:${c.channelId}`}
+                      onOpen={() => setOpenContact(c)}
+                      selected={openContact?.channelType === c.channelType && openContact.channelId === c.channelId}
                     >
-                      {t("privacy.reEnable")}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                      <ListNameCell name={c.channelId} onOpen={() => setOpenContact(c)} summary={c.source} />
+                      <ListBadgeCell>{c.channelType}</ListBadgeCell>
+                      <ListMetaCell>{c.updatedAt ? fmt.date(c.updatedAt) : "—"}</ListMetaCell>
+                    </ListRow>
+                  ))}
+                </TableBody>
+              </ListTable>
+            )}
+          </div>
         )}
 
-        {/* ── Manual opt-out form ──────────────────────────────────── */}
-        <div className="border-t pt-4">
-          <Label className="text-sm font-medium">{t("privacy.optOutContact")}</Label>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("privacy.optOutContactHelp")}
-          </p>
-          <div className="mt-3 flex items-end gap-2">
+        {/* A contact's details and the way back in. */}
+        <ListDrawer
+          open={openContact !== null}
+          onOpenChange={(open) => !open && setOpenContact(null)}
+          title={openContact?.channelId ?? ""}
+          description={openContact ? `${openContact.channelType} · ${openContact.source}` : ""}
+          actions={
+            openContact && (
+              <Button onClick={() => handleReEnable(openContact)}>{t("privacy.reEnable")}</Button>
+            )
+          }
+        >
+          {openContact && (
+            <dl className="grid grid-cols-[8rem_1fr] gap-2 text-sm">
+              <dt className="text-muted-foreground">{t("privacy.channel")}</dt>
+              <dd>{openContact.channelType}</dd>
+              <dt className="text-muted-foreground">{t("privacy.contact")}</dt>
+              <dd className="font-mono text-xs">{openContact.channelId}</dd>
+              <dt className="text-muted-foreground">{t("privacy.date")}</dt>
+              <dd>{openContact.updatedAt ? fmt.date(openContact.updatedAt) : "—"}</dd>
+              <dt className="text-muted-foreground">{t("privacy.source")}</dt>
+              <dd>{openContact.source}</dd>
+            </dl>
+          )}
+        </ListDrawer>
+
+        {/* ── Manual opt-out ───────────────────────────────────────── */}
+        <ListDrawer
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          title={t("privacy.optOutContact")}
+          description={t("privacy.optOutContactHelp")}
+          primary={
+            <Button
+              disabled={addingContact || !newChannelType.trim() || !newChannelId.trim()}
+              onClick={handleOptOutContact}
+            >
+              {addingContact ? t("common.saving") : t("common.add")}
+            </Button>
+          }
+        >
+          <div className="space-y-4">
             <div className="space-y-1">
-              <Label className="text-xs">{t("privacy.channel")}</Label>
+              <Label>{t("privacy.channel")}</Label>
               <Select value={newChannelType} onValueChange={setNewChannelType}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -318,23 +329,17 @@ export function PrivacyTab({ instance, onSaved }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 space-y-1">
-              <Label className="text-xs">{t("privacy.contact")}</Label>
+            <div className="space-y-1">
+              <Label htmlFor="optout-contact">{t("privacy.contact")}</Label>
               <Input
+                id="optout-contact"
                 value={newChannelId}
                 onChange={(e) => setNewChannelId(e.target.value)}
                 placeholder={CHANNEL_ID_PLACEHOLDER[newChannelType] ?? ""}
               />
             </div>
-            <Button
-              size="default"
-              disabled={addingContact || !newChannelType.trim() || !newChannelId.trim()}
-              onClick={handleOptOutContact}
-            >
-              {addingContact ? t("common.saving") : t("privacy.optOutContactButton")}
-            </Button>
           </div>
-        </div>
+        </ListDrawer>
       </section>
     </div>
   );

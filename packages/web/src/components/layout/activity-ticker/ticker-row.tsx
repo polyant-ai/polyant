@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Clock } from "lucide-react";
+import { Bot, Clock } from "lucide-react";
 import { narrate } from "@/lib/activity-stream/narrative";
 import { NarrativeTokenView } from "@/lib/activity-stream/narrative-tokens";
 import { useI18n } from "@/lib/i18n/context";
@@ -14,8 +14,6 @@ import type { FeedEvent } from "@/lib/activity-stream/types";
 interface Props {
   ev: FeedEvent;
 }
-
-const FALLBACK_INSTANCE_ICON = "🤖";
 
 function isImageIcon(icon: string): boolean {
   return (
@@ -35,7 +33,19 @@ function formatTime(ts: string): string {
 }
 
 function TickerAvatar({ icon, name }: { icon: string | null; name: string }) {
-  const safeIcon = icon || FALLBACK_INSTANCE_ICON;
+  // An agent without an icon gets the same bot glyph the agents list uses.
+  if (!icon) {
+    return (
+      <span
+        aria-hidden
+        title={name}
+        className="bg-muted text-muted-foreground flex size-6 shrink-0 items-center justify-center rounded-sm"
+      >
+        <Bot className="size-3.5" />
+      </span>
+    );
+  }
+  const safeIcon = icon;
   if (isImageIcon(safeIcon)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

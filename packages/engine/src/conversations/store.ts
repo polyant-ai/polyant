@@ -19,6 +19,11 @@ import {
   type TenantScope,
 } from "../authz/scope-filter.js";
 
+/** The text-only ModelMessage view of stored rows, in the shape `getRecentMessages` returns. */
+export function rowsToModelMessages(rows: readonly MessageRow[]): ModelMessage[] {
+  return rows.map((r) => ({ role: r.role as "user" | "assistant" | "system", content: r.content }));
+}
+
 export interface MessageRow {
   role: string;
   content: string;
@@ -45,16 +50,33 @@ function stripNulString(s: string): string {
 /** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
 
-/** First non-empty line, collapsed whitespace, hard-capped at MAX_TITLE_CHARS. */
+const WRAPPING_QUOTES_RE = /^["'“”‘’«»`]+|["'“”‘’«»`]+$/g;
+const SPEAKER_LABEL_RE = /^(?:user|utente|assistant|assistente)\s*:\s*/i;
+
+/**
+ * First non-empty line, without a leading speaker label ("User:", "Utente:",
+ * "Assistant:") or wrapping quotes, collapsed whitespace, hard-capped at
+ * MAX_TITLE_CHARS. The model sometimes echoes the transcript format it was fed.
+ */
 export function normalizeTitle(title: string): string {
   const firstLine = title
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0) ?? "";
-  const collapsed = firstLine.replace(/\s+/g, " ");
+  const collapsed = firstLine
+    .replace(WRAPPING_QUOTES_RE, "")
+    .replace(SPEAKER_LABEL_RE, "")
+    .replace(WRAPPING_QUOTES_RE, "")
+    .trim()
+    .replace(/\s+/g, " ");
   return collapsed.length <= MAX_TITLE_CHARS
     ? collapsed
     : collapsed.slice(0, MAX_TITLE_CHARS - 1).trimEnd() + "…";
+}
+
+/** A title as shown: older rows still carry the transcript label the model once echoed ("User: "). */
+function displayTitle(title: string | null): string | null {
+  return title === null || title === undefined ? null : title.replace(SPEAKER_LABEL_RE, "");
 }
 
 function stripNulDeep<T>(value: T): T {
@@ -93,6 +115,8 @@ export interface ConversationListItem {
   title: string | null;
   summary: string | null;
   channel: string | null;
+  /** The contact exactly as stored (email, phone number, channel handle), when the channel gave one. */
+  userIdentifier: string | null;
   instanceId: InstanceSlug | null;
   instanceName: string | null;
   messageCount: number;
@@ -140,6 +164,35 @@ export interface ConversationSearchResult extends ConversationListItem {
  * user message; completion tokens + cache + model + cost land on the assistant
  * message. Cache/model/cost are null for legacy rows without a linked trace.
  */
+/** One model call made during a turn, as `ai_logs` recorded it. */
+export interface TurnModelCall {
+  /** "conversation" for the agent's answer, "service" for the calls around it, "embedding" for an embedder. */
+  callType: string;
+  provider: string;
+  model: string;
+  durationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  outcome: string;
+  errorKind: string | null;
+  createdAt: string | null;
+}
+
+/** Everything the per-message Debug sheet loads on open. */
+export interface MessageDebug {
+  /** Null when the turn was generated with DEBUG off. */
+  debugPayload: LlmDebugPayload | null;
+  steps: StepDetail[] | null;
+  /** How the turn arrived; null for a message with no pipeline trace. */
+  turn: {
+    channel: string;
+    streaming: boolean;
+    speechToText: { provider: string; durationMs: number | null; audioDurationSec: number | null } | null;
+  } | null;
+  modelCalls: TurnModelCall[];
+}
+
 export interface MessageMetadata {
   promptTokens: number;
   completionTokens: number;
@@ -530,6 +583,8 @@ export class ConversationStore {
   async listConversations(options: {
     instanceId?: InstanceSlug;
     source?: string;
+    /** Case-insensitive substring of the contact (email, phone number, channel handle). */
+    userIdentifier?: string;
     updatedSince?: Date;
     updatedUntil?: Date;
     limit?: number;
@@ -542,6 +597,9 @@ export class ConversationStore {
     const conditions: ReturnType<typeof sql>[] = [];
     if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
     if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    if (options.userIdentifier) {
+      conditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
+    }
     if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
     if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
@@ -565,6 +623,7 @@ export class ConversationStore {
           c.title,
           c.summary,
           c.channel,
+          c.user_identifier,
           c.instance_id,
           i.name AS instance_name,
           c.message_count AS message_count,
@@ -607,9 +666,10 @@ export class ConversationStore {
       conversations: (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
         id: r.id as string,
         conversationId: r.conversation_id as string,
-        title: (r.title as string) ?? null,
+        title: displayTitle(r.title as string | null),
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
+        userIdentifier: (r.user_identifier as string) ?? null,
         instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
@@ -650,6 +710,7 @@ export class ConversationStore {
         c.title,
         c.summary,
         c.channel,
+        c.user_identifier,
         c.instance_id,
         i.name AS instance_name,
         c.message_count AS message_count,
@@ -686,9 +747,10 @@ export class ConversationStore {
     return {
       id: r.id as string,
       conversationId: r.conversation_id as string,
-      title: (r.title as string) ?? null,
+      title: displayTitle(r.title as string | null),
       summary: (r.summary as string) ?? null,
       channel: (r.channel as string) ?? null,
+      userIdentifier: (r.user_identifier as string) ?? null,
       instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
@@ -756,18 +818,17 @@ export class ConversationStore {
 
   /**
    * Fetch the heavy per-turn debug data for a single message: the captured LLM
-   * request payload (DEBUG mode only) plus the multi-step tool trace. Scoped by
-   * conversationId so a message id cannot be read out of its conversation.
-   * Returns null when the message does not exist in that conversation.
+   * request payload (DEBUG mode only), the multi-step tool trace, how the turn
+   * arrived (channel, streaming, speech-to-text) and the model calls it made.
+   * Scoped by conversationId so a message id cannot be read out of its
+   * conversation. Returns null when the message does not exist in that conversation.
    */
-  async getMessageDebug(
-    conversationId: string,
-    messageId: string,
-  ): Promise<{ debugPayload: LlmDebugPayload | null; steps: StepDetail[] | null } | null> {
+  async getMessageDebug(conversationId: string, messageId: string): Promise<MessageDebug | null> {
     const rows = await db
       .select({
         debugPayload: conversationMessages.debugPayload,
         steps: conversationMessages.steps,
+        createdAt: conversationMessages.createdAt,
       })
       .from(conversationMessages)
       .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
@@ -775,19 +836,89 @@ export class ConversationStore {
 
     const row = rows[0];
     if (!row) return null;
+
+    // `ai_logs` has no message id, so the turn's calls are the conversation's
+    // calls from the user message that opened the turn up to the next one:
+    // the calls that answered it and the post-response ones after it.
+    // An ISO string cast in SQL: the raw fragments below do not serialize a Date.
+    const at = sql`${(row.createdAt ?? new Date()).toISOString()}::timestamptz`;
+    const turnStart = sql`COALESCE((
+      SELECT MAX(${conversationMessages.createdAt}) FROM ${conversationMessages}
+      WHERE ${conversationMessages.conversationId} = ${conversationId}
+        AND ${conversationMessages.role} = 'user' AND ${conversationMessages.createdAt} <= ${at}
+    ), ${at})`;
+    const turnEnd = sql`COALESCE((
+      SELECT MIN(${conversationMessages.createdAt}) FROM ${conversationMessages}
+      WHERE ${conversationMessages.conversationId} = ${conversationId}
+        AND ${conversationMessages.role} = 'user' AND ${conversationMessages.createdAt} > ${at}
+    ), 'infinity'::timestamptz)`;
+
+    const [traces, calls] = await Promise.all([
+      db
+        .select({
+          channel: pipelineTraces.channel,
+          isStreaming: pipelineTraces.isStreaming,
+          sttProvider: pipelineTraces.sttProvider,
+          sttDurationMs: pipelineTraces.sttDurationMs,
+          audioDurationSec: pipelineTraces.audioDurationSec,
+        })
+        .from(pipelineTraces)
+        .where(and(eq(pipelineTraces.messageId, messageId), eq(pipelineTraces.conversationId, conversationId)))
+        .limit(1),
+      db
+        .select({
+          callType: aiLogs.callType,
+          provider: aiLogs.provider,
+          model: aiLogs.model,
+          durationMs: aiLogs.durationMs,
+          promptTokens: aiLogs.promptTokens,
+          completionTokens: aiLogs.completionTokens,
+          costUsd: aiLogs.estimatedCostUsd,
+          outcome: aiLogs.outcome,
+          errorKind: aiLogs.errorKind,
+          createdAt: aiLogs.createdAt,
+        })
+        .from(aiLogs)
+        .where(
+          and(
+            eq(aiLogs.conversationId, conversationId),
+            sql`${aiLogs.createdAt} >= ${turnStart}`,
+            sql`${aiLogs.createdAt} < ${turnEnd}`,
+          ),
+        )
+        .orderBy(asc(aiLogs.createdAt)),
+    ]);
+
+    const trace = traces[0];
     return {
       debugPayload: (row.debugPayload as LlmDebugPayload | null) ?? null,
       steps: (row.steps as StepDetail[] | null) ?? null,
+      turn: trace
+        ? {
+            channel: trace.channel,
+            streaming: trace.isStreaming,
+            // Only a voice turn has a transcription.
+            speechToText:
+              trace.sttProvider != null
+                ? {
+                    provider: trace.sttProvider,
+                    durationMs: trace.sttDurationMs ?? null,
+                    audioDurationSec: trace.audioDurationSec != null ? Number(trace.audioDurationSec) : null,
+                  }
+                : null,
+          }
+        : null,
+      modelCalls: calls.map((c) => ({ ...c, createdAt: c.createdAt?.toISOString() ?? null })),
     };
   }
 
   /**
-   * Search conversations by message content (FTS) or by conversation id
-   * substring (case-insensitive). Returns conversation-level results.
+   * Search conversations by message content (FTS), by conversation id or by
+   * contact substring (case-insensitive). Returns conversation-level results.
    */
   async searchConversations(
     query: string,
-    options: { scope: TenantScope; instanceId?: InstanceSlug; limit?: number; offset?: number },
+    options: { scope: TenantScope; instanceId?: InstanceSlug; userIdentifier?: string; limit?: number; offset?: number },
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
@@ -797,12 +928,16 @@ export class ConversationStore {
     // Cross-org gate: a search with no instanceId stays scoped to the caller-org
     // rows; a foreign-org instanceId param yields zero rows.
     const orgFilter = buildOrgScopedAgentFilterFragment(options.scope, "c.instance_id");
+    const contactFilter = options.userIdentifier
+      ? sql`AND c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`
+      : sql``;
     const instanceFilter = options.instanceId
-      ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter}`
-      : orgFilter;
+      ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter} ${contactFilter}`
+      : sql`${orgFilter} ${contactFilter}`;
 
     const matchFilter = sql`(
       c.conversation_id ILIKE ${idPattern}
+      OR c.user_identifier ILIKE ${idPattern}
       OR EXISTS (
         SELECT 1 FROM conversation_messages cmx
         WHERE cmx.conversation_id = c.conversation_id
@@ -818,6 +953,7 @@ export class ConversationStore {
           c.title,
           c.summary,
           c.channel,
+          c.user_identifier,
           c.instance_id,
           i.name AS instance_name,
           COUNT(cm.id)::int AS match_count,
@@ -872,9 +1008,10 @@ export class ConversationStore {
       conversations: (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
         id: r.id as string,
         conversationId: r.conversation_id as string,
-        title: (r.title as string) ?? null,
+        title: displayTitle(r.title as string | null),
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
+        userIdentifier: (r.user_identifier as string) ?? null,
         instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,

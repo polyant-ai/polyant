@@ -160,7 +160,7 @@ describe("migrations rename_extracted_tools (integration)", () => {
       _registerToolForTests(
         defineTool({ name: CORE, description: "core", parameters: z.object({}), execute: async () => ({}) }),
       );
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       await syncToolsToDb();
       const warnings = warn.mock.calls.map((c) => String(c[0]));
       warn.mockRestore();

@@ -3,6 +3,9 @@
 import { config } from "../config.js";
 import { hashPassword } from "./password.util.js";
 import { countUsers, insertUser } from "./users.store.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Idempotent: on first boot (users table empty) creates a platform-admin account
@@ -16,14 +19,15 @@ import { countUsers, insertUser } from "./users.store.js";
 export async function seedInitialAdmin(): Promise<void> {
   const existing = await countUsers();
   if (existing > 0) {
-    console.log(`[users/seed] Skipped — ${existing} user(s) already exist`);
+    log.info("users/seed", `Skipped — ${existing} user(s) already exist`);
     return;
   }
 
   const password = config.initialAdmin.password;
   if (!password) {
-    console.warn(
-      "[users/seed] Skipping initial admin seed: INITIAL_ADMIN_PASSWORD is not set. " +
+    log.warn(
+      "users/seed",
+      "Skipping initial admin seed: INITIAL_ADMIN_PASSWORD is not set. " +
         "Set INITIAL_ADMIN_PASSWORD (and optionally INITIAL_ADMIN_EMAIL) in the environment and restart.",
     );
     return;
@@ -42,5 +46,5 @@ export async function seedInitialAdmin(): Promise<void> {
 
   // Boot logs are persisted by the file logger: never include the account email
   // (PII) or the configured password.
-  console.log("[users/seed] Seeded initial admin with configured credentials.");
+  log.info("users/seed", "Seeded initial admin with configured credentials.");
 }

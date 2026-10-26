@@ -60,6 +60,7 @@ describe("getKnowledge tool", () => {
       status: "ready",
       chunkCount: 1,
       errorMessage: null,
+      enabled: true,
       createdAt: new Date("2026-04-16T10:00:00Z"),
       updatedAt,
     });
@@ -79,6 +80,32 @@ describe("getKnowledge tool", () => {
       status: "ready",
       updatedAt: updatedAt.toISOString(),
     });
+  });
+
+  it("returns found=false for a switched-off document", async () => {
+    mockGetDocumentByFilename.mockResolvedValue({
+      id: "doc-2",
+      instanceId: "inst-1",
+      filename: "old-policy.md",
+      mimeType: "text/markdown",
+      sizeBytes: 12,
+      rawContent: "stale",
+      contentHash: "def",
+      source: "upload",
+      status: "ready",
+      chunkCount: 1,
+      errorMessage: null,
+      enabled: false,
+      createdAt: new Date("2026-04-16T10:00:00Z"),
+      updatedAt: new Date("2026-04-17T10:00:00Z"),
+    });
+
+    const result = await getKnowledge.execute(
+      { filename: "old-policy.md" },
+      { toolCallId: "tc-1", messages: [] } as any,
+    );
+
+    expect(result).toEqual({ found: false });
   });
 
   it("returns found=false with error when store throws", async () => {

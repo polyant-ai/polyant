@@ -549,6 +549,36 @@ describe("supervise", () => {
       expect(builtNames).toContain("acme:updateContactCrm");
     });
 
+    it("gives a tool ctx.ai on the agent's provider, keys and tracing, with the tier it asks for, as a service call of the turn", async () => {
+      mockGetToolRegistry.mockReturnValue(
+        new Map([
+          ["acme:classify", { name: "acme:classify", description: "d", category: "plugin", inputSchema: { type: "object" }, execute: vi.fn() }],
+        ]),
+      );
+      mockGetEnabledToolNames.mockResolvedValue(new Set(["acme:classify"]));
+      const abortSignal = new AbortController().signal;
+      const apiKeys = { anthropic: "sk-test" };
+      const langsmith = { apiKey: "ls-key", project: "proj" };
+
+      await supervise({ instanceId: TEST_INSTANCE, message: "hi", conversationId: "conv-1", provider: "anthropic", model: "claude-pinned-model", apiKeys, abortSignal, langsmith });
+      const ctx = mockBuildTool.mock.calls.find((c: unknown[]) => (c[0] as { name: string }).name === "acme:classify")![1] as {
+        ai?: { chat(input: unknown): Promise<string> };
+        abortSignal?: AbortSignal;
+      };
+      mockChat.mockClear();
+      mockChat.mockResolvedValue({ ...defaultChatResponse, text: "yes" });
+
+      await expect(ctx.ai!.chat({ system: "Answer yes or no.", messages: [{ role: "user", content: "ok?" }], tier: "fast" })).resolves.toBe("yes");
+      expect(mockChat).toHaveBeenCalledWith(
+        expect.objectContaining({ tier: "fast", provider: "anthropic", apiKeys, abortSignal, langsmith, system: "Answer yes or no." }),
+        expect.objectContaining({ conversationId: "conv-1", instanceId: TEST_INSTANCE, callType: "service" }),
+      );
+      // The agent's pinned model would override the tier: the tool's call picks its model by tier.
+      expect(mockChat.mock.calls[0][0]).not.toHaveProperty("model");
+      // The same signal the tool can hand to its own long work.
+      expect(ctx.abortSignal).toBe(abortSignal);
+    });
+
     it("does not include spawnTask when not in enabled tool names", async () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["read"]));
 
@@ -625,12 +655,14 @@ describe("supervise", () => {
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
-        apiKeys,
-        "my-instance",
-        "conv-1",
-        "anthropic",
-        "claude-pinned-model",
-        abortSignal,
+        {
+          apiKeys,
+          instanceId: "my-instance",
+          conversationId: "conv-1",
+          provider: "anthropic",
+          model: "claude-pinned-model",
+          abortSignal,
+        },
       );
     });
   });

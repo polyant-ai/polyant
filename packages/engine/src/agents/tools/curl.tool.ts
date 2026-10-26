@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 
 const DEFAULT_MAX_BODY_SIZE = 16_384;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -121,14 +121,7 @@ export default defineTool({
           bodyLength: rawBody.length,
         };
       } catch (err) {
-        const message = errMsg(err);
-        console.error(`curl tool error: ${message}`);
-        ctx.audit.log({
-          action: "web.fetch",
-          details: { url, method: "GET" },
-          success: false,
-          error: message,
-        });
+        const message = auditFailure(ctx, "web.fetch", { url, method: "GET" }, err, "curl tool");
         return {
           url,
           status: null,

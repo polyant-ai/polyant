@@ -108,11 +108,13 @@ describe("listSkills", () => {
     expect(result).toHaveLength(2);
     expect(result[0]).toEqual({
       name: "web-research",
+      displayName: "web-research",
       description: "Research the web",
       category: "general",
     });
     expect(result[1]).toEqual({
       name: "code-review",
+      displayName: "code-review",
       description: "Review code quality",
       category: "general",
     });
@@ -247,6 +249,23 @@ describe("updateSkill", () => {
     expect(result!.name).toBe("my-skill");
     expect(result!.description).toBe("Updated description");
     expect(result!.content).toBe("Updated content.");
+  });
+
+  it("passes a new display name to the store as the name, and addresses the skill by its slug alone", async () => {
+    mockUpdateSkill.mockResolvedValue({ ...buildRow("my-skill", "d", "c"), name: "My Skill" });
+
+    const result = await service.updateSkill("my-skill", { displayName: "My Skill", description: "d", content: "c" });
+
+    expect(mockUpdateSkill).toHaveBeenCalledWith("my-skill", expect.objectContaining({ name: "My Skill" }));
+    expect(result).toMatchObject({ name: "my-skill", displayName: "My Skill" });
+  });
+
+  it("leaves the stored name alone when no display name is given", async () => {
+    mockUpdateSkill.mockResolvedValue(buildRow("my-skill", "d", "c"));
+
+    await service.updateSkill("my-skill", { description: "d", content: "c" });
+
+    expect(mockUpdateSkill.mock.calls[0]![1]).toMatchObject({ name: undefined });
   });
 
   it("returns null when skill does not exist", async () => {

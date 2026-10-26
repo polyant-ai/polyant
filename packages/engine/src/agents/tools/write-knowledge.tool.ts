@@ -9,8 +9,11 @@ import {
 } from "../../knowledge/store.js";
 import { processDocument } from "../../knowledge/ingestion.js";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 export default defineTool({
   name: "writeKnowledge",
@@ -95,9 +98,7 @@ export default defineTool({
         const { docId, rawContent } = result;
         setImmediate(() => {
           processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
-            console.error(
-              `writeKnowledge reindex failed for doc ${docId}: ${errMsg(err)}`,
-            );
+            log.error("write-knowledge", `reindex failed for doc ${docId}`, err);
           });
         });
 
@@ -121,22 +122,17 @@ export default defineTool({
           sizeBytes: result.sizeBytes,
         };
       } catch (err) {
-        const message = errMsg(err);
         const code =
           err instanceof DocumentSizeExceededError
             ? "DOCUMENT_SIZE_EXCEEDED"
             : undefined;
-        ctx.audit.log({
-          action: "knowledge.write",
-          details: {
-            filename: auditPreview(filename),
-            mode: action,
-            ...(code ? { code } : {}),
-          },
-          success: false,
-          error: message,
-        });
-        console.error(`writeKnowledge tool error: ${message}`);
+        const message = auditFailure(
+          ctx,
+          "knowledge.write",
+          { filename: auditPreview(filename), mode: action, ...(code ? { code } : {}) },
+          err,
+          "writeKnowledge",
+        );
         return { ok: false, error: message, ...(code ? { code } : {}) };
       }
     },

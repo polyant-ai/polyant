@@ -46,13 +46,17 @@ vi.mock("../../management-audit/management-audit-logger.js", async () => {
 
 import { InstanceChannelsController } from "./instance-channels.controller.js";
 
-const { mockResolveInstanceConfig } = vi.hoisted(() => ({ mockResolveInstanceConfig: vi.fn() }));
+const { mockResolveInstanceConfig, mockBaseUrl } = vi.hoisted(() => ({
+  mockResolveInstanceConfig: vi.fn(),
+  mockBaseUrl: { stored: null as string | null, effective: "http://localhost:4000" },
+}));
 vi.mock("../../instances/config-resolver.js", () => ({ resolveInstanceConfig: mockResolveInstanceConfig }));
 
 // The platform policies are a row; this suite has no database. The values are
 // the shipped defaults, so the assertions read the same as before they moved.
 vi.mock("../../platform/platform-settings.store.js", () => ({
-  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+  resolvePlatformSettings: async () => ({ baseUrl: mockBaseUrl.effective }),
+  isBaseUrlConfigured: async () => mockBaseUrl.stored !== null,
 }));
 
 const ACCOUNT_SID = "AC00000000000000000000000000000001";
@@ -550,5 +554,24 @@ describe("InstanceChannelsController — the web channel", () => {
     await controller.setChannel("acme", "web", { config: {}, enabled: false }, USER);
     expect(mockResolveInstanceConfig).not.toHaveBeenCalled();
     expect(mockSetChannelConfig).toHaveBeenCalledWith("uuid-1", "web", {}, false, undefined);
+  });
+});
+
+describe("InstanceChannelsController — web endpoint", () => {
+  const controller = new InstanceChannelsController();
+
+  it("gives the completions URL on the configured public origin", async () => {
+    mockBaseUrl.stored = "https://agents.example.com";
+    mockBaseUrl.effective = "https://agents.example.com";
+    expect(await controller.webEndpoint("acme")).toEqual({
+      endpointUrl: "https://agents.example.com/v1/chat/completions",
+      baseUrlConfigured: true,
+    });
+  });
+
+  it("flags the localhost fallback as not configured, so the panel can say where to set it", async () => {
+    mockBaseUrl.stored = null;
+    mockBaseUrl.effective = "http://localhost:4000";
+    expect(await controller.webEndpoint("acme")).toMatchObject({ baseUrlConfigured: false });
   });
 });

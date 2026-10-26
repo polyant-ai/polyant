@@ -16,7 +16,8 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { ChannelsTab } from "./channels-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
-import type { ChannelConfig } from "@/lib/api";
+import { api, type ChannelConfig } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 
 const { mockList, mockSet, mockDelete, mockInstanceUpdate } = vi.hoisted(() => ({
   mockInstanceUpdate: vi.fn(),
@@ -25,11 +26,6 @@ const { mockList, mockSet, mockDelete, mockInstanceUpdate } = vi.hoisted(() => (
   mockDelete: vi.fn(),
 }));
 
-// `t` must keep ONE identity across renders, the way the real provider's does:
-// `ChannelsTab`'s list-loading effect depends on `[slug, t]`, so a `t` that
-// changes identity on every call (as a fresh arrow function would) reruns
-// that effect on every render and wipes any just-typed field before the test
-// can observe it.
 const stableT = (key: string) => key;
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -79,16 +75,27 @@ function SaveHarness() {
   );
 }
 
+/** What the section above does for the tab: reads the list and asks again after a change. */
+function TabWithList({ channelType }: { channelType: string }) {
+  const { data, reload } = useResource("channels", () => api.channels.list("a1"));
+  if (!data) return null;
+  return (
+    <ChannelsTab
+      slug="a1"
+      channelType={channelType}
+      channels={data.channels}
+      onChannelsChanged={reload}
+      instance={INSTANCE}
+      onInstanceUpdate={() => {}}
+    />
+  );
+}
+
 /** The tab's save lives in the page header, so the provider must be present. */
 function renderTab(channelType: string) {
   return render(
     <PageActionsProvider>
-      <ChannelsTab
-        slug="a1"
-        channelType={channelType}
-        instance={INSTANCE}
-        onInstanceUpdate={() => {}}
-      />
+      <TabWithList channelType={channelType} />
       <SaveHarness />
     </PageActionsProvider>,
   );

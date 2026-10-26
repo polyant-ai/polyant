@@ -3,6 +3,7 @@
 "use client";
 
 import { Lock } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useI18n } from "@/lib/i18n/context";
 
 /**
@@ -23,14 +24,10 @@ export function PermissionRequired({ description }: { description?: string }) {
   const { t } = useI18n();
 
   return (
-    <div className="mt-16 flex flex-col items-center text-center">
-      <div className="rounded-full bg-muted p-4">
-        <Lock className="h-8 w-8 text-muted-foreground" />
-      </div>
-      <h3 className="mt-4 text-lg font-medium">{t("permission.required.title")}</h3>
-      <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        {description ?? t("permission.required.description")}
-      </p>
-    </div>
+    <EmptyState
+      icon={Lock}
+      title={t("permission.required.title")}
+      description={description ?? t("permission.required.description")}
+    />
   );
 }

@@ -2,7 +2,8 @@
 
 import { Controller, Get, Post, Delete, Param, Query, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstance } from "../../memory/memory-store.js";
-import { embedMany, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
+import { embedMany } from "../../embeddings-gateway/index.js";
+import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -78,10 +79,7 @@ export class MemoriesController {
       throw new NotFoundException(`Agent "${uid}" not found`);
     }
 
-    const embCtx = await resolveEmbeddingContext(uid).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : "Embedding provider not configured.";
-      throw new BadRequestException(message);
-    });
+    const embCtx = await requireEmbeddingContext(uid);
     const [embedding] = await embedMany([body.content], embCtx);
     const result = await upsertMemory({
       instanceId: uid,

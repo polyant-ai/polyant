@@ -3,7 +3,7 @@
 import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ReasoningToggle } from "../model-catalog.js";
-import { createProvider, type PrepareMessages } from "./base.js";
+import { claudeThinkingBudget, createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
@@ -14,17 +14,6 @@ import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, wit
  * Reference: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#interleaved-thinking
  */
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
-
-/**
- * Legacy extended-thinking budgets (tokens) per reasoning level, for models on
- * the OLD `thinking.type:"enabled"` API. Newer models (Opus 4.7/4.8, Sonnet 5,
- * Fable 5) use `thinking.type:"adaptive"` + effort instead (see build fn).
- */
-const ANTHROPIC_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
-  low: 4096,
-  medium: 12000,
-  high: 24000,
-};
 
 /**
  * Anthropic requires an explicit `cache_control` marker (the `@ai-sdk/anthropic`
@@ -125,6 +114,5 @@ export function buildAnthropicThinkingOffOptions(
 
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
   if (adaptive) return { thinking: { type: "adaptive", display: "summarized" }, effort: level };
-  const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
-  return { thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGETS[budgetKey] } };
+  return { thinking: { type: "enabled", budgetTokens: claudeThinkingBudget(level) } };
 }

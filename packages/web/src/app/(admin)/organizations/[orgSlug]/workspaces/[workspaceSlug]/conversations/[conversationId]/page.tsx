@@ -3,7 +3,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Trash2, Loader2, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil, ArrowLeft, Copy, MoreHorizontal } from "lucide-react";
@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
-import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
 import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
 import { Switch } from "@/components/ui/switch";
@@ -51,10 +51,12 @@ import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { SystemActivity } from "@/components/messages/system-activity";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
-import { formatActivityTimestamp, formatRelativeTime, parseUTC } from "@/lib/format";
+import { formatActivityTimestamp, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
+import { agentConversationsSubpath, FROM_AGENT_PARAM, FROM_AGENT_VALUE } from "@/lib/conversations/from-agent";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useDetailedView } from "@/hooks/use-detailed-view";
 import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation";
 import { useFollowBottom } from "@/hooks/use-follow-bottom";
@@ -133,6 +135,7 @@ export default function ConversationDetailPage() {
   const fmt = useFormat();
   const params = useParams<{ conversationId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const paths = useTenantPaths();
   const conversationId = decodeURIComponent(params.conversationId);
   // Every conversation id is `<instanceSlug>:<channelType>:<channelId>` — see
@@ -140,6 +143,10 @@ export default function ConversationDetailPage() {
   // itself; the backend rejects requests that don't carry an explicit
   // ?instanceId= (cross-tenant IDOR guard).
   const instanceId = conversationId.split(":")[0] ?? "";
+  // Opened from an agent's Conversations section: «Indietro» returns to that
+  // section instead of the workspace list (the list's links carry no `from`).
+  const fromAgent = searchParams.get(FROM_AGENT_PARAM) === FROM_AGENT_VALUE;
+  const backHref = fromAgent ? paths.workspace(agentConversationsSubpath(instanceId)) : paths.workspace("/conversations");
 
   const [conversation, setConversation] = useState<ConversationListItem | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -171,27 +178,20 @@ export default function ConversationDetailPage() {
 
   // Copy a deep link to a specific message. Opening it scrolls to and
   // highlights that message (see the deep-link effect below).
+  const { copy: copyLink } = useCopyToClipboard(2000, t("conversations.detail.linkCopyFailed"));
+  const { copy: copyId } = useCopyToClipboard(2000, t("conversations.detail.idCopyFailed"));
   const handleShare = async (messageId: string) => {
     const url = `${window.location.origin}${window.location.pathname}#msg-${messageId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      window.history.replaceState(null, "", `#msg-${messageId}`);
-      toast.success(t("conversations.detail.linkCopied"));
-      // Flash the message so the user sees which one they just linked.
-      setHighlightId(messageId);
-      setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
-    } catch {
-      toast.error(t("conversations.detail.linkCopyFailed"));
-    }
+    if (!(await copyLink(url))) return;
+    window.history.replaceState(null, "", `#msg-${messageId}`);
+    toast.success(t("conversations.detail.linkCopied"));
+    // Flash the message so the user sees which one they just linked.
+    setHighlightId(messageId);
+    setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
   };
 
   const handleCopyId = async () => {
-    try {
-      await navigator.clipboard.writeText(conversationId);
-      toast.success(t("conversations.detail.idCopied"));
-    } catch {
-      toast.error(t("conversations.detail.idCopyFailed"));
-    }
+    if (await copyId(conversationId)) toast.success(t("conversations.detail.idCopied"));
   };
 
   useEffect(() => {
@@ -210,10 +210,10 @@ export default function ConversationDetailPage() {
       })
       .catch(() => {
         toast.error(t("conversations.detail.notFound"));
-        router.push(paths.workspace("/conversations"));
+        router.push(backHref);
       })
       .finally(() => setLoading(false));
-  }, [conversationId, router, t]);
+  }, [conversationId, router, t, backHref]);
 
   const handleLoadOlder = async () => {
     if (loadingMoreRef.current) return;
@@ -403,7 +403,11 @@ export default function ConversationDetailPage() {
       setRenameOpen(false);
       if (nextId !== conversationId) {
         // The id changed → the current route is stale; navigate to the new one.
-        router.push(paths.workspace(`/conversations/${encodeURIComponent(nextId)}`));
+        router.push(
+          paths.workspace(
+            `/conversations/${encodeURIComponent(nextId)}${fromAgent ? `?${FROM_AGENT_PARAM}=${FROM_AGENT_VALUE}` : ""}`,
+          ),
+        );
       } else {
         setConversation((c) => (c ? { ...c, title: nextTitle } : c));
       }
@@ -418,7 +422,7 @@ export default function ConversationDetailPage() {
     try {
       await api.conversations.delete(conversationId, instanceId);
       toast.success(t("conversations.detail.deleted"));
-      router.push(paths.workspace("/conversations"));
+      router.push(backHref);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("conversations.detail.deleteFailed")));
     }
@@ -444,7 +448,7 @@ export default function ConversationDetailPage() {
   return (
     <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col">
       <Link
-        href={paths.workspace("/conversations")}
+        href={backHref}
         className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -482,7 +486,7 @@ export default function ConversationDetailPage() {
                 ),
                 conversation.instanceName && <span key="agent">{conversation.instanceName}</span>,
                 <span key="messages">{t("conversations.detail.messages", { count: conversation.messageCount })}</span>,
-                <span key="created">{t("conversations.detail.created", { time: formatRelativeTime(conversation.createdAt, t) })}</span>,
+                <span key="created">{t("conversations.detail.created", { time: fmt.relative(conversation.createdAt) })}</span>,
                 conversation.totalTokens > 0 && (
                   <Tooltip key="tokens">
                     <TooltipTrigger asChild>
@@ -505,12 +509,12 @@ export default function ConversationDetailPage() {
                   <Tooltip key="cost">
                     <TooltipTrigger asChild>
                       <span tabIndex={0} className="cursor-help tabular-nums underline decoration-dotted underline-offset-4">
-                        ${conversation.totalCost.toFixed(4)}
+                        {fmt.currency(conversation.totalCost)}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{t("conversations.detail.conversationCost")}: ${conversation.conversationCost.toFixed(4)}</p>
-                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: ${conversation.serviceCost.toFixed(4)}</p>
+                      <p>{t("conversations.detail.conversationCost")}: {fmt.currency(conversation.conversationCost)}</p>
+                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {fmt.currency(conversation.serviceCost)}</p>
                     </TooltipContent>
                   </Tooltip>
                 ),
@@ -587,7 +591,7 @@ export default function ConversationDetailPage() {
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               {t("common.delete")}
             </AlertDialogAction>

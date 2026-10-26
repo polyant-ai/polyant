@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { resetStuckProcessingAll } from "./store.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /** How often the recovery runs after boot. */
 export const STUCK_DOCUMENT_SWEEP_MS = 5 * 60_000;
@@ -9,13 +12,10 @@ async function sweepOnce(): Promise<void> {
   try {
     const reset = await resetStuckProcessingAll();
     if (reset > 0) {
-      console.log(`[Knowledge] Reset ${reset} stalled document(s) to error`);
+      log.info("knowledge", `Reset ${reset} stalled document(s) to error`);
     }
   } catch (err) {
-    console.error(
-      "[Knowledge] Stalled-document recovery failed (non-fatal):",
-      err instanceof Error ? err.message : String(err),
-    );
+    log.error("knowledge", "Stalled-document recovery failed (non-fatal)", err);
   }
 }
 

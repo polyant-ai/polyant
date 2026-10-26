@@ -2,14 +2,15 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Cpu, Settings2, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type ChannelConfig, type Instance, type SkillState, type ToolState } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 import { useI18n } from "@/lib/i18n/context";
+import { instanceStatusLabel } from "@/lib/instance-status";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { StatusChecks } from "./status-checks-list";
 import type { StatusChecksState } from "./use-status-checks";
@@ -48,26 +49,12 @@ export function StatusTab({
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const [channels, setChannels] = useState<ChannelConfig[] | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.channels.list(instance.slug);
-        if (!cancelled) setChannels(res.channels);
-      } catch {
-        // Reading channels is admin-and-above. A viewer gets the rest of the page
-        // and an "unknown" here, not a page-wide error.
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [instance.slug]);
+  // Reading channels is admin-and-above. A viewer gets the rest of the page and
+  // an "unknown" here (`null`), not a page-wide error.
+  const { data, loading } = useResource(["channels", instance.slug], () =>
+    api.channels.list(instance.slug).then((res) => res.channels).catch(() => null),
+  );
+  const channels: ChannelConfig[] | null = data ?? null;
 
   const section = (tab: string) => `${pathname}?tab=${tab}`;
   const liveChannels = (channels ?? []).filter((c) => c.enabled).map((c) => c.channelType);
@@ -96,7 +83,7 @@ export function StatusTab({
             </Row>
             <Row label={t("status.current.status")}>
               <Badge variant={instance.status === "active" ? "default" : "secondary"}>
-                {instance.status}
+                {instanceStatusLabel(instance.status, t)}
               </Badge>
             </Row>
           </Block>

@@ -64,7 +64,7 @@ export function ContextStoreSheet({ open, onOpenChange, conversationId, instance
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-lg">
+      <SheetContent side="right" className="gap-0 overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{t("conversations.state.title")}</SheetTitle>
           <SheetDescription>{t("conversations.state.description")}</SheetDescription>

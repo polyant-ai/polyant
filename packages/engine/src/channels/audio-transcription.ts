@@ -14,7 +14,9 @@ import { aiLogger } from "../ai-gateway/logger.js";
 import { estimateSttCost } from "../ai-gateway/config.js";
 import type { AudioReplyReason } from "./audio-replies.js";
 import { audioReply } from "./audio-replies.js";
-import { sanitizeForLog } from "../utils/create-logger.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_DURATION_SEC = 60;
@@ -71,9 +73,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
   }
 
   if (!hasCredentialsFor(provider, config.stt.credentials)) {
-    console.error(
-      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" missing credentials`,
-    );
+    log.error("stt", `instance="${input.instanceSlug}" provider="${provider}" missing credentials`);
     return fail("provider_error");
   }
 
@@ -90,8 +90,9 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     // every completed call is logged with its cost before branching on the text.
     const durationSec = response.durationSec ?? input.durationSec;
     const cleaned = response.text.trim();
-    console.log(
-      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" mime="${sanitizeForLog(input.mimeType)}" durationSec=${durationSec ?? "?"} latencyMs=${response.latencyMs} ok=${cleaned.length > 0}`,
+    log.info(
+      "stt",
+      `instance="${input.instanceSlug}" provider="${provider}" mime="${input.mimeType}" durationSec=${durationSec ?? "?"} latencyMs=${response.latencyMs} ok=${cleaned.length > 0}`,
     );
     aiLogger.log(
       aiLogger.createEntry(
@@ -113,9 +114,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     );
 
     if (cleaned.length === 0) {
-      console.warn(
-        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" empty transcript`,
-      );
+      log.warn("stt", `instance="${input.instanceSlug}" provider="${provider}" empty transcript`);
       return fail("empty_transcript");
     }
 
@@ -134,17 +133,52 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     if (err instanceof STTUnsupportedFormatError) return fail("unsupported_format");
     if (err instanceof STTMissingCredentialsError) return fail("provider_error");
     if (err instanceof STTTimeoutError || err instanceof STTProviderError) {
-      console.error(
-        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" failed: ${err.message}`,
-      );
+      log.error("stt", `instance="${input.instanceSlug}" provider="${provider}" failed`, err);
       return fail(err instanceof STTTimeoutError ? "timeout" : "provider_error");
     }
-    console.error(
-      '[stt] instance="%s" provider="%s" unknown error:',
-      sanitizeForLog(input.instanceSlug),
-      provider,
-      err,
-    );
+    log.error("stt", `instance="${input.instanceSlug}" provider="${provider}" unknown error`, err);
     return fail("provider_error");
   }
+}
+
+export interface InboundAudioClip {
+  audio: Buffer;
+  mimeType: string;
+  /** Best-effort duration reported by the channel. */
+  durationSec?: number;
+}
+
+export type TranscribeInboundResult =
+  /** `text` is the message text with every transcript appended; `metadata` (absent when there were no clips) is spread into the message metadata. */
+  | { ok: true; text: string; metadata?: { originalKind: "audio"; audio: TranscribeAudioMetadata & { latencyMs: number } } }
+  /** Send `reply` to the person and stop: a clip could not be transcribed. */
+  | { ok: false; reply: string };
+
+/**
+ * The inbound-audio contract shared by the messaging channels: transcribe each
+ * clip in order, stop at the first failure with the reply to send, and append
+ * the transcripts to the message text, one per line. The adapter only
+ * downloads the audio and sends the reply.
+ */
+export async function transcribeInbound(input: {
+  instanceSlug: string;
+  conversationId: string;
+  clips: InboundAudioClip[];
+  text: string;
+}): Promise<TranscribeInboundResult> {
+  let text = input.text;
+  let metadata: Extract<TranscribeInboundResult, { ok: true }>["metadata"] | undefined;
+  for (const clip of input.clips) {
+    const result = await transcribeAudio({
+      audio: clip.audio,
+      mimeType: clip.mimeType,
+      durationSec: clip.durationSec,
+      instanceSlug: input.instanceSlug,
+      conversationId: input.conversationId,
+    });
+    if (!result.ok) return { ok: false, reply: result.userReply };
+    text = text ? `${text}\n${result.text}` : result.text;
+    metadata = { originalKind: "audio", audio: { ...result.metadata, latencyMs: result.latencyMs } };
+  }
+  return { ok: true, text, metadata };
 }

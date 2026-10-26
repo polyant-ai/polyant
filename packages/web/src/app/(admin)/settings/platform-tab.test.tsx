@@ -4,9 +4,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const mockSettings = vi.fn();
+const mockUpdate = vi.fn();
 
 vi.mock("@/lib/api", () => ({
-  api: { platform: { settings: (...args: unknown[]) => mockSettings(...args), updateSettings: vi.fn() } },
+  api: { platform: { settings: (...args: unknown[]) => mockSettings(...args), updateSettings: (...args: unknown[]) => mockUpdate(...args) } },
   PLATFORM_SETTING_NUMBERS: [
     "analyticsRetentionDays",
     "sseMaxConnections",
@@ -59,5 +60,27 @@ describe("PlatformTab — a failed load", () => {
     expect(await screen.findByText("settings.platform.title")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(mockSettings).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("PlatformTab — saving", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("has one Save at the top, off until a value is edited, and sends the edit", async () => {
+    mockSettings.mockResolvedValue({ settings: SETTINGS, effective: { ...SETTINGS, analyticsRetentionDays: 90, baseUrl: "http://x" } });
+    mockUpdate.mockResolvedValue({ settings: { ...SETTINGS, analyticsRetentionDays: 30 }, effective: SETTINGS });
+    render(<PlatformTab />);
+
+    const save = await screen.findByRole("button", { name: "common.save" });
+    // Catches a second Save at the foot of a long form, and one that is live with nothing changed.
+    expect(screen.getAllByRole("button", { name: "common.save" })).toHaveLength(1);
+    expect(save).toBeDisabled();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("settings.platform.analyticsRetentionDays"), "30");
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ analyticsRetentionDays: 30 }));
   });
 });

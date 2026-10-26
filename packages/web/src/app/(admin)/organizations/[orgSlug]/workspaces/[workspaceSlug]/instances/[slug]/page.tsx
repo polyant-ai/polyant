@@ -5,11 +5,11 @@
 import { Suspense, useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2, Download, MoreHorizontal } from "lucide-react";
+import Image from "next/image";
+import { Trash2, Download, MoreHorizontal, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { Chip } from "@/components/ui/chip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +27,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { downloadBlob } from "@/lib/download";
+import { isSafeImageSrc } from "@/lib/utils";
 import { api, getUserErrorMessage, type Instance, type ToolState, type ToolPluginInfo, type SkillState, type PromptSection } from "@/lib/api";
 import { GeneralTab } from "./general-tab";
 import { PromptsTab } from "./prompts-tab";
@@ -49,7 +51,8 @@ import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
-import { agentSection, agentSectionsByMacro, resolveAgentTab } from "@/lib/nav/agent-sections";
+import { instanceStatusLabel } from "@/lib/instance-status";
+import { agentSection, resolveAgentTab } from "@/lib/nav/agent-sections";
 import { SectionActionsSlot } from "./section-actions";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
@@ -156,15 +159,9 @@ function InstanceDetailContent() {
     setExporting(true);
     try {
       const blob = await api.exportImport.exportInstance(params.slug);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
       const date = new Date().toISOString().slice(0, 10);
-      a.download = `${params.slug}-export-${date}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${params.slug}-export-${date}.json`);
+      toast.success(t("exportImport.export.started"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.export.failed")));
     } finally {
@@ -192,17 +189,35 @@ function InstanceDetailContent() {
           and the subject beneath it — and the organization/workspace above them
           is in the header's trail. Two breadcrumbs for one position is the same
           "both surfaces try to say where you are" problem the takeover fixed. */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {instance.name}
-          </h1>
-          <div className="mt-2 flex items-center gap-2">
+      <div className="flex items-center justify-between gap-4">
+        {/* One line: icon, name, slug, status, all centred on it. On a narrow
+            screen the slug and status wrap beneath, and the icon stays with the name. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* The same icon the agents list shows, with the same fallback. */}
+            {instance.icon && isSafeImageSrc(instance.icon) ? (
+              <Image
+                src={instance.icon}
+                alt=""
+                width={40}
+                height={40}
+                className="size-10 shrink-0 rounded object-cover"
+                data-testid="agent-icon"
+                unoptimized
+              />
+            ) : (
+              <Bot className="size-9 shrink-0 text-muted-foreground" data-testid="agent-icon" aria-hidden />
+            )}
+            <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
+              {instance.name}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2" data-testid="agent-header-meta">
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
               {instance.slug}
             </code>
             <Badge variant={instance.status === "active" ? "default" : "secondary"}>
-              {instance.status}
+              {instanceStatusLabel(instance.status, t)}
             </Badge>
           </div>
         </div>
@@ -253,7 +268,7 @@ function InstanceDetailContent() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                <AlertDialogAction onClick={handleDelete} variant="destructive">
                   {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -272,7 +287,7 @@ function InstanceDetailContent() {
       <div className="mt-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <h2 className="text-2xl font-semibold tracking-tight">
-            {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
+            {t(section.titleKey)}
           </h2>
           <SectionDescription tab={section.tab} />
         </div>
@@ -282,20 +297,6 @@ function InstanceDetailContent() {
 
       <SectionActionsSlot value={actionsSlot}>
       <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
-        {section.macro === "automation" && (
-          <nav aria-label={t("instances.macro.automation")} className="flex gap-2 overflow-x-auto">
-            {agentSectionsByMacro("automation").map((tab) => (
-              <Chip
-                key={tab.tab}
-                active={activeTab === tab.tab}
-                aria-current={activeTab === tab.tab ? "page" : undefined}
-                onClick={() => router.push(`${pathname}?tab=${tab.tab}`)}
-              >
-                {t(tab.titleKey)}
-              </Chip>
-            ))}
-          </nav>
-        )}
         {/* Panoramica */}
         <TabsContent value="overview" data-tour="agent-overview">
           <StatusTab instance={instance} tools={tools} skills={skills} status={status} />
@@ -315,7 +316,7 @@ function InstanceDetailContent() {
           <ChannelsSection instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
-        {/* Comportamento */}
+        {/* Prompts, resources, knowledge, hooks and advanced parameters */}
         <TabsContent value="prompts" data-tour="agent-prompts">
           <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
         </TabsContent>
@@ -372,18 +373,10 @@ function InstanceDetailContent() {
         {/* Governance — the gates, the compliance artifacts and the retention
             policy are not part of this build; what ships here is the opt-out. */}
         <TabsContent value="privacy" data-tour="agent-privacy">
-          <PrivacyTab
-            instance={instance}
-            onSaved={() => {
-              api.instances
-                .get(params.slug)
-                .then((r) => setInstance(r.instance))
-                .catch(() => {});
-            }}
-          />
+          <PrivacyTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
-        {/* Attività — what this agent has done, not how it is configured. */}
+        {/* Conversations, memories and the Monitor: what this agent has done */}
         <TabsContent value="conversations" data-tour="agent-conversations">
           <AgentConversationsTab slug={instance.slug} />
         </TabsContent>

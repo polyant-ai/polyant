@@ -3,7 +3,6 @@
 "use client"
 
 import * as React from "react"
-import { useTourActive } from "@/lib/onboarding/onboarding-context"
 import { cva, type VariantProps } from "class-variance-authority"
 import { PanelLeftIcon } from "lucide-react"
 import { Slot } from "radix-ui"
@@ -158,6 +157,8 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  mobileModal = true,
+  onMobileInteractOutside,
   className,
   children,
   ...props
@@ -165,9 +166,12 @@ function Sidebar({
   side?: "left" | "right"
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
+  /** Whether the mobile drawer is modal (traps focus, closes on a press outside it). */
+  mobileModal?: boolean
+  /** Called for a press outside the mobile drawer; `preventDefault()` keeps it open. */
+  onMobileInteractOutside?: React.ComponentProps<typeof SheetContent>["onInteractOutside"]
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
-  const tourActive = useTourActive()
 
   if (collapsible === "none") {
     return (
@@ -186,14 +190,9 @@ function Sidebar({
 
   if (isMobile) {
     return (
-      // While the guided tour points into the drawer it must stay open and let the
-      // tour's own bubble be used, so the drawer is not modal for that time (a modal
-      // one traps focus and closes on any press outside it).
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} modal={!tourActive} {...props}>
+      <Sheet open={openMobile} onOpenChange={setOpenMobile} modal={mobileModal} {...props}>
         <SheetContent
-          onInteractOutside={(event) => {
-            if ((event.target as Element | null)?.closest?.("[data-tour-layer]")) event.preventDefault()
-          }}
+          onInteractOutside={onMobileInteractOutside}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"

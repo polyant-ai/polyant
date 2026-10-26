@@ -73,10 +73,26 @@ describe("PromptsTab", () => {
     expect(screen.getByDisplayValue("Never share secrets.")).toBeInTheDocument();
 
     const nav = screen.getByRole("navigation", { name: "prompts.sidebarTitle" });
-    expect(nav).toHaveTextContent("Identity");
-    expect(nav).toHaveTextContent("Soul");
-    expect(nav).toHaveTextContent("Safety");
+    // The seeded sections carry English titles in the database; the panel shows its own labels.
+    expect(nav).toHaveTextContent("prompts.section.identity");
+    expect(nav).toHaveTextContent("prompts.section.soul");
+    expect(nav).toHaveTextContent("prompts.section.safety");
+    expect(nav).not.toHaveTextContent("Identity");
+    expect(screen.getByText("prompts.section.soul.description")).toBeInTheDocument();
     expect(lastSaveAction.current?.isDirty).toBe(false);
+  });
+
+  it("shows a section the author added under its own title, without a default description", () => {
+    render(
+      <PromptsTab
+        slug="support-bot"
+        prompts={[{ key: "08-refunds", filename: "08-refunds.md", title: "Rimborsi", content: "x" }]}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("Rimborsi").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^prompts\.section\./)).not.toBeInTheDocument();
   });
 
   it("marks an edited section as modified, and clears it when the text is put back", async () => {

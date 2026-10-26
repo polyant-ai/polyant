@@ -2,6 +2,7 @@
 
 import type { Server } from "node:http";
 import type { INestApplication } from "@nestjs/common";
+import { errMsg } from "../utils/error.js";
 
 /**
  * How long requests already in flight when shutdown starts — a chat turn
@@ -65,7 +66,7 @@ export async function runShutdownSteps(
       await step.run();
     } catch (err) {
       failed.push(step.name);
-      log.error(`Shutdown step "${step.name}" failed:`, err instanceof Error ? err.message : String(err));
+      log.error(`Shutdown step "${step.name}" failed:`, errMsg(err));
     }
   }
   return failed;

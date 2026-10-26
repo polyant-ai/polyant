@@ -119,7 +119,7 @@ describe.skipIf(!DB_AVAILABLE)("analytics over preempted turns and embedder call
     expect(data.modelDistribution).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ model: "gpt-test", cost: expect.closeTo(1.1), calls: 1 }),
-        expect.objectContaining({ model: "text-embedding-3-small", cost: expect.closeTo(0.01), calls: 1 }),
+        expect.objectContaining({ model: "text-embedding-3-small", callType: "embedding", cost: expect.closeTo(0.01), calls: 1 }),
       ]),
     );
   });

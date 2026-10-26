@@ -618,25 +618,44 @@ describe("ConversationStore", () => {
   // getMessageDebug
   // =========================================================================
   describe("getMessageDebug", () => {
-    it("returns the captured payload + steps for a matching message", async () => {
+    it("returns the captured payload, steps, turn and model calls for a matching message", async () => {
       const payload = { system: "sys", messages: [{ role: "user", content: "hi" }], tools: [] };
       const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
-      const selChain = createChainMock([{ debugPayload: payload, steps }]);
-      mockDb.select.mockReturnValue(selChain as any);
+      const selChain = createChainMock([{ debugPayload: payload, steps, createdAt: new Date("2026-01-01T12:00:00Z") }]);
+      const traceChain = createChainMock([
+        { channel: "web", isStreaming: true, sttProvider: null, sttDurationMs: null, audioDurationSec: null },
+      ]);
+      const call = {
+        callType: "conversation", provider: "openai", model: "gpt-4o", durationMs: 90,
+        promptTokens: 10, completionTokens: 5, costUsd: 0.001, outcome: "ok", errorKind: null,
+        createdAt: new Date("2026-01-01T12:00:01Z"),
+      };
+      const callsChain = createChainMock([call]);
+      mockDb.select
+        .mockReturnValueOnce(selChain as any)
+        .mockReturnValueOnce(traceChain as any)
+        .mockReturnValueOnce(callsChain as any);
 
       const result = await conversationStore.getMessageDebug("conv-1", "11111111-1111-1111-1111-111111111111");
-      expect(result).toEqual({ debugPayload: payload, steps });
+      expect(result).toEqual({
+        debugPayload: payload,
+        steps,
+        turn: { channel: "web", streaming: true, speechToText: null },
+        modelCalls: [{ ...call, createdAt: "2026-01-01T12:00:01.000Z" }],
+      });
       // Scoped by both message id AND conversation id.
       expect(selChain.where).toHaveBeenCalled();
     });
 
     it("returns null debugPayload when DEBUG was off (column null) but keeps steps", async () => {
       const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
-      const selChain = createChainMock([{ debugPayload: null, steps }]);
-      mockDb.select.mockReturnValue(selChain as any);
+      mockDb.select
+        .mockReturnValueOnce(createChainMock([{ debugPayload: null, steps, createdAt: new Date() }]) as any)
+        .mockReturnValueOnce(createChainMock([]) as any)
+        .mockReturnValueOnce(createChainMock([]) as any);
 
       const result = await conversationStore.getMessageDebug("conv-1", "msg-1");
-      expect(result).toEqual({ debugPayload: null, steps });
+      expect(result).toEqual({ debugPayload: null, steps, turn: null, modelCalls: [] });
     });
 
     it("returns null when the message is not in the conversation", async () => {
@@ -767,6 +786,23 @@ describe("ConversationStore", () => {
           serviceCost: 0.001,
         }),
       );
+    });
+
+    it("returns the contact and shows a title without the transcript label an older row still carries", async () => {
+      mockDb.execute
+        .mockResolvedValueOnce([
+          { id: "u1", conversation_id: "c1", title: "User: Prenotare una visita", user_identifier: "anna@example.com" },
+          { id: "u2", conversation_id: "c2", title: "Assistente: Orari", user_identifier: null },
+        ])
+        .mockResolvedValueOnce([{ total: 2 }]);
+
+      const result = await conversationStore.listConversations({ scope: SCOPE });
+
+      // Catches the contact column staying empty and the label leaking into the list.
+      expect(result.conversations[0]).toEqual(
+        expect.objectContaining({ title: "Prenotare una visita", userIdentifier: "anna@example.com" }),
+      );
+      expect(result.conversations[1]).toEqual(expect.objectContaining({ title: "Orari", userIdentifier: null }));
     });
 
     it("uses default limit 20 and offset 0", async () => {
@@ -921,6 +957,18 @@ describe("ConversationStore", () => {
           messageCount: 7,
         }),
       );
+    });
+
+    it("returns the contact of a search hit", async () => {
+      mockDb.execute
+        .mockResolvedValueOnce([
+          { id: "u1", conversation_id: "c1", title: "Visita", user_identifier: "+393331234567", match_count: 0, best_snippet: null },
+        ])
+        .mockResolvedValueOnce([{ total: 1 }]);
+
+      const result = await conversationStore.searchConversations("3331234", { scope: SCOPE, userIdentifier: "+39" });
+
+      expect(result.conversations[0]).toEqual(expect.objectContaining({ userIdentifier: "+393331234567" }));
     });
 
     it("maps ID-only matches (no FTS hit) with empty snippet and matchCount 0", async () => {
@@ -1484,6 +1532,17 @@ describe("ConversationStore", () => {
   // Title normalization
   // =========================================================================
   describe("normalizeTitle", () => {
+    it("drops a leading speaker label the model echoed from the transcript", () => {
+      expect(normalizeTitle("User: Prenotare una visita")).toBe("Prenotare una visita");
+      expect(normalizeTitle("Utente: Prenotare una visita")).toBe("Prenotare una visita");
+      expect(normalizeTitle("Assistant: Orari di apertura")).toBe("Orari di apertura");
+    });
+
+    it("drops wrapping quotes, also around a speaker label", () => {
+      expect(normalizeTitle('"📊 Sales dashboard"')).toBe("📊 Sales dashboard");
+      expect(normalizeTitle('"User: Fattura errata"')).toBe("Fattura errata");
+    });
+
     it("keeps a short single-line title untouched", () => {
       expect(normalizeTitle("🐍 Tutorial gioco snake in Python")).toBe("🐍 Tutorial gioco snake in Python");
     });

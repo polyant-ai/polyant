@@ -19,6 +19,9 @@ import type {
   HookRunContext,
   InstanceHookRow,
 } from "./hook-types.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /** Action-type → executor. Future action types register here. */
 const executors = new Map<HookActionType, HookActionExecutor>([
@@ -88,8 +91,9 @@ export function warnUnhonoredControls(
   for (const s of summaries) {
     for (const control of HOOK_CONTROLS) {
       if (s[control] && !honored.includes(control)) {
-        console.warn(
-          `[hooks] "${s.toolName || s.hookId}" returned ${control} on a ${engine} turn — ` +
+        log.warn(
+          "hooks",
+          `"${s.toolName || s.hookId}" returned ${control} on a ${engine} turn — ` +
             `the ${engine} engine does not honor it, so it was dropped.`,
         );
       }
@@ -137,7 +141,7 @@ function withTimeout(promise: Promise<void>, ms: number, label: string, onExpiry
 function fenceState(state: ConversationStateApi, signal: AbortSignal, label: string): ConversationStateApi {
   const refuse = (op: string): boolean => {
     if (!signal.aborted) return false;
-    console.warn(`[hooks] ${label}: ignoring state.${op} — the hook was already abandoned (timeout or pipeline abort).`);
+    log.warn("hooks", `${label}: ignoring state.${op} — the hook was already abandoned (timeout or pipeline abort).`);
     return true;
   };
   return {
@@ -166,7 +170,7 @@ export async function runHooks(
   try {
     hooks = await getEnabledHooks(ctx.instanceId, event);
   } catch (err) {
-    console.error(`[hooks] failed to load hooks for ${ctx.instanceId}/${event}:`, errMsg(err));
+    log.error("hooks", `failed to load hooks for ${ctx.instanceId}/${event}`, err);
     return summaries;
   }
   if (hooks.length === 0) return summaries;
@@ -175,7 +179,7 @@ export async function runHooks(
     if (ctx.abortSignal?.aborted) return summaries;
     const executor = executors.get(hook.actionType);
     if (!executor) {
-      console.warn(`[hooks] ${event} hook ${hook.id}: unknown action type "${hook.actionType}" — skipping`);
+      log.warn("hooks", `${event} hook ${hook.id}: unknown action type "${hook.actionType}" — skipping`);
       continue;
     }
     // The summary/telemetry field stays NAMED `toolName` (renaming would ripple
@@ -204,7 +208,7 @@ export async function runHooks(
     } catch (err) {
       success = false;
       error = errMsg(err);
-      console.error(`[hooks] ${event} hook ${hook.id} (${toolName}) failed:`, error);
+      log.error("hooks", `${event} hook ${hook.id} (${toolName}) failed`, error);
     }
     const durationMs = Date.now() - started;
     summaries.push({
@@ -244,7 +248,7 @@ export async function runHooks(
       args: captured.args,
       result: captured.result,
     }).catch((err) =>
-      console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
+      log.error("hooks", `failed to record execution for hook ${hook.id}`, err),
     );
     // First halt wins: stop remaining hooks for this event. Telemetry/audit for
     // the halting hook is already recorded above. Post-LLM callers ignore the

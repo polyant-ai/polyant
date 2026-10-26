@@ -5,11 +5,14 @@
 import { useMemo } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import {
+  formatCurrency,
+  formatCurrencyTick,
   formatDate,
   formatDateTime,
   formatNumber,
   formatRelativeTime,
   formatTime,
+  formatUsd,
 } from "@/lib/format";
 
 /**
@@ -38,6 +41,12 @@ export function useFormat() {
       time: (iso: string | null | undefined) => formatTime(iso, locale),
       /** 1.234 */
       number: (value: number) => formatNumber(value, locale),
+      /** $0.0123 */
+      usd: (value: number) => formatUsd(value, locale),
+      /** $1.50 (or $0.0032 under $1) with the locale's digit grouping */
+      currency: (value: number) => formatCurrency(value, locale),
+      /** $0.00002 — a cost on a chart axis, plain digits at any scale */
+      currencyTick: (value: number) => formatCurrencyTick(value, locale),
       /** "5 minuti fa", falling back to a date past 30 days */
       relative: (iso: string | null) => formatRelativeTime(iso, t, locale),
     }),

@@ -2,23 +2,21 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   Plus,
-  Trash2,
-  Play,
-  Pause,
-  Clock,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   RotateCcw,
-  Pencil,
-  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -30,42 +28,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DrawerDeleteButton, ListDrawer } from "@/components/list-drawer";
+import { ListEmpty, ListLoading } from "@/components/list-states";
+import { SwitchList } from "@/components/switch-list";
+import { StatusBadge, type StatusTone } from "@/components/status-badge";
+import { EMPTY_CELL } from "@/components/list-table";
 import { api, getUserErrorMessage, type ScheduledTask, type ScheduledTaskSchedule } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
-import { formatDateTime } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
+import { useResource } from "@/hooks/use-resource";
+import { LoadFailed } from "@/components/ui/load-failed";
 import { SectionActions } from "./section-actions";
 
 interface Props {
@@ -165,69 +139,38 @@ function formFromTask(task: ScheduledTask): TaskForm {
   return { ...base, scheduleType: "one-shot", runAt };
 }
 
-function StatusBadge({ task, t }: { task: ScheduledTask; t: (key: TranslationKey) => string }) {
-  if (!task.enabled) {
-    if (task.consecutiveErrors >= 5) {
-      return (
-        <Badge variant="destructive" className="gap-1">
-          <AlertCircle className="size-3" />
-          {t("scheduledTasks.statusAutoDisabled")}
-        </Badge>
-      );
-    }
-    return <Badge variant="secondary">{t("scheduledTasks.statusPaused")}</Badge>;
-  }
-  if (task.lastRunStatus === "running") {
-    return (
-      <Badge variant="secondary" className="gap-1">
-        <Loader2 className="size-3 animate-spin" />
-        {t("scheduledTasks.statusRunning")}
-      </Badge>
-    );
-  }
-  if (task.lastRunStatus === "error") {
-    return (
-      <Badge variant="destructive" className="gap-1">
-        <AlertCircle className="size-3" />
-        {t("scheduledTasks.statusError")}
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="default" className="gap-1">
-      <CheckCircle2 className="size-3" />
-      {t("scheduledTasks.statusActive")}
-    </Badge>
-  );
+/** The task's state, as the one status badge every list uses. */
+function TaskStatus({ task, t }: { task: ScheduledTask; t: (key: TranslationKey) => string }) {
+  return <StatusBadge tone={statusTone(task)}>{statusLabel(task, t)}</StatusBadge>;
 }
 
-/** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
-function formatDate(iso: string | null, locale: string): string {
-  if (!iso) return "-";
-  return formatDateTime(iso, locale);
+function statusTone(task: ScheduledTask): StatusTone {
+  if (!task.enabled) return task.consecutiveErrors >= 5 ? "negative" : "neutral";
+  if (task.lastRunStatus === "running") return "neutral";
+  if (task.lastRunStatus === "error") return "negative";
+  return "positive";
 }
+
+/** The status badge's text, for the search to match on it. */
+function statusLabel(task: ScheduledTask, t: (key: TranslationKey) => string): string {
+  if (!task.enabled) return t(task.consecutiveErrors >= 5 ? "scheduledTasks.statusAutoDisabled" : "scheduledTasks.statusPaused");
+  if (task.lastRunStatus === "running") return t("scheduledTasks.statusRunning");
+  if (task.lastRunStatus === "error") return t("scheduledTasks.statusError");
+  return t("scheduledTasks.statusActive");
+}
+
+const NO_TASKS: ScheduledTask[] = [];
 
 export function TriggersScheduledTab({ slug }: Props) {
-  const { t, locale } = useI18n();
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { t } = useI18n();
+  const fmt = useFormat();
+  const { data, error, loading, reload: loadTasks } = useResource(["scheduled-tasks", slug], () => api.scheduledTasks.list(slug));
+  const tasks = data?.tasks ?? NO_TASKS;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-
-  const loadTasks = useCallback(async () => {
-    try {
-      const res = await api.scheduledTasks.list(slug);
-      setTasks(res.tasks);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("scheduledTasks.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, t]);
-
-  useEffect(() => { loadTasks(); }, [loadTasks]);
+  const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
 
   const openCreate = () => {
     setEditingId(null);
@@ -296,12 +239,13 @@ export function TriggersScheduledTab({ slug }: Props) {
     }
   };
 
-  const handleToggle = async (task: ScheduledTask) => {
+  const handleToggle = async (task: ScheduledTask, enabled: boolean) => {
     try {
-      await api.scheduledTasks.update(slug, task.id, { enabled: !task.enabled });
-      loadTasks();
+      await api.scheduledTasks.update(slug, task.id, { enabled });
+      await loadTasks();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("scheduledTasks.toggleFailed")));
+      throw err;
     }
   };
 
@@ -309,6 +253,7 @@ export function TriggersScheduledTab({ slug }: Props) {
     try {
       await api.scheduledTasks.delete(slug, id);
       toast.success(t("scheduledTasks.deleted"));
+      setDialogOpen(false);
       loadTasks();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("scheduledTasks.deleteFailed")));
@@ -325,14 +270,11 @@ export function TriggersScheduledTab({ slug }: Props) {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        {t("common.loading")}
-      </div>
-    );
-  }
+  const editingTask = editingId ? tasks.find((task) => task.id === editingId) ?? null : null;
+
+  if (error && data === undefined) return <LoadFailed message={t("scheduledTasks.loadFailed")} onRetry={loadTasks} />;
+
+  if (loading && data === undefined) return <ListLoading className="" />;
 
   return (
     <div className="space-y-6">
@@ -344,135 +286,84 @@ export function TriggersScheduledTab({ slug }: Props) {
       </SectionActions>
 
       {tasks.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          <Clock className="mx-auto mb-2 size-8" />
-          <p>{t("scheduledTasks.empty")}</p>
-        </div>
+        <ListEmpty className="mt-8" title={t("scheduledTasks.empty")} />
       ) : (
-        <TooltipProvider>
-          <ListTable>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <ListHead>{t("scheduledTasks.col.name")}</ListHead>
-                <ListHead>{t("scheduledTasks.col.schedule")}</ListHead>
-                <ListHead>{t("scheduledTasks.col.channel")}</ListHead>
-                <ListHead>{t("scheduledTasks.col.status")}</ListHead>
-                <ListHead>{t("scheduledTasks.col.nextRun")}</ListHead>
-                <ListHead>{t("scheduledTasks.col.lastRun")}</ListHead>
-                <ListHead align="end">{t("scheduledTasks.col.actions")}</ListHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tasks.map((task) => (
-                <ListRow key={task.id} muted={!task.enabled}>
-                  <ListNameCell name={task.name} summary={task.description ? <span className="text-xs">{task.description}</span> : undefined} />
-                  <TableCell>
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                      {task.scheduleHuman}
-                    </code>
-                  </TableCell>
-                  <TableCell>
-                    {task.outboundChannel ? (
-                      <Badge variant="outline" className="gap-1 text-xs">
-                        <Send className="size-3" />
-                        {task.outboundChannel}
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge task={task} t={t} />
-                    {task.lastError && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <AlertCircle className="ml-1 inline size-3.5 text-destructive" />
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="max-w-xs text-xs">
-                          {task.lastError}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">{formatDate(task.nextRunAt, locale)}</TableCell>
-                  <TableCell className="text-sm">{formatDate(task.lastRunAt, locale)}</TableCell>
-                  <ListControlCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8" onClick={() => handleToggle(task)}>
-                            {task.enabled ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{task.enabled ? t("scheduledTasks.pause") : t("scheduledTasks.resume")}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8" onClick={() => handleRunNow(task)}>
-                            <RotateCcw className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("scheduledTasks.runNow")}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(task)}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("common.edit")}</TooltipContent>
-                      </Tooltip>
-                      <AlertDialog>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-8 text-destructive">
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                          </TooltipTrigger>
-                          <TooltipContent>{t("common.delete")}</TooltipContent>
-                        </Tooltip>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t("scheduledTasks.deleteTitle")}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t("scheduledTasks.deleteDescription", { name: task.name })}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDelete(task.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {t("common.delete")}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </ListControlCell>
-                </ListRow>
-              ))}
-            </TableBody>
-          </ListTable>
-        </TooltipProvider>
+        <SwitchList
+          rows={tasks}
+          rowKey={(task) => task.id}
+          name={(task) => task.name}
+          nameHeader={t("scheduledTasks.col.name")}
+          summary={(task) => task.description || undefined}
+          searchText={(task) => [task.scheduleHuman, task.outboundChannel, statusLabel(task, t)]}
+          columns={[
+            {
+              header: t("scheduledTasks.col.schedule"),
+              className: "w-40",
+              cell: (task) => <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{task.scheduleHuman}</code>,
+            },
+            {
+              header: t("scheduledTasks.col.channel"),
+              className: "w-32",
+              cell: (task) =>
+                task.outboundChannel ? (
+                  <Badge variant="secondary">{task.outboundChannel}</Badge>
+                ) : (
+                  <span className="text-muted-foreground">{EMPTY_CELL}</span>
+                ),
+            },
+            {
+              header: t("scheduledTasks.col.status"),
+              className: "w-40",
+              cell: (task) => (
+                <>
+                  <TaskStatus task={task} t={t} />
+                  {task.lastError && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertCircle className="ml-1 inline size-3.5 text-destructive" />
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        {task.lastError}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </>
+              ),
+            },
+            { header: t("scheduledTasks.col.nextRun"), className: "w-52", nowrap: true, cell: (task) => fmt.dateTime(task.nextRunAt) || EMPTY_CELL },
+            { header: t("scheduledTasks.col.lastRun"), className: "w-52", nowrap: true, cell: (task) => fmt.dateTime(task.lastRunAt) || EMPTY_CELL },
+          ]}
+          isOn={(task) => task.enabled}
+          onToggle={handleToggle}
+          switchLabel={(task) => t("common.activeNamed", { name: task.name })}
+          onOpen={openEdit}
+          selectedKey={dialogOpen ? editingId : null}
+        />
       )}
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {editingId ? t("scheduledTasks.editTitle") : t("scheduledTasks.createTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {t("scheduledTasks.dialogDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+      {/* Create / edit drawer. Running now and deleting a task live here, not on the row. */}
+      <ListDrawer
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={editingTask ? editingTask.name : t("scheduledTasks.createTitle")}
+        description={editingTask ? editingTask.scheduleHuman : t("scheduledTasks.dialogDescription")}
+        destructive={editingTask && <DrawerDeleteButton onClick={() => setDeleting(editingTask)} />}
+        actions={
+          editingTask && (
+            <Button variant="outline" onClick={() => handleRunNow(editingTask)}>
+              <RotateCcw className="size-4" aria-hidden />
+              {t("scheduledTasks.runNow")}
+            </Button>
+          )
+        }
+        primary={
+          <Button onClick={handleSave} disabled={saving || !form.name.trim() || !form.prompt.trim()}>
+            {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
+            {editingId ? t("common.save") : t("common.add")}
+          </Button>
+        }
+      >
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t("scheduledTasks.form.name")}</Label>
               <Input
@@ -633,17 +524,19 @@ export function TriggersScheduledTab({ slug }: Props) {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-              {editingId ? t("common.save") : t("scheduledTasks.form.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </ListDrawer>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("scheduledTasks.deleteTitle")}
+        description={t("scheduledTasks.deleteDescription", { name: deleting?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        onConfirm={() => {
+          if (deleting) void handleDelete(deleting.id);
+          setDeleting(null);
+        }}
+      />
     </div>
   );
 }

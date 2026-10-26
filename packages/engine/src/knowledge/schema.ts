@@ -6,6 +6,7 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   timestamp,
   index,
   uniqueIndex,
@@ -35,6 +36,8 @@ export const knowledgeDocuments = pgTable(
     status: knowledgeDocumentStatusEnum("status").notNull().default("uploading"),
     chunkCount: integer("chunk_count").notNull().default(0),
     errorMessage: text("error_message"),
+    /** Off: the document stays stored but retrieval skips it (and its chunks). */
+    enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },

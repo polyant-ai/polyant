@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -30,7 +31,8 @@ vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => i18nMock,
 }));
 
-vi.mock("@/lib/format", () => ({
+vi.mock("@/lib/format", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/format")>()),
   formatRelativeTime: vi.fn(() => "2 hours ago"),
 }));
 
@@ -62,9 +64,9 @@ vi.mock("sonner", () => ({
   },
 }));
 
-// Mock the CreateMemoryDialog to avoid pulling in its dependencies
-vi.mock("@/components/memory/create-memory-dialog", () => ({
-  CreateMemoryDialog: () => <div data-testid="create-memory-dialog" />,
+// Mock the create drawer to avoid pulling in its dependencies
+vi.mock("@/components/memory/create-memory-sheet", () => ({
+  CreateMemorySheet: ({ open }: { open: boolean }) => (open ? <div data-testid="create-memory-sheet" /> : null),
 }));
 
 // The workspace now comes from the URL, so a component test that does not
@@ -73,7 +75,13 @@ vi.mock("@/lib/tenant/use-workspace-slug", () => ({
   useWorkspaceSlug: () => "general",
 }));
 
-import { MemoryView as MemoryPage } from "@/components/memory/memory-view";
+import { MemoryView } from "@/components/memory/memory-view";
+import MemoryWorkspacePage from "./page";
+
+/** The list on its own, as the agent's section shows it. */
+function MemoryPage(props: { lockedInstanceId?: string }) {
+  return <MemoryView createOpen={false} onCreateOpenChange={() => {}} {...props} />;
+}
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -107,10 +115,14 @@ describe("MemoryPage", () => {
     expect(screen.queryByText("memory.selectInstance")).not.toBeInTheDocument();
   });
 
-  it("renders the 'Add Memory' button", () => {
-    render(<MemoryPage />);
+  it("puts the Add button in the page header, and it opens the create drawer", async () => {
+    const user = userEvent.setup();
+    render(<MemoryWorkspacePage />);
+    expect(screen.queryByTestId("create-memory-sheet")).not.toBeInTheDocument();
 
-    expect(screen.getByText("memory.addMemory")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "memory.addMemory" }));
+
+    expect(screen.getByTestId("create-memory-sheet")).toBeInTheDocument();
   });
 
   it("shows 'select instance' prompt when no instance is selected", async () => {
@@ -134,6 +146,16 @@ describe("MemoryPage", () => {
     expect(mockMemoriesList).not.toHaveBeenCalled();
   });
 
+  it("preselects the first agent instead of opening on an empty page", async () => {
+    mockInstancesList.mockResolvedValue({ instances: [{ slug: "alpha", name: "Alpha" }, { slug: "beta", name: "Beta" }] });
+    render(<MemoryPage />);
+
+    // Catches the page opening blank and waiting for a pick before showing anything.
+    await waitFor(() => expect(mockMemoriesList).toHaveBeenCalled());
+    expect(mockMemoriesList.mock.calls[0][0]).toMatchObject({ instanceId: "alpha" });
+    expect(screen.queryByText("memory.selectInstancePrompt")).not.toBeInTheDocument();
+  });
+
   it("fetches instances on mount for the filter dropdown", async () => {
     render(<MemoryPage />);
 
@@ -150,9 +172,57 @@ describe("MemoryPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the CreateMemoryDialog component", () => {
-    render(<MemoryPage />);
+  describe("with memories", () => {
+    const MEMORIES = [
+      { id: "m1", content: "Lives in Rome", category: "fact", importance: 6, updatedAt: "2026-10-01T00:00:00Z" },
+      { id: "m2", content: "Prefers Italian", category: "preference", importance: 3, updatedAt: "2026-09-01T00:00:00Z" },
+    ];
 
-    expect(screen.getByTestId("create-memory-dialog")).toBeInTheDocument();
+    beforeEach(() => {
+      mockMemoriesList.mockResolvedValue({ memories: MEMORIES, total: 2, limit: 20, offset: 0 });
+      mockMemoriesDelete.mockResolvedValue({});
+    });
+
+    it("keeps the engine's newest-first order rather than sorting by text", async () => {
+      render(<MemoryPage lockedInstanceId="a1" />);
+      await screen.findByText("Lives in Rome");
+
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]).toHaveTextContent("Lives in Rome");
+      expect(rows[1]).toHaveTextContent("Prefers Italian");
+    });
+
+    it("offers no delete on the row; the memory's drawer has it, behind a confirmation", async () => {
+      const user = userEvent.setup();
+      render(<MemoryPage lockedInstanceId="a1" />);
+      await screen.findByText("Lives in Rome");
+      expect(screen.queryByRole("button", { name: "common.delete" })).not.toBeInTheDocument();
+
+      await user.click(screen.getAllByRole("row")[1]);
+      const drawer = await screen.findByRole("dialog");
+      await user.click(within(drawer).getByRole("button", { name: "common.delete" }));
+      expect(mockMemoriesDelete).not.toHaveBeenCalled();
+      await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "common.delete" }));
+
+      await waitFor(() => expect(mockMemoriesDelete).toHaveBeenCalledWith("m1"));
+    });
+
+    it("types into the shared search box, which the engine answers", async () => {
+      const user = userEvent.setup();
+      render(<MemoryPage lockedInstanceId="a1" />);
+      await screen.findByText("Lives in Rome");
+
+      await user.type(screen.getByRole("searchbox"), "r");
+
+      expect(mockPaginationFns.setSearch).toHaveBeenCalledWith("r");
+    });
+
+    it("says the load failed, with a retry, instead of an empty list", async () => {
+      mockMemoriesList.mockRejectedValue(new Error("down"));
+      render(<MemoryPage lockedInstanceId="a1" />);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("common.loadFailed");
+      expect(screen.queryByText("memory.empty.title")).not.toBeInTheDocument();
+    });
   });
 });

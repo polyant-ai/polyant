@@ -3,7 +3,7 @@
 import {
   streamChatCompletion,
   type StreamErrorMessages,
-} from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_lib/stream-parser";
+} from "@/lib/stream-parser";
 
 export interface WizardChatMessage {
   role: "user" | "assistant";

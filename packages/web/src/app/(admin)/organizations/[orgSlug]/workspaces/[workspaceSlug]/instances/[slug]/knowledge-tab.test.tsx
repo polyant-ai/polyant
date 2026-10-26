@@ -15,7 +15,7 @@
  * was "just one boolean".
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
@@ -38,7 +38,10 @@ function renderWithProvider(ui: ReactElement) {
   );
 }
 
-const { mockList, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
+const { mockSetEnabled, mockGet, mockList, mockDelete, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
+  mockSetEnabled: vi.fn(),
+  mockDelete: vi.fn(),
+  mockGet: vi.fn(),
   mockList: vi.fn(),
   mockUpdate: vi.fn(),
   mockToastSuccess: vi.fn(),
@@ -67,7 +70,7 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    knowledge: { list: (...args: unknown[]) => mockList(...args) },
+    knowledge: { list: (...args: unknown[]) => mockList(...args), get: (...args: unknown[]) => mockGet(...args), setEnabled: (...args: unknown[]) => mockSetEnabled(...args), delete: (...args: unknown[]) => mockDelete(...args) },
     instances: { update: (...args: unknown[]) => mockUpdate(...args) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -295,5 +298,187 @@ describe("KnowledgeTab — document sizes", () => {
 
     await waitFor(() => expect(screen.getByText(/3 GB/)).toBeInTheDocument());
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeTab — the document list", () => {
+  const docs = [
+    { id: "d1", filename: "guide.md", sizeBytes: 2048, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "d3", filename: "broken.pdf", sizeBytes: 5, status: "error", enabled: true, chunkCount: 0, errorMessage: "no text layer", createdAt: "2026-01-01T00:00:00Z" },
+  ];
+  beforeEach(() => {
+    mockList.mockResolvedValue({ documents: docs });
+    mockGet.mockResolvedValue({ document: { rawContent: "# Guide body" } });
+  });
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+
+  it("puts size and chunks under the filename, and the reason a document failed", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    expect(within(rowOf("guide.md")).getByText("2 KB · knowledge.tab.chunks 2")).toBeInTheDocument();
+    expect(within(rowOf("broken.pdf")).getByText("5 B · no text layer")).toBeInTheDocument();
+  });
+
+  it("filters the documents on filename and on the line under it", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    const search = screen.getByRole("searchbox", { name: "common.search" });
+
+    await userEvent.type(search, "later");
+    expect(screen.getByText("later.md")).toBeInTheDocument();
+    expect(screen.queryByText("guide.md")).not.toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "text layer");
+    expect(screen.getByText("broken.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("guide.md")).not.toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "zzz");
+    expect(screen.getByText("common.noResults")).toBeInTheDocument();
+  });
+
+  it("opens the drawer when the row is clicked, with no delete or eye button in the list", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    expect(screen.queryByRole("button", { name: "common.delete" })).not.toBeInTheDocument();
+    await userEvent.click(rowOf("guide.md"));
+    expect(await screen.findByText("# Guide body")).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith("a1", "d1");
+  });
+
+  it("opens from the keyboard with Enter on the name", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    const name = await screen.findByRole("button", { name: /guide\.md/ });
+    name.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByText("# Guide body")).toBeInTheDocument();
+  });
+
+  // Delete lives in the drawer, so a document still being read, or one that
+  // failed, must open too or it could never be removed.
+  it("opens a document that is still processing, without reading text it does not have yet", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+    await userEvent.click(rowOf("later.md"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByRole("heading", { name: "later.md" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "common.delete" })).toBeInTheDocument();
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it("shows the error of a failed document in its drawer", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("broken.pdf");
+    await userEvent.click(rowOf("broken.pdf"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByText("no text layer")).toBeInTheDocument();
+  });
+
+  it("deletes only from the drawer, after the confirmation", async () => {
+    mockDelete.mockResolvedValue({});
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    await userEvent.click(rowOf("guide.md"));
+    const drawer = await screen.findByRole("dialog");
+    await userEvent.click(within(drawer).getByRole("button", { name: "common.delete" }));
+    expect(mockDelete).not.toHaveBeenCalled();
+    const confirm = await screen.findByRole("alertdialog");
+    expect(within(confirm).getByText(/knowledge\.tab\.deleteDescription guide\.md/)).toBeInTheDocument();
+    await userEvent.click(within(confirm).getByRole("button", { name: "common.delete" }));
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledWith("a1", "d1"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("deletes nothing when the confirmation is cancelled", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    await userEvent.click(rowOf("guide.md"));
+    const drawer = await screen.findByRole("dialog");
+    await userEvent.click(within(drawer).getByRole("button", { name: "common.delete" }));
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "common.cancel" }));
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the section actions out of use while retrieval is off", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance({ knowledgeEnabled: false })} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    expect(screen.getByRole("button", { name: "knowledge.tab.pasteText" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "knowledge.tab.import" })).toBeDisabled();
+  });
+
+  it("lists the documents alphabetically by filename", async () => {
+    mockList.mockResolvedValue({
+      documents: [
+        { id: "d9", filename: "zebra.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" },
+        { id: "d8", filename: "apple.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    });
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("zebra.md");
+    const names = screen.getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0].textContent);
+    expect(names).toEqual(["apple.md", "zebra.md"]);
+  });
+
+  // The section's own subtitle already says what the documents are.
+  it("does not repeat the section subtitle above the list", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    expect(screen.queryByText("knowledge.tab.description")).not.toBeInTheDocument();
+  });
+
+  it("ends a document's drawer with Delete on the left and Close on the right", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("guide.md");
+    await userEvent.click(rowOf("guide.md"));
+    const drawer = await screen.findByRole("dialog");
+    const footer = drawer.querySelector("[data-slot=sheet-footer]") as HTMLElement;
+    expect(within(footer).getAllByRole("button").map((b) => b.textContent)).toEqual(["common.delete", "common.close"]);
+  });
+
+  it("says there are no documents, with a hint, when the list is empty", async () => {
+    mockList.mockResolvedValue({ documents: [] });
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    expect(await screen.findByText("knowledge.tab.empty")).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeTab — the switch on a document", () => {
+  const docs = [{ id: "d1", filename: "guide.md", sizeBytes: 10, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" }];
+  beforeEach(() => {
+    mockList.mockResolvedValue({ documents: docs });
+    mockGet.mockResolvedValue({ document: { rawContent: "# Guide body" } });
+    mockSetEnabled.mockResolvedValue({ id: "d1", enabled: false });
+  });
+  const docSwitch = () => screen.findByRole("switch", { name: /knowledge\.tab\.docEnabled guide\.md/ });
+
+  it("shows each document's state on its row", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    expect(await docSwitch()).toBeChecked();
+  });
+
+  it("flicking it does not open the document", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await userEvent.click(await docSwitch());
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(screen.queryByText("# Guide body")).not.toBeInTheDocument();
+  });
+
+  it("is saved with the page's Save, not on the flick", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await userEvent.click(await docSwitch());
+    expect(mockSetEnabled).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText("common.save"));
+    await waitFor(() => expect(mockSetEnabled).toHaveBeenCalledWith("a1", "d1", false));
+  });
+
+  it("flicking it back before saving leaves nothing to save", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    const sw = await docSwitch();
+    await userEvent.click(sw);
+    await userEvent.click(sw);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 });

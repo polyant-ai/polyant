@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { format, subDays } from "date-fns";
 import type { TranslationKey } from "@/lib/i18n/types";
 
 type TranslateFn = (
@@ -22,7 +23,7 @@ export function parseUTC(dateStr: string): Date {
 export function formatRelativeTime(
   dateStr: string | null,
   t: TranslateFn,
-  locale?: string,
+  locale: string,
 ): string {
   if (!dateStr) return "\u2014";
   const date = parseUTC(dateStr);
@@ -55,7 +56,7 @@ export function truncate(text: string, maxLen: number): string {
  * choice, so it has to be threaded in: `useFormat()` (lib/use-format.ts) binds
  * these to it, and components use that rather than calling `toLocaleString`.
  */
-export function formatDate(iso: string | null | undefined, locale?: string): string {
+export function formatDate(iso: string | null | undefined, locale: string): string {
   if (!iso) return "\u2014";
   try {
     return parseUTC(iso).toLocaleDateString(locale, {
@@ -77,7 +78,7 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
-export function formatDateTime(iso: string | null | undefined, locale?: string): string {
+export function formatDateTime(iso: string | null | undefined, locale: string): string {
   if (!iso) return "\u2014";
   try {
     return parseUTC(iso).toLocaleString(locale, {
@@ -93,7 +94,7 @@ export function formatDateTime(iso: string | null | undefined, locale?: string):
 }
 
 /** Full timestamp for conversation messages and recorded activity. */
-export function formatActivityTimestamp(iso: string | null | undefined, locale?: string): string {
+export function formatActivityTimestamp(iso: string | null | undefined, locale: string): string {
   if (!iso) return "";
   return parseUTC(iso).toLocaleString(locale, {
     year: "numeric",
@@ -106,7 +107,7 @@ export function formatActivityTimestamp(iso: string | null | undefined, locale?:
 }
 
 /** Wall-clock only — for a transcript, where the day is a separator above. */
-export function formatTime(iso: string | null | undefined, locale?: string): string {
+export function formatTime(iso: string | null | undefined, locale: string): string {
   if (!iso) return "\u2014";
   try {
     return parseUTC(iso).toLocaleTimeString(locale, {
@@ -119,8 +120,46 @@ export function formatTime(iso: string | null | undefined, locale?: string): str
 }
 
 /** Thousands separators in the UI's locale — 1.234 in Italian, 1,234 in English. */
-export function formatNumber(value: number, locale?: string): string {
+export function formatNumber(value: number, locale: string): string {
   return value.toLocaleString(locale);
+}
+
+/** A dollar amount with four decimals in the UI's locale, for a cost small enough that cents hide it. */
+export function formatUsd(value: number, locale: string): string {
+  return `$${value.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+}
+
+/**
+ * Cost with "more decimals under $1" so a sub-cent cost does not round to "$0.00",
+ * and the digit grouping/decimal separator follows the UI's locale (1.234,50 vs
+ * 1,234.50). `useFormat().currency` binds this to the locale the user picked;
+ * components reach for that instead of a hardcoded `.toFixed(n)`.
+ */
+export function formatCurrency(value: number, locale: string): string {
+  const digits = Math.abs(value) < 1 ? 4 : 2;
+  const formatted = Math.abs(value).toLocaleString(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  // The sign goes BEFORE the symbol: prefixing `$` to an already-signed number
+  // produced "$-1.50".
+  return `${value < 0 ? "-" : ""}$${formatted}`;
+}
+
+/**
+ * A cost on a chart axis. Ticks are round numbers the chart library picked, so
+ * the trailing zeros of `formatCurrency` are noise there, and a tick like 5.5e-8
+ * must never print in exponent form: significant digits keep the number plain
+ * at any scale, and the separators follow the UI locale like every other cost.
+ */
+export function formatCurrencyTick(value: number, locale: string): string {
+  const formatted = Math.abs(value).toLocaleString(
+    locale,
+    Math.abs(value) < 1
+      ? { maximumSignificantDigits: 3 }
+      : { maximumFractionDigits: 2 },
+  );
+  return `${value < 0 ? "-" : ""}$${formatted}`;
 }
 
 /**
@@ -136,4 +175,14 @@ export function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(value);
+}
+
+/** A calendar day as `"YYYY-MM-DD"`, the shape every date filter and range picker exchanges. */
+export function toIsoDay(date: Date): string {
+  return format(date, "yyyy-MM-dd");
+}
+
+/** The inclusive window ending today and starting `days` days back; 30 is the dashboards' default. */
+export function lastDays(days: number, now: Date = new Date()): { from: string; to: string } {
+  return { from: toIsoDay(subDays(now, days)), to: toIsoDay(now) };
 }

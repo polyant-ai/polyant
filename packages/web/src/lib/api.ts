@@ -37,6 +37,7 @@ export type {
   CostBreakdown,
   MessageLatency,
   MessageDebug,
+  TurnModelCall,
   LlmDebugPayload,
   ReasoningDetail,
   StepDetail,
@@ -59,9 +60,12 @@ export type {
   LatencyData,
   AnalyticsResponse,
   ToolInfo,
-  AuditLogEntry,
-  AuditLogListResult,
-  AuditStatsResult,
+  MonitorOutcome,
+  MonitorItem,
+  MonitorSection,
+  MonitorDetail,
+  MonitorTypeInfo,
+  MonitorPage,
   EventSource,
   EventDefinition,
   HookEvent,
@@ -112,8 +116,9 @@ import type {
   KnowledgeDocumentDetail,
   AnalyticsResponse,
   ToolInfo,
-  AuditLogListResult,
-  AuditStatsResult,
+  MonitorDetail,
+  MonitorOutcome,
+  MonitorPage,
   EventSource,
   EventDefinition,
   HookEvent,
@@ -177,6 +182,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json();
+}
+
+/**
+ * Build a request path with every interpolated value percent-encoded, so a slug
+ * or id with a `/`, `?` or `#` in it can never change which route is called:
+ * ``urlPath`/api/instances/${slug}/skills/${skillSlug}` ``. Literal text is left alone.
+ */
+function urlPath(strings: TemplateStringsArray, ...values: readonly (string | number)[]): string {
+  return strings.reduce((out, text, i) => out + text + (i < values.length ? encodeURIComponent(String(values[i])) : ""), "");
+}
+
+/** Append a query string to `base`, leaving out parameters that are `undefined` or an empty string. */
+function withQuery(
+  base: string,
+  params: Record<string, string | number | boolean | undefined | readonly string[]>,
+): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "") continue;
+    if (typeof value === "object") for (const item of value) query.append(key, item);
+    else query.set(key, String(value));
+  }
+  const text = query.toString();
+  return text ? `${base}?${text}` : base;
+}
+
+/** The `RequestInit` for a call with a JSON body. */
+function json(method: "POST" | "PUT" | "PATCH" | "DELETE", body: unknown): RequestInit {
+  return { method, body: JSON.stringify(body) };
 }
 
 /**
@@ -258,10 +292,7 @@ export const api = {
   platform: {
     settings: () => request<PlatformSettingsResponse>("/api/platform/settings"),
     updateSettings: (body: Partial<PlatformSettings>) =>
-      request<PlatformSettingsResponse>("/api/platform/settings", {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      }),
+      request<PlatformSettingsResponse>("/api/platform/settings", json("PATCH", body)),
   },
   users: {
     /**
@@ -270,86 +301,76 @@ export const api = {
      * end of the table from a short page.
      */
     list: (params: { limit?: number; offset?: number } = {}) => {
-      const qs = new URLSearchParams();
-      if (params.limit !== undefined) qs.set("limit", String(params.limit));
-      if (params.offset !== undefined) qs.set("offset", String(params.offset));
-      const suffix = qs.toString() ? `?${qs}` : "";
-      return request<{ users: AdminUser[]; total: number }>(`/api/users${suffix}`);
+      return request<{ users: AdminUser[]; total: number }>(withQuery("/api/users", params));
     },
     create: (data: { email: string; name?: string; isPlatformAdmin?: boolean; password?: string }) =>
-      request<CreateUserResponse>("/api/users", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<CreateUserResponse>("/api/users", json("POST", data)),
     update: (id: string, data: { name?: string | null; isPlatformAdmin?: boolean }) =>
-      request<{ user: AdminUser }>(`/api/users/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+      request<{ user: AdminUser }>(urlPath`/api/users/${id}`, json("PATCH", data)),
     delete: (id: string) =>
-      request<{ deleted: boolean }>(`/api/users/${encodeURIComponent(id)}`, {
+      request<{ deleted: boolean }>(urlPath`/api/users/${id}`, {
         method: "DELETE",
       }),
     resetPassword: (id: string) =>
-      request<ResetPasswordResponse>(`/api/users/${encodeURIComponent(id)}/reset-password`, {
+      request<ResetPasswordResponse>(urlPath`/api/users/${id}/reset-password`, {
         method: "POST",
       }),
   },
   me: {
-    get: () => request<TenantContextPayload>("/api/me"),
-    changePassword: (data: { currentPassword?: string; newPassword: string }) =>
-      request<{ ok: boolean }>("/api/me/password", {
-        method: "POST",
-        body: JSON.stringify(data),
+    // The caller's whole tenancy, whichever page asks: it must NOT carry the
+    // workspace of the address being rendered. The engine refuses a request that
+    // names a workspace it does not know, so a mistyped one in the URL answered 403
+    // here and the panel read it as "you belong to no organization" instead of
+    // "this page does not exist". An empty value overrides the header `request`
+    // derives from the URL, and the engine reads an empty header as absent.
+    get: () =>
+      request<TenantContextPayload>("/api/me", {
+        headers: { "X-Workspace-Slug": "" },
       }),
+    changePassword: (data: { currentPassword?: string; newPassword: string }) =>
+      request<{ ok: boolean }>("/api/me/password", json("POST", data)),
     /** Writes the caller's own guidance state; the engine returns the merged record. */
     updateOnboarding: (patch: OnboardingPatch) =>
-      request<{ onboarding: OnboardingState }>("/api/me/onboarding", {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      }),
+      request<{ onboarding: OnboardingState }>("/api/me/onboarding", json("PATCH", patch)),
   },
   members: {
     list: (orgSlug: string) =>
       request<{ members: OrganizationMember[] }>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
+        urlPath`/api/organizations/${orgSlug}/members`,
       ),
     assign: (userId: string, roleKey: string, orgSlug: string) =>
       request<{ assigned: boolean }>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
-        { method: "PUT", body: JSON.stringify({ roleKey }) },
+        urlPath`/api/organizations/${orgSlug}/members/${userId}`,
+        json("PUT", { roleKey }),
       ),
     remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        urlPath`/api/organizations/${orgSlug}/members/${userId}`,
         { method: "DELETE" },
       ),
   },
   apiKeys: {
     list: (orgSlug: string) =>
       request<{ keys: ManagementApiKey[] }>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
+        urlPath`/api/organizations/${orgSlug}/api-keys`,
       ),
     create: (orgSlug: string, data: { name: string; expiresAt?: string }) =>
       request<CreatedManagementApiKey>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
-        { method: "POST", body: JSON.stringify(data) },
+        urlPath`/api/organizations/${orgSlug}/api-keys`,
+        json("POST", data),
       ),
     remove: (orgSlug: string, keyId: string) =>
       request<{ deleted: boolean }>(
-        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys/${encodeURIComponent(keyId)}`,
+        urlPath`/api/organizations/${orgSlug}/api-keys/${keyId}`,
         { method: "DELETE" },
       ),
   },
   instances: {
     list: () => request<{ instances: Instance[] }>("/api/instances"),
     get: (slug: string) =>
-      request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}`),
+      request<{ instance: Instance }>(urlPath`/api/instances/${slug}`),
     create: (data: { slug: string; name: string; description?: string; provider?: string; model?: string }) =>
-      request<{ instance: Instance }>("/api/instances", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<{ instance: Instance }>("/api/instances", json("POST", data)),
     update: (
       slug: string,
       data: {
@@ -398,45 +419,33 @@ export const api = {
       },
     ) =>
       request<{ instance: Instance; wiped?: EmbeddingWipeResult | null }>(
-        `/api/instances/${encodeURIComponent(slug)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(data),
-        },
+        urlPath`/api/instances/${slug}`,
+        json("PATCH", data),
       ),
     delete: (slug: string) =>
-      request<{ deleted: boolean }>(`/api/instances/${encodeURIComponent(slug)}`, {
+      request<{ deleted: boolean }>(urlPath`/api/instances/${slug}`, {
         method: "DELETE",
       }),
     setIcon: (slug: string, icon: string) =>
-      request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}/icon`, {
-        method: "PUT",
-        body: JSON.stringify({ icon }),
-      }),
+      request<{ instance: Instance }>(urlPath`/api/instances/${slug}/icon`, json("PUT", { icon })),
     deleteIcon: (slug: string) =>
-      request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}/icon`, {
+      request<{ instance: Instance }>(urlPath`/api/instances/${slug}/icon`, {
         method: "DELETE",
       }),
   },
   prompts: {
     list: (slug: string) =>
-      request<{ prompts: PromptSection[] }>(`/api/instances/${encodeURIComponent(slug)}/prompts`),
+      request<{ prompts: PromptSection[] }>(urlPath`/api/instances/${slug}/prompts`),
     update: (slug: string, sections: { key: string; content: string }[]) =>
-      request<{ prompts: PromptSection[] }>(`/api/instances/${encodeURIComponent(slug)}/prompts`, {
-        method: "PATCH",
-        body: JSON.stringify({ sections }),
-      }),
+      request<{ prompts: PromptSection[] }>(urlPath`/api/instances/${slug}/prompts`, json("PATCH", { sections })),
   },
   tools: {
     list: (slug: string) =>
-      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`),
+      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(urlPath`/api/instances/${slug}/tools`),
     update: (slug: string, enabled: string[]) =>
-      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled }),
-      }),
+      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(urlPath`/api/instances/${slug}/tools`, json("PATCH", { enabled })),
     requiredSecrets: (slug: string) =>
-      request<{ requiredSecrets: RequiredSecretSpec[] }>(`/api/instances/${encodeURIComponent(slug)}/tools/required-secrets`),
+      request<{ requiredSecrets: RequiredSecretSpec[] }>(urlPath`/api/instances/${slug}/tools/required-secrets`),
     catalog: () =>
       request<{ tools: ToolInfo[] }>("/api/tools"),
   },
@@ -445,19 +454,16 @@ export const api = {
   },
   skills: {
     list: (slug: string) =>
-      request<{ skills: SkillState[] }>(`/api/instances/${encodeURIComponent(slug)}/skills`),
+      request<{ skills: SkillState[] }>(urlPath`/api/instances/${slug}/skills`),
     update: (slug: string, enabled: string[]) =>
-      request<SkillUpdateResponse>(`/api/instances/${encodeURIComponent(slug)}/skills`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled }),
-      }),
+      request<SkillUpdateResponse>(urlPath`/api/instances/${slug}/skills`, json("PATCH", { enabled })),
     upgrade: (slug: string, skillSlug: string) =>
-      request<{ upgraded: boolean }>(`/api/instances/${encodeURIComponent(slug)}/skills/${encodeURIComponent(skillSlug)}/upgrade`, { method: "POST" }),
+      request<{ upgraded: boolean }>(urlPath`/api/instances/${slug}/skills/${skillSlug}/upgrade`, { method: "POST" }),
     rollback: (slug: string, skillSlug: string, versionId: string) =>
-      request<{ rolledBack: boolean }>(`/api/instances/${encodeURIComponent(slug)}/skills/${encodeURIComponent(skillSlug)}/rollback`, { method: "POST", body: JSON.stringify({ versionId }) }),
+      request<{ rolledBack: boolean }>(urlPath`/api/instances/${slug}/skills/${skillSlug}/rollback`, json("POST", { versionId })),
     getEnv: (slug: string, skillSlug: string) =>
       request<{ env: SkillEnvStatus[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/skills/${encodeURIComponent(skillSlug)}/env`,
+        urlPath`/api/instances/${slug}/skills/${skillSlug}/env`,
       ),
     setEnv: (
       slug: string,
@@ -465,129 +471,130 @@ export const api = {
       env: { key: string; value: string; sensitive: boolean }[],
     ) =>
       request<{ env: SkillEnvStatus[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/skills/${encodeURIComponent(skillSlug)}/env`,
-        { method: "PUT", body: JSON.stringify({ env }) },
+        urlPath`/api/instances/${slug}/skills/${skillSlug}/env`,
+        json("PUT", { env }),
       ),
     setAutoLoad: (slug: string, skillSlug: string, autoLoad: boolean) =>
       request<{ autoLoad: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/skills/${encodeURIComponent(skillSlug)}/auto-load`,
-        { method: "POST", body: JSON.stringify({ autoLoad }) },
+        urlPath`/api/instances/${slug}/skills/${skillSlug}/auto-load`,
+        json("POST", { autoLoad }),
       ),
   },
   secrets: {
     list: (slug: string) =>
-      request<{ secrets: SecretStatus[] }>(`/api/instances/${encodeURIComponent(slug)}/secrets`),
+      request<{ secrets: SecretStatus[] }>(urlPath`/api/instances/${slug}/secrets`),
     set: (slug: string, secrets: { key: string; value: string }[]) =>
-      request<{ secrets: SecretStatus[] }>(`/api/instances/${encodeURIComponent(slug)}/secrets`, {
-        method: "PUT",
-        body: JSON.stringify({ secrets }),
-      }),
+      request<{ secrets: SecretStatus[] }>(urlPath`/api/instances/${slug}/secrets`, json("PUT", { secrets })),
     delete: (slug: string, key: string) =>
-      request<{ deleted: boolean }>(`/api/instances/${encodeURIComponent(slug)}/secrets/${encodeURIComponent(key)}`, {
+      request<{ deleted: boolean }>(urlPath`/api/instances/${slug}/secrets/${key}`, {
         method: "DELETE",
       }),
   },
   channels: {
     list: (slug: string) =>
-      request<{ channels: ChannelConfig[] }>(`/api/instances/${encodeURIComponent(slug)}/channels`),
+      request<{ channels: ChannelConfig[] }>(urlPath`/api/instances/${slug}/channels`),
     slackWebhookUrl: (slug: string) =>
-      request<{ webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/channels/slack/webhook-url`),
+      request<{ webhookUrl: string }>(urlPath`/api/instances/${slug}/channels/slack/webhook-url`),
+    /** Where a caller reaches the Web channel; `baseUrlConfigured` false means the localhost fallback. */
+    webEndpoint: (slug: string) =>
+      request<{ endpointUrl: string; baseUrlConfigured: boolean }>(urlPath`/api/instances/${slug}/channels/web/endpoint`),
     set: (slug: string, channelType: string, config: Record<string, unknown>, enabled: boolean) =>
       // `webhookUrl` is present only when the saved channel ends up in
       // Twilio API Key mode (see the engine's `buildChannelResponse`).
       request<{ channel: ChannelConfig | null; webhookUrl?: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/channels/${encodeURIComponent(channelType)}`,
-        { method: "PUT", body: JSON.stringify({ config, enabled }) },
+        urlPath`/api/instances/${slug}/channels/${channelType}`,
+        json("PUT", { config, enabled }),
       ),
     delete: (slug: string, channelType: string) =>
       request<{ deleted: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/channels/${encodeURIComponent(channelType)}`,
+        urlPath`/api/instances/${slug}/channels/${channelType}`,
         { method: "DELETE" },
       ),
     webhookUrl: (slug: string) =>
       request<{ webhookUrl: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/channels/whatsapp/webhook-url`,
+        urlPath`/api/instances/${slug}/channels/whatsapp/webhook-url`,
       ),
     rotateWebhookSecret: (slug: string) =>
       request<{ webhookUrl: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/channels/whatsapp/rotate-webhook-secret`,
+        urlPath`/api/instances/${slug}/channels/whatsapp/rotate-webhook-secret`,
         { method: "POST" },
       ),
   },
   mcpServers: {
     list: (slug: string) =>
-      request<McpServer[]>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers`),
+      request<McpServer[]>(urlPath`/api/instances/${slug}/mcp-servers`),
     set: (
       slug: string,
       serverSlug: string,
       body: { name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
     ) =>
       request<{ ok: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
-        { method: "PUT", body: JSON.stringify(body) },
+        urlPath`/api/instances/${slug}/mcp-servers/${serverSlug}`,
+        json("PUT", body),
       ),
     delete: (slug: string, serverSlug: string) =>
       request<{ deleted: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
+        urlPath`/api/instances/${slug}/mcp-servers/${serverSlug}`,
         { method: "DELETE" },
       ),
     test: (
       slug: string,
       body: { slug?: string; name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
     ) =>
-      request<McpTestResult>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers/test`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+      request<McpTestResult>(urlPath`/api/instances/${slug}/mcp-servers/test`, json("POST", body)),
     /** Start connecting the agent's shared account; the panel opens the returned URL. */
     connectShared: (slug: string, serverSlug: string) =>
       request<{ authorizeUrl: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        urlPath`/api/instances/${slug}/mcp-servers/${serverSlug}/shared-account`,
         { method: "POST" },
       ),
     disconnectShared: (slug: string, serverSlug: string) =>
       request<{ disconnected: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        urlPath`/api/instances/${slug}/mcp-servers/${serverSlug}/shared-account`,
         { method: "DELETE" },
       ),
   },
   knowledge: {
     list: (slug: string) =>
-      request<{ documents: KnowledgeDocument[] }>(`/api/instances/${encodeURIComponent(slug)}/knowledge`),
+      request<{ documents: KnowledgeDocument[] }>(urlPath`/api/instances/${slug}/knowledge`),
     get: (slug: string, docId: string) =>
       request<{ document: KnowledgeDocumentDetail }>(
-        `/api/instances/${encodeURIComponent(slug)}/knowledge/${encodeURIComponent(docId)}`,
+        urlPath`/api/instances/${slug}/knowledge/${docId}`,
       ),
     upload: (slug: string, data: { filename: string; content: string }) =>
       request<{ document: { id: string; filename: string; status: string } }>(
-        `/api/instances/${encodeURIComponent(slug)}/knowledge`,
-        { method: "POST", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/knowledge`,
+        json("POST", data),
+      ),
+    /** Off keeps the document stored; retrieval skips it until it is switched on. */
+    setEnabled: (slug: string, docId: string, enabled: boolean) =>
+      request<{ id: string; enabled: boolean }>(
+        urlPath`/api/instances/${slug}/knowledge/${docId}`,
+        json("PATCH", { enabled }),
       ),
     delete: (slug: string, docId: string) =>
       request<{ deleted: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/knowledge/${encodeURIComponent(docId)}`,
+        urlPath`/api/instances/${slug}/knowledge/${docId}`,
         { method: "DELETE" },
       ),
     export: (slug: string) =>
       request<{
         version: number;
         instanceSlug: string;
-        documents: { filename: string; content: string; mimeType: string; source: string; contentHash: string }[];
-      }>(`/api/instances/${encodeURIComponent(slug)}/knowledge/export`),
-    import: (slug: string, data: { version?: number; documents: { filename: string; content: string }[] }) =>
+        documents: { filename: string; content: string; mimeType: string; source: string; contentHash: string; enabled: boolean }[];
+      }>(urlPath`/api/instances/${slug}/knowledge/export`),
+    import: (slug: string, data: { version?: number; documents: { filename: string; content: string; enabled?: boolean }[] }) =>
       request<{ imported: number; documents: { filename: string; renamedFrom?: string }[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/knowledge/import`,
-        { method: "POST", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/knowledge/import`,
+        json("POST", data),
       ),
   },
   analytics: {
     global: (from: string, to: string) => {
-      const query = new URLSearchParams({ from, to });
-      return request<AnalyticsResponse>(`/api/analytics?${query}`);
+      return request<AnalyticsResponse>(withQuery("/api/analytics", { from, to }));
     },
     instance: (slug: string, from: string, to: string) => {
-      const query = new URLSearchParams({ from, to });
-      return request<AnalyticsResponse>(`/api/instances/${encodeURIComponent(slug)}/analytics?${query}`);
+      return request<AnalyticsResponse>(withQuery(urlPath`/api/instances/${slug}/analytics`, { from, to }));
     },
   },
   conversations: {
@@ -595,26 +602,21 @@ export const api = {
       instanceId?: string;
       source?: string;
       search?: string;
+      /** Substring of the contact (email, phone number, channel handle). */
+      userIdentifier?: string;
       limit?: number;
       offset?: number;
     }) => {
-      const query = new URLSearchParams();
-      if (params?.instanceId) query.set("instanceId", params.instanceId);
-      if (params?.source) query.set("source", params.source);
-      if (params?.search) query.set("search", params.search);
-      if (params?.limit) query.set("limit", String(params.limit));
-      if (params?.offset) query.set("offset", String(params.offset));
-      const qs = query.toString();
       return request<{
         conversations: ConversationListItem[];
         total: number;
         limit: number;
         offset: number;
-      }>(`/api/conversations${qs ? `?${qs}` : ""}`);
+      }>(withQuery("/api/conversations", params ?? {}));
     },
     get: (conversationId: string, instanceId: string) =>
       request<{ conversation: ConversationListItem }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
+        urlPath`/api/conversations/${conversationId}?instanceId=${instanceId}`,
       ),
     /**
      * SSE URL following one conversation live: its activity events, plus a
@@ -622,43 +624,37 @@ export const api = {
      * EventSource cannot go through `request()`, so only the path lives here.
      */
     liveUrl: (conversationId: string, instanceId: string) =>
-      `/api/activity-stream/conversation?${new URLSearchParams({ conversationId, instanceId }).toString()}`,
+      withQuery("/api/activity-stream/conversation", { conversationId, instanceId }),
     hookExecutions: (conversationId: string, instanceId: string) =>
       request<{ executions: HookExecution[] }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}/hooks?instanceId=${encodeURIComponent(instanceId)}`,
+        urlPath`/api/conversations/${conversationId}/hooks?instanceId=${instanceId}`,
       ),
     messages: (
       conversationId: string,
       instanceId: string,
       params?: { limit?: number; offset?: number; order?: "asc" | "desc" },
     ) => {
-      const query = new URLSearchParams({ instanceId });
-      if (params?.limit) query.set("limit", String(params.limit));
-      if (params?.offset) query.set("offset", String(params.offset));
-      if (params?.order) query.set("order", params.order);
       return request<{
         messages: ConversationMessage[];
         total: number;
         limit: number;
         offset: number;
         order: "asc" | "desc";
-      }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
-      );
+      }>(withQuery(urlPath`/api/conversations/${conversationId}/messages`, { instanceId, ...params }));
     },
     /** Heavy per-turn debug data (captured LLM request payload + step trace) for one message. */
     messageDebug: (conversationId: string, messageId: string, instanceId: string) =>
       request<MessageDebug>(
-        `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/debug?instanceId=${encodeURIComponent(instanceId)}`,
+        urlPath`/api/conversations/${conversationId}/messages/${messageId}/debug?instanceId=${instanceId}`,
       ),
     /** The conversation state store snapshot (latest; includes the `_channel` identity). */
     state: (conversationId: string, instanceId: string) =>
       request<{ state: Record<string, unknown> }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}/state?instanceId=${encodeURIComponent(instanceId)}`,
+        urlPath`/api/conversations/${conversationId}/state?instanceId=${instanceId}`,
       ),
     delete: (conversationId: string, instanceId: string) =>
       request<{ deleted: boolean }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
+        urlPath`/api/conversations/${conversationId}?instanceId=${instanceId}`,
         { method: "DELETE" },
       ),
     /** Rename the conversation id (propagated across all linked tables) and/or its title. */
@@ -668,8 +664,8 @@ export const api = {
       body: { conversationId?: string; title?: string },
     ) =>
       request<{ renamed: boolean; conversationId: string }>(
-        `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
-        { method: "PATCH", body: JSON.stringify(body) },
+        urlPath`/api/conversations/${conversationId}?instanceId=${instanceId}`,
+        json("PATCH", body),
       ),
   },
   memories: {
@@ -680,31 +676,21 @@ export const api = {
       limit?: number;
       offset?: number;
     }) => {
-      const query = new URLSearchParams();
-      if (params?.instanceId) query.set("instanceId", params.instanceId);
-      if (params?.search) query.set("search", params.search);
-      if (params?.category) query.set("category", params.category);
-      if (params?.limit) query.set("limit", String(params.limit));
-      if (params?.offset) query.set("offset", String(params.offset));
-      const qs = query.toString();
       return request<{
         memories: Memory[];
         total: number;
         limit: number;
         offset: number;
-      }>(`/memories${qs ? `?${qs}` : ""}`);
+      }>(withQuery("/memories", params ?? {}));
     },
     create: (data: { instanceId: string; content: string; category?: string; importance?: number }) =>
-      request<{ memory: { id: string; content: string; event: string } }>("/memories", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<{ memory: { id: string; content: string; event: string } }>("/memories", json("POST", data)),
     delete: (id: string) =>
-      request<{ deleted: boolean }>(`/memories/${encodeURIComponent(id)}`, {
+      request<{ deleted: boolean }>(urlPath`/memories/${id}`, {
         method: "DELETE",
       }),
     deleteAll: (instanceId: string) =>
-      request<{ deleted: boolean }>(`/memories?instanceId=${encodeURIComponent(instanceId)}`, {
+      request<{ deleted: boolean }>(urlPath`/memories?instanceId=${instanceId}`, {
         method: "DELETE",
       }),
   },
@@ -712,7 +698,7 @@ export const api = {
     list: () =>
       request<{ skills: LibrarySkillSummary[] }>("/api/skills"),
     get: (name: string) =>
-      request<LibrarySkillDetail>(`/api/skills/${encodeURIComponent(name)}`),
+      request<LibrarySkillDetail>(urlPath`/api/skills/${name}`),
     create: (data: {
       name: string;
       description: string;
@@ -720,76 +706,52 @@ export const api = {
       requiredEnv?: { name: string; description?: string; sensitive: boolean }[];
       requiredTools?: string[];
     }) =>
-      request<LibrarySkillDetail>("/api/skills", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<LibrarySkillDetail>("/api/skills", json("POST", data)),
     update: (name: string, data: {
+      /** Renames the skill for people; the slug in `name` is unchanged. */
+      displayName?: string;
       description: string;
       content: string;
       requiredEnv?: { name: string; description?: string; sensitive: boolean }[];
       requiredTools?: string[];
       changelog?: string;
     }) =>
-      request<LibrarySkillDetail>(`/api/skills/${encodeURIComponent(name)}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
+      request<LibrarySkillDetail>(urlPath`/api/skills/${name}`, json("PUT", data)),
     delete: (name: string) =>
-      request<{ deleted: boolean }>(`/api/skills/${encodeURIComponent(name)}`, {
+      request<{ deleted: boolean }>(urlPath`/api/skills/${name}`, {
         method: "DELETE",
       }),
     versions: (name: string) =>
-      request<{ versions: SkillVersion[] }>(`/api/skills/${encodeURIComponent(name)}/versions`),
+      request<{ versions: SkillVersion[] }>(urlPath`/api/skills/${name}/versions`),
     getVersion: (name: string, version: string) =>
-      request<SkillVersion>(`/api/skills/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`),
+      request<SkillVersion>(urlPath`/api/skills/${name}/versions/${version}`),
   },
 
-  auditLogs: {
+  monitor: {
+    /** One page of the Monitor timeline, newest first; pass `nextCursor` back for the next. */
     list: (params?: {
-      instanceId?: string;
-      toolName?: string;
-      action?: string;
-      search?: string;
+      types?: readonly string[];
+      group?: string;
+      agent?: string;
+      outcome?: MonitorOutcome;
       from?: string;
       to?: string;
+      q?: string;
+      cursor?: string;
       limit?: number;
-      offset?: number;
-    }) => {
-      const query = new URLSearchParams();
-      if (params?.instanceId) query.set("instanceId", params.instanceId);
-      if (params?.toolName) query.set("toolName", params.toolName);
-      if (params?.action) query.set("action", params.action);
-      if (params?.search) query.set("search", params.search);
-      if (params?.from) query.set("from", params.from);
-      if (params?.to) query.set("to", params.to);
-      if (params?.limit) query.set("limit", String(params.limit));
-      if (params?.offset) query.set("offset", String(params.offset));
-      const qs = query.toString();
-      return request<AuditLogListResult>(`/api/audit-logs${qs ? `?${qs}` : ""}`);
-    },
-    stats: (params?: {
-      instanceId?: string;
-      from?: string;
-      to?: string;
-    }) => {
-      const query = new URLSearchParams();
-      if (params?.instanceId) query.set("instanceId", params.instanceId);
-      if (params?.from) query.set("from", params.from);
-      if (params?.to) query.set("to", params.to);
-      const qs = query.toString();
-      return request<AuditStatsResult>(`/api/audit-logs/stats${qs ? `?${qs}` : ""}`);
-    },
+    }) => request<MonitorPage>(withQuery("/api/monitor", { ...params, types: params?.types?.join(",") })),
+    detail: (type: string, id: string) =>
+      request<MonitorDetail>(urlPath`/api/monitor/${type}/${id}`),
   },
 
   scheduledTasks: {
     list: (slug: string) =>
       request<{ tasks: ScheduledTask[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks`,
+        urlPath`/api/instances/${slug}/scheduled-tasks`,
       ),
     get: (slug: string, id: string) =>
       request<{ task: ScheduledTask }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/${encodeURIComponent(id)}`,
+        urlPath`/api/instances/${slug}/scheduled-tasks/${id}`,
       ),
     create: (
       slug: string,
@@ -805,8 +767,8 @@ export const api = {
       },
     ) =>
       request<{ task: ScheduledTask }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks`,
-        { method: "POST", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/scheduled-tasks`,
+        json("POST", data),
       ),
     update: (
       slug: string,
@@ -824,28 +786,22 @@ export const api = {
       },
     ) =>
       request<{ task: ScheduledTask }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/${encodeURIComponent(id)}`,
-        { method: "PATCH", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/scheduled-tasks/${id}`,
+        json("PATCH", data),
       ),
     delete: (slug: string, id: string) =>
       request<{ deleted: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/${encodeURIComponent(id)}`,
+        urlPath`/api/instances/${slug}/scheduled-tasks/${id}`,
         { method: "DELETE" },
       ),
     run: (slug: string, id: string) =>
       request<{ message: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/${encodeURIComponent(id)}/run`,
+        urlPath`/api/instances/${slug}/scheduled-tasks/${id}/run`,
         { method: "POST" },
       ),
     runs: (slug: string, params?: { taskId?: string; status?: string; limit?: number; offset?: number }) => {
-      const qs = new URLSearchParams();
-      if (params?.taskId) qs.set("taskId", params.taskId);
-      if (params?.status) qs.set("status", params.status);
-      if (params?.limit) qs.set("limit", String(params.limit));
-      if (params?.offset) qs.set("offset", String(params.offset));
-      const query = qs.toString();
       return request<{ runs: ScheduledTaskRun[]; total: number }>(
-        `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/runs${query ? `?${query}` : ""}`,
+        withQuery(urlPath`/api/instances/${slug}/scheduled-tasks/runs`, params ?? {}),
       );
     },
   },
@@ -853,7 +809,7 @@ export const api = {
   hooks: {
     list: (slug: string) =>
       request<{ hooks: InstanceHook[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/hooks`,
+        urlPath`/api/instances/${slug}/hooks`,
       ),
     functions: () =>
       request<{ hookFunctions: HookFunctionInfo[] }>("/api/hook-functions"),
@@ -869,8 +825,8 @@ export const api = {
       },
     ) =>
       request<{ hook: InstanceHook }>(
-        `/api/instances/${encodeURIComponent(slug)}/hooks`,
-        { method: "POST", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/hooks`,
+        json("POST", data),
       ),
     update: (
       slug: string,
@@ -884,41 +840,34 @@ export const api = {
       },
     ) =>
       request<{ hook: InstanceHook }>(
-        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
-        { method: "PATCH", body: JSON.stringify(data) },
+        urlPath`/api/instances/${slug}/hooks/${id}`,
+        json("PATCH", data),
       ),
     delete: (slug: string, id: string) =>
       request<{ deleted: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        urlPath`/api/instances/${slug}/hooks/${id}`,
         { method: "DELETE" },
       ),
   },
 
   optouts: {
     list: (slug: string, params?: { status?: string; page?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.status) q.set("status", params.status);
-      if (params?.page) q.set("page", String(params.page));
-      const qs = q.toString();
       return request<{ optouts: OptoutContact[]; page: number }>(
-        `/api/instances/${encodeURIComponent(slug)}/optouts${qs ? `?${qs}` : ""}`,
+        withQuery(urlPath`/api/instances/${slug}/optouts`, params ?? {}),
       );
     },
     optOut: (slug: string, channelType: string, channelId: string) =>
-      request<{ ok: boolean }>(`/api/instances/${encodeURIComponent(slug)}/optouts`, {
-        method: "POST",
-        body: JSON.stringify({ channelType, channelId }),
-      }),
+      request<{ ok: boolean }>(urlPath`/api/instances/${slug}/optouts`, json("POST", { channelType, channelId })),
     optIn: (slug: string, channelType: string, channelId: string) =>
       request<{ ok: boolean }>(
-        `/api/instances/${encodeURIComponent(slug)}/optouts/${encodeURIComponent(channelType)}/${encodeURIComponent(channelId)}`,
+        urlPath`/api/instances/${slug}/optouts/${channelType}/${channelId}`,
         { method: "DELETE" },
       ),
   },
 
   room: {
     get: (slug: string) =>
-      request<RoomConfigResponse>(`/api/instances/${encodeURIComponent(slug)}/room`),
+      request<RoomConfigResponse>(urlPath`/api/instances/${slug}/room`),
     upsert: (slug: string, data: {
       enabled?: boolean;
       prompt?: string;
@@ -926,32 +875,24 @@ export const api = {
       outboundTarget?: string | null;
       evalIntervalMinutes?: number;
     }) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/room`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
+      request(urlPath`/api/instances/${slug}/room`, json("PUT", data)),
     delete: (slug: string) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/room`, { method: "DELETE" }),
+      request(urlPath`/api/instances/${slug}/room`, { method: "DELETE" }),
     backlog: (slug: string, params?: { status?: string; limit?: number; offset?: number }) => {
-      const qs = new URLSearchParams();
-      if (params?.status) qs.set("status", params.status);
-      if (params?.limit) qs.set("limit", String(params.limit));
-      if (params?.offset) qs.set("offset", String(params.offset));
-      const query = qs.toString() ? `?${qs.toString()}` : "";
-      return request<{ events: BacklogEvent[]; total: number }>(`/api/instances/${encodeURIComponent(slug)}/room/backlog${query}`);
+      return request<{ events: BacklogEvent[]; total: number }>(
+        withQuery(urlPath`/api/instances/${slug}/room/backlog`, { ...params, limit: params?.limit || undefined }),
+      );
     },
     activity: (slug: string, params?: { logType?: string; limit?: number }) => {
-      const qs = new URLSearchParams();
-      if (params?.logType) qs.set("logType", params.logType);
-      if (params?.limit) qs.set("limit", String(params.limit));
-      const query = qs.toString() ? `?${qs.toString()}` : "";
-      return request<ActivityLogEntry[]>(`/api/instances/${encodeURIComponent(slug)}/room/activity${query}`);
+      return request<ActivityLogEntry[]>(
+        withQuery(urlPath`/api/instances/${slug}/room/activity`, { ...params, limit: params?.limit || undefined }),
+      );
     },
   },
 
   exportImport: {
     exportInstance: async (slug: string) => {
-      const res = await fetch(`${API_BASE}/api/instances/${encodeURIComponent(slug)}/export`, {
+      const res = await fetch(urlPath`${API_BASE}/api/instances/${slug}/export`, {
         signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) {
@@ -963,15 +904,15 @@ export const api = {
     importNew: (bundle: unknown) =>
       request<{ slug: string; instanceId: string; warnings: { type: string; message: string }[] }>(
         "/api/instances/import",
-        { method: "POST", body: JSON.stringify(bundle) },
+        json("POST", bundle),
       ),
     importOverwrite: (slug: string, bundle: unknown) =>
       request<{ slug: string; instanceId: string; warnings: { type: string; message: string }[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/import`,
-        { method: "POST", body: JSON.stringify(bundle) },
+        urlPath`/api/instances/${slug}/import`,
+        json("POST", bundle),
       ),
     exportSkill: async (name: string) => {
-      const res = await fetch(`${API_BASE}/api/skills/${encodeURIComponent(name)}/export`, {
+      const res = await fetch(urlPath`${API_BASE}/api/skills/${name}/export`, {
         signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) {
@@ -993,46 +934,34 @@ export const api = {
     importSkills: (bundle: unknown) =>
       request<{ created: string[]; updated: string[]; skipped: string[] }>(
         "/api/skills/catalog/import",
-        { method: "POST", body: JSON.stringify(bundle) },
+        json("POST", bundle),
       ),
   },
 
   eventSources: {
     list: (slug: string) =>
-      request<EventSource[]>(`/api/instances/${encodeURIComponent(slug)}/event-sources`),
+      request<EventSource[]>(urlPath`/api/instances/${slug}/event-sources`),
     create: (slug: string, data: { name: string; sourceType: string; config: Record<string, unknown>; enabled?: boolean }) =>
-      request<{ id: string; webhookToken: string; webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/event-sources`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<{ id: string; webhookToken: string; webhookUrl: string }>(urlPath`/api/instances/${slug}/event-sources`, json("POST", data)),
     update: (slug: string, id: string, data: { name?: string; config?: Record<string, unknown>; enabled?: boolean }) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
+      request(urlPath`/api/instances/${slug}/event-sources/${id}`, json("PUT", data)),
     delete: (slug: string, id: string) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}`, { method: "DELETE" }),
+      request(urlPath`/api/instances/${slug}/event-sources/${id}`, { method: "DELETE" }),
     rotateToken: (slug: string, id: string) =>
-      request<{ webhookToken: string; webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/rotate-token`, { method: "POST" }),
+      request<{ webhookToken: string; webhookUrl: string }>(urlPath`/api/instances/${slug}/event-sources/${id}/rotate-token`, { method: "POST" }),
     // ROOM_WRITE only — the list endpoint above deliberately omits this
     // bearer-equivalent URL, so the caller fetches it on demand per source.
     webhookUrl: (slug: string, id: string) =>
       request<{ webhookUrl: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/webhook-url`,
+        urlPath`/api/instances/${slug}/event-sources/${id}/webhook-url`,
       ),
     listDefinitions: (slug: string, sourceId: string) =>
-      request<EventDefinition[]>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions`),
+      request<EventDefinition[]>(urlPath`/api/instances/${slug}/event-sources/${sourceId}/definitions`),
     createDefinition: (slug: string, sourceId: string, data: { name: string; matchingPrompt: string; interpretationPrompt: string; enabled?: boolean }) =>
-      request<{ id: string }>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<{ id: string }>(urlPath`/api/instances/${slug}/event-sources/${sourceId}/definitions`, json("POST", data)),
     updateDefinition: (slug: string, sourceId: string, defId: string, data: { name?: string; matchingPrompt?: string; interpretationPrompt?: string; enabled?: boolean }) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions/${defId}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
+      request(urlPath`/api/instances/${slug}/event-sources/${sourceId}/definitions/${defId}`, json("PUT", data)),
     deleteDefinition: (slug: string, sourceId: string, defId: string) =>
-      request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions/${defId}`, { method: "DELETE" }),
+      request(urlPath`/api/instances/${slug}/event-sources/${sourceId}/definitions/${defId}`, { method: "DELETE" }),
   },
 };

@@ -46,10 +46,6 @@ const PROVIDER_DOT: Record<string, string> = {
   gemini: "bg-blue-500",
 };
 
-function formatCost(usd: number): string {
-  return `$${usd.toFixed(4)}`;
-}
-
 function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 }
@@ -136,31 +132,31 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
 
       <Pill iconColor={CATEGORY.cost} icon={ArrowDown} title={t("conversations.detail.pills.input")}>
         {fmt.number(regularInput)}
-        {hasCost && sub(formatCost(cost.input))}
+        {hasCost && sub(fmt.currency(cost.input))}
       </Pill>
 
       {cacheRead > 0 && (
         <Pill iconColor={CATEGORY.cost} icon={Zap} title={t("conversations.detail.pills.cacheRead")}>
           {fmt.number(cacheRead)}
-          {hasCost && cost.cacheRead != null && sub(formatCost(cost.cacheRead))}
+          {hasCost && cost.cacheRead != null && sub(fmt.currency(cost.cacheRead))}
         </Pill>
       )}
 
       {cacheWrite > 0 && (
         <Pill iconColor={CATEGORY.cost} icon={Database} title={t("conversations.detail.pills.cacheWrite")}>
           {fmt.number(cacheWrite)}
-          {hasCost && cost.cacheWrite != null && sub(formatCost(cost.cacheWrite))}
+          {hasCost && cost.cacheWrite != null && sub(fmt.currency(cost.cacheWrite))}
         </Pill>
       )}
 
       <Pill iconColor={CATEGORY.cost} icon={ArrowUp} title={t("conversations.detail.pills.output")}>
         {fmt.number(completionTokens)}
-        {hasCost && sub(formatCost(cost.output))}
+        {hasCost && sub(fmt.currency(cost.output))}
       </Pill>
 
       {hasCost && (
         <Pill iconColor={CATEGORY.cost} icon={Coins} title={t("conversations.detail.pills.total")} emphasis>
-          {formatCost(cost.total)}
+          {fmt.currency(cost.total)}
         </Pill>
       )}
 

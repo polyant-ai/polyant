@@ -8,7 +8,7 @@ const { mockFindInstance } = vi.hoisted(() => ({
 
 vi.mock("../../instances/store.js", () => ({ findInstanceBySlug: mockFindInstance }));
 
-import { findInstanceOrFail, maskSensitiveConfig, errMsg } from "./instance-helpers.js";
+import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
 
 // ---------------------------------------------------------------------------
 // findInstanceOrFail
@@ -140,30 +140,5 @@ describe("maskSensitiveConfig", () => {
   it("does NOT mask authMode, even though it selects between credential modes", () => {
     const result = maskSensitiveConfig({ authMode: "apiKey", accountSid: "AC1", webhookSecret: "shh12345" });
     expect(result.authMode).toBe("apiKey");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// errMsg
-// ---------------------------------------------------------------------------
-describe("errMsg", () => {
-  it("returns error.message for an Error instance", () => {
-    expect(errMsg(new Error("something broke"))).toBe("something broke");
-  });
-
-  it("returns the string itself when given a string", () => {
-    expect(errMsg("plain string")).toBe("plain string");
-  });
-
-  it("returns the string representation of a number", () => {
-    expect(errMsg(404)).toBe("404");
-  });
-
-  it('returns "null" for null', () => {
-    expect(errMsg(null)).toBe("null");
-  });
-
-  it('returns "undefined" for undefined', () => {
-    expect(errMsg(undefined)).toBe("undefined");
   });
 });

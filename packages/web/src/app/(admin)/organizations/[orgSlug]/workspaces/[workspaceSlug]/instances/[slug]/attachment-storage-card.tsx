@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -12,6 +12,7 @@ import { useInstanceSecret } from "@/components/instance-secret/use-instance-sec
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 /**
  * Attachment storage: the switch that keeps the files users send, and the
@@ -39,18 +40,14 @@ export function AttachmentStorageCard({
 }) {
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
-  const [enabled, setEnabled] = useState(instance.attachmentStorageEnabled ?? false);
+  const { draft, set, isDirty: flagDirty } = useDraft({ enabled: instance.attachmentStorageEnabled ?? false });
+  const { enabled } = draft;
   const bucket = useInstanceSecret(instance.slug, KEYS.bucket);
   const region = useInstanceSecret(instance.slug, KEYS.region);
   const accessKeyId = useInstanceSecret(instance.slug, KEYS.accessKeyId);
   const secretAccessKey = useInstanceSecret(instance.slug, KEYS.secretAccessKey);
   const fields = [bucket, region, accessKeyId, secretAccessKey];
 
-  useEffect(() => {
-    setEnabled(instance.attachmentStorageEnabled ?? false);
-  }, [instance.attachmentStorageEnabled]);
-
-  const flagDirty = enabled !== (instance.attachmentStorageEnabled ?? false);
   const isDirty = flagDirty || fields.some((f) => f.dirty);
 
   const handleSave = async () => {
@@ -86,7 +83,7 @@ export function AttachmentStorageCard({
           </Label>
           <p className="text-sm text-muted-foreground">{t("settings.tab.attachmentStorageHelp")}</p>
         </div>
-        <Switch id="agent-attachment-storage" checked={enabled} onCheckedChange={setEnabled} />
+        <Switch id="agent-attachment-storage" checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
       </div>
 
       {/* The bucket appears once storage is on: it is the switch's configuration,

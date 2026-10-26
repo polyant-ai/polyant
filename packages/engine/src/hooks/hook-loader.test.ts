@@ -64,7 +64,7 @@ describe("hook loader (fixture dir)", () => {
 
   it("skips a *.hook.ts whose default export lacks a handler (with a warning)", async () => {
     writeFileSync(join(tmp, "broken.hook.ts"), NO_HANDLER);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await loadAllHooks();
 

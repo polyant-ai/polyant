@@ -3,8 +3,8 @@
 import { topModelsWithRest, MAX_NAMED_MODELS } from "./model-distribution-chart";
 import type { ModelRow } from "@/lib/api";
 
-const row = (model: string, calls: number): ModelRow =>
-  ({ model, calls }) as ModelRow;
+const row = (model: string, calls: number, callType = "conversation"): ModelRow =>
+  ({ model, calls, callType }) as ModelRow;
 
 const others = (count: number) => `others:${count}`;
 
@@ -86,5 +86,26 @@ describe("topModelsWithRest", () => {
 
   it("handles an empty list", () => {
     expect(topModelsWithRest([], others)).toEqual([]);
+  });
+});
+
+describe("topModelsWithRest service calls", () => {
+  /**
+   * Titles and summaries run on a fast-tier model nobody chose; naming it made the
+   * pie claim the agent runs on a model the owner never picked.
+   */
+  it("folds service calls into one labelled slice instead of naming their model", () => {
+    const data = [row("chosen", 10), row("fast-model", 7, "service")];
+
+    expect(topModelsWithRest(data, others, "service-label")).toEqual([
+      { name: "chosen", value: 10 },
+      { name: "service-label", value: 7 },
+    ]);
+  });
+
+  it("sums the same model across call types so it is named once", () => {
+    const data = [row("m", 4), row("m", 6, "embedding")];
+
+    expect(topModelsWithRest(data, others, "service-label")).toEqual([{ name: "m", value: 10 }]);
   });
 });

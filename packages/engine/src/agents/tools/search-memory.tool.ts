@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { hybridSearch } from "../../memory/index.js";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
 export default defineTool({
@@ -48,14 +48,7 @@ export default defineTool({
         })),
       };
     } catch (err) {
-      const message = errMsg(err);
-      ctx.audit.log({
-        action: "memory.search",
-        details: { query: auditPreview(query) },
-        success: false,
-        error: message,
-      });
-      console.error(`searchMemory tool error: ${message}`);
+      const message = auditFailure(ctx, "memory.search", { query: auditPreview(query) }, err, "searchMemory");
       return { found: 0, results: [], error: message };
     }
   },

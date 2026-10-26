@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { STTProviderAdapter, STTRequest, STTResponse } from "../types.js";
-import { STTMissingCredentialsError, STTProviderError, STTTimeoutError } from "../errors.js";
+import { STTMissingCredentialsError } from "../errors.js";
+import { sttFetch } from "../stt-fetch.js";
 
 const DEFAULT_MODEL = "nova-3";
 
@@ -20,45 +21,17 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
 
   const url = `https://api.deepgram.com/v1/listen?${params.toString()}`;
 
-  const controller = new AbortController();
-  const timeoutMs = req.timeoutMs ?? 30_000;
-  // Told apart from a caller's abort by this flag, not by the error text: both arrive
-  // as the same AbortError.
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  const onCallerAbort = () => controller.abort();
-  req.abortSignal?.addEventListener("abort", onCallerAbort, { once: true });
-
   const start = Date.now();
-  let res: Response;
-  try {
-    res = await fetch(url, {
+  const res = await sttFetch(
+    "deepgram",
+    url,
+    {
       method: "POST",
-      headers: {
-        Authorization: `Token ${cred.apiKey}`,
-        "Content-Type": req.mimeType,
-      },
+      headers: { Authorization: `Token ${cred.apiKey}`, "Content-Type": req.mimeType },
       body: req.audio,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if ((err as Error).name === "AbortError") {
-      if (timedOut) throw new STTTimeoutError("deepgram", timeoutMs);
-      throw new STTProviderError("deepgram", "aborted by the caller", { cause: err });
-    }
-    throw new STTProviderError("deepgram", `fetch failed: ${(err as Error).message}`, { cause: err });
-  } finally {
-    clearTimeout(timeoutId);
-    req.abortSignal?.removeEventListener("abort", onCallerAbort);
-  }
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new STTProviderError("deepgram", `HTTP ${res.status}: ${body}`, { status: res.status });
-  }
+    },
+    req,
+  );
 
   type DeepgramResponse = {
     results?: {

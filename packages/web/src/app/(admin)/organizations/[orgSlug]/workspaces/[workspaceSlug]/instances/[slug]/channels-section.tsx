@@ -2,10 +2,13 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { api, type ChannelConfig, type Instance } from "@/lib/api";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api, type Instance } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 import { Chip } from "@/components/ui/chip";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -56,29 +59,12 @@ export function ChannelsSection({
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<string>(CHANNELS[0].type);
-  const [configured, setConfigured] = useState<ChannelConfig[]>([]);
-
-  /*
-    The dots come from the PANEL below, which reloads the channel list on every
-    save and removal anyway (`onChannelsLoaded`; the Web panel reports its own
-    switch through `onWebEnabledChange`). This effect is only the cold start.
-
-    It deliberately does NOT depend on `selected`: keyed on the selection, the
-    fetch re-ran when you switched channel — which is exactly why a channel you
-    had just switched on kept a stale dot until you navigated away and back.
-  */
-  useEffect(() => {
-    let active = true;
-    api.channels
-      .list(instance.slug)
-      .then((res) => {
-        if (active) setConfigured(res.channels);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [instance.slug]);
+  // The ONE read of the channel list: the picker's dots, the Web panel and the
+  // selected channel's panel all work from it. A panel that changes a channel asks
+  // for it again (`reload`), so the dots follow a save or a removal; switching
+  // between channels reads nothing.
+  const { data, error, reload } = useResource(["channels", instance.slug], () => api.channels.list(instance.slug));
+  const channels = data?.channels;
 
   return (
     <div className="space-y-6">
@@ -88,8 +74,7 @@ export function ChannelsSection({
           {CHANNELS.map((channel) => {
             const Icon = channel.icon;
             const isSelected = channel.type === selected;
-            const live =
-              configured.find((c) => c.channelType === channel.type)?.enabled ?? false;
+            const live = channels?.find((c) => c.channelType === channel.type)?.enabled ?? false;
 
             return (
               <Chip
@@ -116,29 +101,28 @@ export function ChannelsSection({
       </div>
 
       {/*
-        Keyed by channel: `ChannelsTab` loads and holds the state of the ONE
-        channel it is given, so remounting on a change is what keeps the panel's
-        dirty state from surviving into a channel it does not belong to.
+        Keyed by channel: `ChannelsTab` holds the edits of the ONE channel it is
+        given, so remounting on a change is what keeps the panel's dirty state from
+        surviving into a channel it does not belong to.
       */}
-      {selected === "web" ? (
-        <ChannelWebTab
-          instance={instance}
-          onUpdate={onUpdate}
-          onWebEnabledChange={(enabled) =>
-            setConfigured((prev) => [
-              ...prev.filter((c) => c.channelType !== "web"),
-              { channelType: "web", enabled, config: {} },
-            ])
-          }
-        />
+      {channels === undefined && error ? (
+        // Without the list neither the dots nor the panels can say anything true.
+        <LoadFailed onRetry={reload} />
+      ) : selected === "web" ? (
+        <ChannelWebTab instance={instance} onUpdate={onUpdate} channels={channels} onChannelsChanged={reload} />
+      ) : channels === undefined ? (
+        <div className="space-y-4">
+          <Skeleton className="h-48 rounded-lg" />
+        </div>
       ) : (
         <ChannelsTab
           key={selected}
           slug={instance.slug}
           channelType={selected}
+          channels={channels}
+          onChannelsChanged={reload}
           instance={instance}
           onInstanceUpdate={onUpdate}
-          onChannelsLoaded={setConfigured}
         />
       )}
     </div>

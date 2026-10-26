@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { isBaseUrlConfigured, resolvePlatformSettings } from "../platform/platform-settings.store.js";
 
 /**
  * The engine's public base URL — how an external producer (Twilio, a webhook
@@ -34,4 +34,17 @@ export async function buildTwilioWhatsAppWebhookUrl(slug: string, webhookSecret:
 /** Public Slack Events API endpoint; the signing secret authenticates inbound requests. */
 export async function buildSlackWebhookUrl(slug: string): Promise<string> {
   return `${await engineBaseUrl()}/webhooks/slack/${encodeURIComponent(slug)}`;
+}
+
+/**
+ * Where a caller reaches an agent's Web channel (the OpenAI-compatible
+ * completions route), and whether the installation declared its public origin.
+ *
+ * `baseUrlConfigured` is false when neither the platform setting nor `BASE_URL`
+ * is set: the origin is then the localhost fallback, which only works for a
+ * caller on the same machine, and the panel says where to set the real one.
+ */
+export async function buildWebChannelEndpoint(): Promise<{ endpointUrl: string; baseUrlConfigured: boolean }> {
+  const [baseUrlConfigured, baseUrl] = await Promise.all([isBaseUrlConfigured(), engineBaseUrl()]);
+  return { endpointUrl: `${baseUrl}/v1/chat/completions`, baseUrlConfigured };
 }

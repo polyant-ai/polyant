@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Inject, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import {
   bindingCache,
   bindingCacheKey,
@@ -15,14 +15,11 @@ import {
   type AgentScope,
   type EffectiveBinding,
 } from "./authz.store.js";
-import {
-  AUTHORIZATION_STRATEGY,
-  type AuthorizationStrategy,
-} from "./authorization-strategy.js";
+import { effectivePermissions, resolvePermission } from "./authorization-strategy.js";
 import type { PermissionKey } from "./permissions.js";
 
 /**
- * Central authorization façade (design §6.1). Wraps the pluggable strategy with
+ * Central authorization façade (design §6.1). Wraps `resolvePermission` with
  * the two RBAC caches and the DB store, exposing the four operations the guard
  * and the management plane need:
  *
@@ -37,11 +34,6 @@ import type { PermissionKey } from "./permissions.js";
  */
 @Injectable()
 export class AuthorizationService {
-  constructor(
-    @Inject(AUTHORIZATION_STRATEGY)
-    private readonly strategy: AuthorizationStrategy,
-  ) {}
-
   /** Whether `userId` may perform `permission` against the given agent scope. */
   async can(
     userId: string,
@@ -49,7 +41,12 @@ export class AuthorizationService {
     permission: PermissionKey,
   ): Promise<boolean> {
     const bindings = await this.loadBindings(userId, scope.organizationId);
-    return this.strategy.resolve(bindings, scope, permission);
+    return resolvePermission(bindings, scope, permission);
+  }
+
+  /** Every permission `userId` holds against the given scope, from the cached bindings. */
+  async permissionsIn(userId: string, scope: AgentScope): Promise<ReadonlySet<PermissionKey>> {
+    return effectivePermissions(await this.loadBindings(userId, scope.organizationId), scope);
   }
 
   /** DB-backed, 5-minute-cached platform-admin check. */

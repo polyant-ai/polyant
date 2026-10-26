@@ -2,7 +2,10 @@
 
 import { db } from "../database/client.js";
 import { sql } from "drizzle-orm";
-import { memoryLog } from "./memory-logger.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const memoryLog = createLogger();
 
 /** Status of the pgvector extension after init — surfaced in the boot summary. */
 export type PgvectorStatus = "initialised" | "degraded";
@@ -20,7 +23,7 @@ export async function initMemory(): Promise<PgvectorStatus> {
     memoryLog.info("Memory", "Memory layer initialized (pgvector)");
     return "initialised";
   } catch (err) {
-    memoryLog.warn("Memory", `Memory layer init failed: ${err instanceof Error ? err.message : String(err)}`);
+    memoryLog.warn("Memory", `Memory layer init failed: ${errMsg(err)}`);
     return "degraded";
   }
 }

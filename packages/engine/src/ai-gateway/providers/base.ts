@@ -7,6 +7,9 @@ import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
 
@@ -525,6 +528,22 @@ export type PrepareMessages = (input: {
   ttl?: CacheTtl;
 }) => { instructions: Instructions | undefined; messages: ModelMessage[] };
 
+/**
+ * Claude reasoning budgets (tokens) per preset level, for the legacy
+ * `enabled` + budget shape on both Claude-serving providers (Bedrock accepts a
+ * budget in [1024, 64000]). Budget models expose only the three presets.
+ */
+const CLAUDE_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
+  low: 4096,
+  medium: 12000,
+  high: 24000,
+};
+
+/** The token budget for a requested level; anything but low/high reads as medium. */
+export function claudeThinkingBudget(level: string): number {
+  return CLAUDE_THINKING_BUDGETS[level === "low" || level === "high" ? level : "medium"];
+}
+
 export interface ProviderHooks {
   prepareMessages?: PrepareMessages;
   /**
@@ -632,7 +651,7 @@ function logProviderError(
     message?: unknown;
   };
   const parts = [
-    `[ai-gateway] ${providerName}/${modelId} call failed:`,
+    `${providerName}/${modelId} call failed:`,
     typeof e?.name === "string" ? e.name : "Error",
     e?.statusCode != null ? `status=${String(e.statusCode)}` : "",
     typeof e?.message === "string" ? e.message : String(err),
@@ -653,10 +672,11 @@ function logProviderError(
     if (reason) parts.push(`body_reason=${reason}`);
   }
   if (typeof e?.url === "string") parts.push(`url=${e.url}`);
-  console.error(parts.filter(Boolean).join(" "));
+  log.error("ai-gateway", parts.filter(Boolean).join(" "));
   if (ctx) {
-    console.error(
-      `[ai-gateway]   system=${describeInstructions(ctx.system)} | roles: ${describeMessages(ctx.messages)}`,
+    log.error(
+      "ai-gateway",
+      `  system=${describeInstructions(ctx.system)} | roles: ${describeMessages(ctx.messages)}`,
     );
   }
 }
@@ -726,28 +746,40 @@ export function createProvider(
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
 
+  /**
+   * The setup both entry points share: prepared prompt, the per-turn usage
+   * collector, and the one SDK argument object, so a new SDK parameter is
+   * added once.
+   */
+  const callSetup = (request: ChatRequest, modelId: string) => {
+    const { instructions, messages } = prepare(request, modelId);
+    const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+    const completed = completedCallsUsage();
+    // A function: the model is built inside the error-logging wrapper, as before.
+    const args = () => ({
+      model: createModel(modelId, request.apiKeys),
+      instructions,
+      messages,
+      tools: request.tools,
+      stopWhen: isStepCount(request.maxSteps ?? 1),
+      abortSignal: request.abortSignal,
+      onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
+      ...(prepareStep ? { prepareStep } : {}),
+      ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+      ...temperatureCallParam(providerName, modelId, request),
+    });
+    return { instructions, messages, completed, args };
+  };
+
   return {
     name: providerName,
 
     async chat(request: ChatRequest, modelId: string): Promise<ChatResponse> {
       const start = Date.now();
 
-      const { instructions, messages } = prepare(request, modelId);
-      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedCallsUsage();
+      const { instructions, messages, completed, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
-        tracedGenerateText({
-          model: createModel(modelId, request.apiKeys),
-          instructions,
-          messages,
-          tools: request.tools,
-          stopWhen: isStepCount(request.maxSteps ?? 1),
-          abortSignal: request.abortSignal,
-          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
-          ...(prepareStep ? { prepareStep } : {}),
-          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...temperatureCallParam(providerName, modelId, request),
-        }),
+        tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
         throw err;
@@ -776,22 +808,9 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { instructions, messages } = prepare(request, modelId);
-      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedCallsUsage();
+      const { instructions, messages, completed, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
-        tracedStreamText({
-          model: createModel(modelId, request.apiKeys),
-          instructions,
-          messages,
-          tools: request.tools,
-          stopWhen: isStepCount(request.maxSteps ?? 1),
-          abortSignal: request.abortSignal,
-          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
-          ...(prepareStep ? { prepareStep } : {}),
-          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...temperatureCallParam(providerName, modelId, request),
-        }),
+        tracedStreamText(args()),
       );
 
       return {

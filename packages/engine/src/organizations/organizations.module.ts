@@ -3,6 +3,9 @@
 import { Module, type OnModuleInit } from "@nestjs/common";
 import { bootstrapOrganizations } from "./bootstrap.js";
 import { TenantService } from "./tenant.service.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Owns the first-boot RBAC bootstrap (design §8). The migration (0051) creates
@@ -20,7 +23,7 @@ export class OrganizationsModule implements OnModuleInit {
       await bootstrapOrganizations();
     } catch (err) {
       // Never block boot — mirror the existing platform-admin seed behaviour.
-      console.error("[organizations] Bootstrap failed:", err);
+      log.error("organizations", "Bootstrap failed", err);
     }
   }
 }

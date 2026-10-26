@@ -4,6 +4,7 @@ import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getTriggerContext } from "../../webhooks/trigger-context.js";
+import { errMsg } from "../../utils/error.js";
 
 export default defineTool({
   name: "send_outbound_message",
@@ -46,7 +47,7 @@ export default defineTool({
         mediaUrl ? { mediaUrl } : undefined,
       );
     } catch (err) {
-      return { error: `Failed to send outbound message: ${err instanceof Error ? err.message : String(err)}` };
+      return { error: `Failed to send outbound message: ${errMsg(err)}` };
     }
 
     return {

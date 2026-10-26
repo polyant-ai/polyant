@@ -4,4 +4,3 @@ export * from "./room.store.js";
 export * from "./activity-log.store.js";
 export * from "./room-engine.js";
 export { roomScheduler } from "./room-scheduler.js";
-export { roomLog } from "./room-logger.js";

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ModelMessage } from "ai";
 import type {
   HookContext,
   ConversationHistoryApi,
   ConversationStateApi,
   AuditLogger,
 } from "@polyant-ai/plugin-sdk";
-import { chat } from "../ai-gateway/index.js";
+import { agentAi } from "../ai-gateway/agent-ai.js";
 import type { HookRunContext, HookEventPayload, HookEvent } from "./hook-types.js";
 
 /**
@@ -30,26 +29,10 @@ export function buildHookContext(
     secrets: ctx.secrets,
     instance: { slug: ctx.instanceId, provider: ctx.provider, model: ctx.model, flags: ctx.flags ?? {} },
     apiKeys: ctx.apiKeys,
-    ai: {
-      async chat(input) {
-        const messages: ModelMessage[] = input.messages.map(
-          (m) => ({ role: m.role, content: m.content }) as ModelMessage,
-        );
-        const res = await chat(
-          {
-            tier: input.tier ?? "standard",
-            provider: ctx.provider,
-            model: ctx.model,
-            apiKeys: ctx.apiKeys,
-            system: input.system,
-            messages,
-            abortSignal: ctx.abortSignal,
-          },
-          { conversationId: ctx.conversationId, instanceId: ctx.instanceId, callType: "service" },
-        );
-        return res.text;
-      },
-    },
+    ai: agentAi(
+      { provider: ctx.provider, model: ctx.model, apiKeys: ctx.apiKeys, abortSignal: ctx.abortSignal },
+      { conversationId: ctx.conversationId, instanceId: ctx.instanceId },
+    ),
     audit,
     abortSignal: ctx.abortSignal,
   };

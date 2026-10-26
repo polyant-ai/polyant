@@ -11,6 +11,11 @@ describe("maskMcpConfig", () => {
     expect(masked).toEqual({ auth: { type: "bearer", token: `${MASK}3456` } });
   });
 
+  it("hides a short token entirely, so the last-4 hint cannot leak most of it", () => {
+    const masked = maskMcpConfig("static", { auth: { type: "bearer", token: "abc123" } });
+    expect(masked).toEqual({ auth: { type: "bearer", token: MASK } });
+  });
+
   it("returns a `none` config untouched", () => {
     expect(maskMcpConfig("none", { allowList: ["a"] })).toEqual({ allowList: ["a"] });
   });

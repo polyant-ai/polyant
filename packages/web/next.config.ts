@@ -45,6 +45,7 @@ const nextConfig: NextConfig = {
       { source: "/api/hook-functions", destination: `${ENGINE_URL}/api/hook-functions` },
       { source: "/api/attachments/:path*", destination: `${ENGINE_URL}/api/attachments/:path*` },
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
+      { source: "/api/monitor/:path*", destination: `${ENGINE_URL}/api/monitor/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
       { source: "/api/users", destination: `${ENGINE_URL}/api/users` },
       { source: "/api/platform/:path*", destination: `${ENGINE_URL}/api/platform/:path*` },

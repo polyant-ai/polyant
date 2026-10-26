@@ -349,6 +349,21 @@ describe("PermissionGuard", () => {
     expect(authz.can).toHaveBeenCalledWith("u1", SCOPE, Permission.AGENT_WRITE);
   });
 
+  it("names the missing permission in a machine-readable 403 body", async () => {
+    const { guard, context } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      userReq({ slug: "agent-1" }),
+      { can: false },
+    );
+    const err = await guard.canActivate(context).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({
+      message: `Missing permission: ${Permission.AGENT_WRITE}`,
+      code: "missing_permission",
+      permission: Permission.AGENT_WRITE,
+    });
+  });
+
   it("denies a user that addresses an agent through an unknown workspace", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },

@@ -2,7 +2,7 @@
 
 import { tool, jsonSchema, type Tool } from "ai";
 import Ajv, { type ValidateFunction } from "ajv";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import addFormats from "ajv-formats";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
@@ -19,12 +19,13 @@ import {
   type ToolInputExample,
   type ToolDefinition as SerializedToolDefinition,
 } from "@polyant-ai/plugin-sdk";
-import { config } from "../../config.js";
-import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
+import { compatiblePluginRoots, importDefinitions } from "../../plugin-system/plugin-load.js";
 import type { LocalizedText } from "../../plugin-system/localized-text.js";
-import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
 import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 // Re-export the authoring contract from the SDK so core tools keep importing
 // `normalizeRequiredSecrets` / the types from "./registry.js" unchanged.
@@ -38,23 +39,6 @@ export type { SerializedToolDefinition };
 // ---------------------------------------------------------------------------
 
 const __toolsDir = dirname(fileURLToPath(import.meta.url));
-
-// Engine version, read lazily on first loadAllTools() so merely importing this
-// module touches no fs (keeps partial fs mocks in tests working). Fail-closed to
-// "0.0.0" so an unreadable package.json makes realistic engine ranges fail →
-// incompatible plugins are skipped rather than wrongly loaded.
-let _engineVersion: string | undefined;
-function getEngineVersion(): string {
-  if (_engineVersion !== undefined) return _engineVersion;
-  try {
-    _engineVersion = JSON.parse(
-      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
-    ).version as string;
-  } catch {
-    _engineVersion = "0.0.0";
-  }
-  return _engineVersion;
-}
 
 // ---------------------------------------------------------------------------
 // Runtime context passed to every tool (engine-concrete; the SDK mirrors this
@@ -104,6 +88,11 @@ export interface ToolContext {
    *  conversation (a plugin renders a PDF, another plugin uploads it). The
    *  engine owns the bytes and binds every handle to this conversation. */
   artifacts: import("./artifact-store.js").ToolArtifactApi;
+  /** One short LLM answer through the gateway, on the agent's provider and keys
+   *  (`agentAi`), so a tool no longer needs `apiKeys` to ask a model. */
+  ai?: import("@polyant-ai/plugin-sdk").HookAi;
+  /** The turn's cancellation: aborted once nobody waits for this call. */
+  abortSignal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +208,20 @@ export function fillMissingKeysFromJsonSchema(schema: Record<string, unknown>, v
 // OpenAI-compatible endpoints) can emit off-schema args, which previously
 // reached execute unchecked. The tool schemas are strict-mode-compatible (no
 // exotic constructs — those live in execute per rule-7), so ajv on the derived
-// JSON Schema tracks Zod faithfully.
-const ajv = new Ajv({ removeAdditional: "all", coerceTypes: false, useDefaults: false, allErrors: false });
+// JSON Schema tracks Zod faithfully. `strict: false` ignores keywords ajv does not
+// know (a plugin's annotations) instead of failing the compile, and ajv-formats
+// restores the string formats Zod serializes (email, uri, date-time, uuid…).
+// Formats only: its formatMinimum/formatMaximum keywords generate code with
+// ajv-formats' own ajv copy (npm cannot hoist it next to the root's ajv 6) and
+// throw at validation time. ajv 6 did not have those keywords either.
+const ajv = new Ajv({
+  removeAdditional: "all",
+  coerceTypes: false,
+  useDefaults: false,
+  allErrors: false,
+  strict: false,
+});
+addFormats(ajv, { keywords: false });
 const validatorCache = new WeakMap<object, ValidateFunction | null>();
 
 function getValidator(schema: Record<string, unknown>): ValidateFunction | null {
@@ -231,7 +232,7 @@ function getValidator(schema: Record<string, unknown>): ValidateFunction | null 
   } catch (err) {
     // A schema ajv can't compile degrades to fill-only (today's behaviour) rather
     // than breaking the tool — validation is best-effort parity, not a hard gate.
-    console.warn(`Tool schema failed to compile for validation — skipping: ${errMsg(err)}`);
+    log.warn("tools", `Tool schema failed to compile for validation — skipping: ${errMsg(err)}`);
   }
   validatorCache.set(schema, compiled);
   return compiled;
@@ -385,52 +386,44 @@ export function listAvailableTools(): ToolInfo[] {
 // Loader: scan core dir (no namespace) then each plugin root under its namespace.
 // ---------------------------------------------------------------------------
 
-/** Import every `*.tool.(ts|js)` in `dir`. Serialized defs (`export default`) are
- * collected. A file without a `defineTool` default export is skipped with a warn. */
-async function importRoot(dir: string, namespace: string | null): Promise<void> {
-  if (!existsSync(dir)) return;
-  // Sort so the registry (and thus the tool order in the serialized prompt
-  // prefix, which sits before the system prompt) is byte-stable across OSes,
-  // filesystems, redeploys and cluster nodes. readdirSync order is not
-  // guaranteed stable; an unstable tool order silently busts the provider
-  // prompt cache. Analogous to the skills `.orderBy(asc(skills.slug))` fix.
-  const files = readdirSync(dir)
-    .filter((f) => /\.tool\.(ts|js)$/.test(f))
-    .sort();
-  for (const file of files) {
-    try {
-      const mod = (await import(join(dir, file))) as { default?: unknown };
-      const def = mod.default;
-      if (def && typeof def === "object" && "inputSchema" in (def as object)) {
-        const serialized = def as SerializedToolDefinition;
-        registerSerialized(serialized, namespace);
-        // Load-time strict-mode lint for PLUGIN tools (core tools are covered by
-        // strict-mode.test.ts). Third-party schemas get no engine-side check
-        // otherwise — a violation would only surface as a cryptic provider
-        // rejection at call time. Warn, don't fail: the plugin still loads.
-        if (namespace !== null) {
-          const finalName = `${namespace}:${serialized.name}`;
-          const violations = findStrictModeViolations(serialized.inputSchema, finalName);
-          for (const v of violations) {
-            console.warn(`Plugin tool strict-mode lint: ${v}`);
-          }
-          const nameViolation = findIllegalToolName(finalName);
-          if (nameViolation) console.warn(`Plugin tool name lint: ${nameViolation}`);
-        }
-      } else {
-        console.warn(`Tool file "${file}" has no defineTool default export — skipping`);
-      }
-    } catch (err) {
-      // Third-party plugin code must never abort engine boot: log + skip the
-      // offending file. Core tools (no namespace) are first-party — a broken
-      // core tool is a real bug, so rethrow to fail loudly at boot.
-      if (namespace === null) throw err;
-      console.warn(
-        `Plugin "${namespace}" tool file "${file}" failed to load: ${errMsg(err)} — skipping`,
-      );
+/** True for a serialized `defineTool` default export. */
+function isSerializedTool(def: unknown): def is SerializedToolDefinition {
+  return !!def && typeof def === "object" && "inputSchema" in (def as object);
+}
+
+/** Register a loaded tool; plugin tools also get the load-time lints. */
+function registerLoadedTool(serialized: SerializedToolDefinition, namespace: string | null): void {
+  registerSerialized(serialized, namespace);
+  // Load-time strict-mode lint for PLUGIN tools (core tools are covered by
+  // strict-mode.test.ts). Third-party schemas get no engine-side check
+  // otherwise — a violation would only surface as a cryptic provider
+  // rejection at call time. Warn, don't fail: the plugin still loads.
+  if (namespace !== null) {
+    const finalName = `${namespace}:${serialized.name}`;
+    for (const v of findStrictModeViolations(serialized.inputSchema, finalName)) {
+      log.warn("tools", `Plugin tool strict-mode lint: ${v}`);
     }
+    const nameViolation = findIllegalToolName(finalName);
+    if (nameViolation) log.warn("tools", `Plugin tool name lint: ${nameViolation}`);
   }
 }
+
+/** Import every `*.tool.(ts|js)` in `dir`. Serialized defs (`export default`) are
+ * collected. A file without a `defineTool` default export is skipped with a warn.
+ * Files are sorted so the registry (and thus the tool order in the serialized
+ * prompt prefix, which sits before the system prompt) is byte-stable across
+ * OSes, filesystems, redeploys and cluster nodes: an unstable tool order
+ * silently busts the provider prompt cache. */
+const importRoot = (dir: string, namespace: string | null): Promise<void> =>
+  importDefinitions({
+    dir,
+    pattern: /\.tool\.(ts|js)$/,
+    namespace,
+    kind: "tool",
+    definer: "defineTool",
+    isDefinition: isSerializedTool,
+    register: registerLoadedTool,
+  });
 
 /**
  * Discover + load all tools: the core tools dir (flat names) plus every plugin
@@ -443,16 +436,9 @@ export async function loadAllTools(): Promise<void> {
   await importRoot(__toolsDir, null);
 
   const conventionDir = join(__toolsDir, "..", "..", "plugins");
-  const roots = resolvePluginRoots({ envDirs: config.plugins.dirs, conventionDir });
-  for (const { root, manifest } of roots) {
-    if (!engineSatisfies(manifest, getEngineVersion())) {
-      console.warn(
-        `Plugin "${manifest.name}" requires engine ${manifest.engine}, have ${getEngineVersion()} — skipping`,
-      );
-      continue;
-    }
+  for (const { root, manifest } of compatiblePluginRoots(conventionDir)) {
     // Contribute this plugin's OAuth providers to the broker registry. Gated by
-    // engineSatisfies above → an incompatible plugin contributes nothing. A
+    // compatiblePluginRoots above → an incompatible plugin contributes nothing. A
     // divergent same-name provider throws here and aborts the boot (loud).
     for (const provider of manifest.oauthProviders) registerOAuthProvider(provider);
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
@@ -474,7 +460,7 @@ export async function loadAllTools(): Promise<void> {
       const missing = def.requiredEnv.filter((envVar) => !process.env[envVar]);
       if (missing.length > 0) {
         registry.delete(name);
-        console.warn(`Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
+        log.warn("tools", `Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
       }
     }
   }

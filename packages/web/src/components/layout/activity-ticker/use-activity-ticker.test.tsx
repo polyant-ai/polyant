@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ReactNode } from "react";
 import { ActivityStreamProvider } from "@/lib/activity-stream/provider";
 import type { FeedEvent } from "@/lib/activity-stream/types";
+import { rememberPlaygroundChat } from "@/lib/activity-stream/own-playground-chats";
 import { useActivityTicker, DWELL_MS, MICRO_QUEUE_CAP, STALE_AGE_MS } from "./use-activity-ticker";
 
 class MockEventSource {
@@ -58,6 +59,15 @@ function emit(e: FeedEvent) {
 }
 
 describe("useActivityTicker", () => {
+  test("ignores the new-conversation event of a Playground chat this tab started", () => {
+    rememberPlaygroundChat("mine");
+    const { result } = renderHook(() => useActivityTicker(), { wrapper });
+    emit(ev({ id: "own", conversationId: "support:web:api-mine", conversation: { lifecycle: "created", channel: "web" } }));
+    expect(result.current.current).toBeNull();
+    emit(ev({ id: "theirs", conversationId: "support:web:api-someone-else", conversation: { lifecycle: "created", channel: "web" } }));
+    expect(result.current.current?.id).toBe("theirs");
+  });
+
   test("current is null until first event arrives", () => {
     const { result } = renderHook(() => useActivityTicker(), { wrapper });
     expect(result.current.current).toBeNull();

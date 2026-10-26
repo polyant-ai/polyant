@@ -3,7 +3,7 @@
 import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { createProvider, type PrepareMessages } from "./base.js";
+import { claudeThinkingBudget, createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
 import type { ReasoningToggle } from "../model-catalog.js";
@@ -126,13 +126,6 @@ export const BedrockProvider = createProvider(
   { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker, strictTemplate: true },
 );
 
-/** Claude reasoning budgets (Bedrock accepts a token budget in [1024, 64000]). */
-const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
-  low: 4096,
-  medium: 12000,
-  high: 24000,
-};
-
 /**
  * Bedrock reasoning takes three shapes on `providerOptions.bedrock.reasoningConfig`,
  * selected by the model's catalog `reasoningControl` (NO model-id regex here — the
@@ -165,9 +158,8 @@ export function buildBedrockReasoningOptions(
   if (control === "effort") {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: level } };
   }
-  const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return {
-    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[budgetKey] },
+    reasoningConfig: { type: "enabled", budgetTokens: claudeThinkingBudget(level) },
   };
 }
 

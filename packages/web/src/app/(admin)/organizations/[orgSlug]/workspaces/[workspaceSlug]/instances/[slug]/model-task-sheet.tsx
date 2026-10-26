@@ -2,14 +2,14 @@
 
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ListDrawer } from "@/components/list-drawer";
 import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
@@ -122,17 +122,19 @@ export function ModelTaskSheet({
   // The draft starts from what is saved when the sheet opens on a task, and
   // only then: "changed" means "differs from this", and a read of the page's
   // data while the panel is open does not wipe what is being typed.
-  useEffect(() => {
-    if (!task) return;
-    const start = draftOf(instance);
-    setInitial(start);
-    setDraft(start);
-    setVisible({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task]);
+  const [shownTask, setShownTask] = useState<ModelTask | null>(null);
+  if (task !== shownTask) {
+    setShownTask(task);
+    if (task) {
+      const start = draftOf(instance);
+      setInitial(start);
+      setDraft(start);
+      setVisible({});
+    }
+  }
 
   if (!task || !draft || !initial) {
-    return <Sheet open={false} />;
+    return null;
   }
 
   const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
@@ -548,29 +550,21 @@ export function ModelTaskSheet({
 
   return (
     <>
-      <Sheet open onOpenChange={(open) => !open && requestClose()}>
-        <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
-          <SheetHeader className="gap-1.5 border-b p-5 pr-12">
-            <SheetTitle className="text-base">{t(TASK_TITLE[task])}</SheetTitle>
-            <SheetDescription>{t(TASK_HELP[task])}</SheetDescription>
-          </SheetHeader>
-
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
-            {taskChoices}
-            {credentials}
-            {tuning}
-          </div>
-
-          <SheetFooter className="flex-row justify-end gap-2 border-t p-4">
-            <Button variant="outline" onClick={requestClose}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={save} disabled={!dirty || saving || keyMissing}>
-              {saving ? t("common.saving") : t("common.save")}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <ListDrawer
+        open
+        onOpenChange={(open) => !open && requestClose()}
+        title={t(TASK_TITLE[task])}
+        description={t(TASK_HELP[task])}
+        primary={
+          <Button onClick={save} disabled={!dirty || saving || keyMissing}>
+            {saving ? t("common.saving") : t("common.save")}
+          </Button>
+        }
+      >
+        {taskChoices}
+        {credentials}
+        {tuning}
+      </ListDrawer>
 
       <AlertDialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <AlertDialogContent>

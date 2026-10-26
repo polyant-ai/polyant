@@ -40,7 +40,6 @@ import { Reflector } from "@nestjs/core";
 import { ForbiddenException } from "@nestjs/common";
 import { PermissionGuard } from "../../authz/permission.guard.js";
 import { AuthorizationService } from "../../authz/authorization.service.js";
-import { OssStrategy } from "../../authz/authorization-strategy.js";
 import { bindingCache, bindingCacheKey } from "../../authz/authz.caches.js";
 import { Permission } from "../../authz/permissions.js";
 import { REQUIRE_PERMISSION_KEY } from "../../authz/decorators/require-permission.decorator.js";
@@ -49,7 +48,7 @@ const ORG = "org-1";
 
 /** A guard wired to the real AuthorizationService, evaluating MEMBER_MANAGE. */
 function makeGuard() {
-  const authz = new AuthorizationService(new OssStrategy());
+  const authz = new AuthorizationService();
   const entitlement = { isAvailable: vi.fn().mockReturnValue(true) };
   const reflector = {
     getAllAndOverride: (key: string) =>

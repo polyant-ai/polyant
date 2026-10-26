@@ -11,7 +11,7 @@ vi.mock("./media-fetch.js", () => ({
 }));
 
 vi.mock("../../audio-transcription.js", () => ({
-  transcribeAudio: vi.fn(),
+  transcribeInbound: vi.fn(),
 }));
 
 const { mockCreate, mockValidateRequest } = vi.hoisted(() => ({
@@ -29,6 +29,7 @@ vi.mock("twilio", () => {
 import { WhatsAppAdapter } from "./index.js";
 import { asInstanceSlug } from "../../../instances/identifiers.js";
 import type { WhatsAppConfig } from "./resolve-credentials.js";
+import { COLORS } from "../../../utils/create-logger.js";
 
 const INSTANCE_SLUG = asInstanceSlug("test-instance");
 
@@ -113,16 +114,15 @@ describe("WhatsAppAdapter.validateSignature error observability", () => {
 
   it("should_log_at_warn_and_not_error_for_the_expected_wrong_mode_case", async () => {
     const adapter = await initializedAdapter(API_KEY_CONFIG);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The logger writes warn and error lines to stderr; the level shows in the colour.
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = adapter.validateSignature("sig", "https://example.com/webhook", {});
 
     expect(result).toBe(false);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(String(stderr.mock.calls[0]![0])).toContain(COLORS.yellow);
+    stderr.mockRestore();
   });
 
   it("should_log_at_error_for_an_unexpected_internal_throw", async () => {
@@ -130,15 +130,13 @@ describe("WhatsAppAdapter.validateSignature error observability", () => {
       throw new Error("unexpected SDK failure");
     });
     const adapter = await initializedAdapter(AUTH_TOKEN_CONFIG);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const result = adapter.validateSignature("sig", "https://example.com/webhook", {});
 
     expect(result).toBe(false);
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    expect(stderr).toHaveBeenCalled(); // debug level adds stack lines after the message line
+    expect(String(stderr.mock.calls[0]![0])).toContain(COLORS.red);
+    stderr.mockRestore();
   });
 });

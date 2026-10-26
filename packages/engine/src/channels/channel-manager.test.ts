@@ -193,7 +193,7 @@ describe("ChannelManager", () => {
     it("still shuts the adapter down when removing the registration fails", async () => {
       // A failed deleteWebhook used to skip the shutdown, so the adapter's
       // pending registration retry could later re-register a disabled channel.
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const error = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       mockTelegramDeregister.mockRejectedValue(new Error("telegram unreachable"));
 
       await manager.startChannel("inst1", "telegram", { botToken: "t" });
@@ -220,7 +220,7 @@ describe("ChannelManager", () => {
 
   it("accepts an inbound fragment with default timings when the agent lookup fails", async () => {
     vi.useFakeTimers();
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errorLog = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       mockFindInstanceBySlug.mockRejectedValue(new Error("database unavailable"));
       await manager.startChannel("my-instance", "telegram", { botToken: "test-token" });

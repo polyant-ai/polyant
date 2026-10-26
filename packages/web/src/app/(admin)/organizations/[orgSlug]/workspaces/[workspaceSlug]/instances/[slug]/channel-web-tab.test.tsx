@@ -4,7 +4,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChannelWebTab } from "./channel-web-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
-import type { Instance } from "@/lib/api";
+import { api, type Instance } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 
 /** Stands in for the page header's save button, which is where this tab's lives. */
 function SaveButton() {
@@ -13,7 +14,8 @@ function SaveButton() {
   return <button onClick={() => saveAction.onSave()}>common.save</button>;
 }
 
-const { mockSecretsList, mockSecretsSet, mockInstanceUpdate, mockToastError, mockChannelsList, mockChannelsSet } = vi.hoisted(() => ({
+const { mockSecretsList, mockSecretsSet, mockInstanceUpdate, mockToastError, mockChannelsList, mockChannelsSet, mockWebEndpoint } = vi.hoisted(() => ({
+  mockWebEndpoint: vi.fn(),
   mockChannelsList: vi.fn(),
   mockChannelsSet: vi.fn(),
   mockSecretsList: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("@/lib/api", () => ({
     channels: {
       list: (...a: unknown[]) => mockChannelsList(...a),
       set: (...a: unknown[]) => mockChannelsSet(...a),
+      webEndpoint: (...a: unknown[]) => mockWebEndpoint(...a),
     },
   },
   getUserErrorMessage: (_e: unknown, d: string) => d,
@@ -50,10 +53,16 @@ function agent(overrides: Partial<Instance> = {}): Instance {
   return { slug: "bot-1", authEnabled: false, ...overrides } as Instance;
 }
 
+/** What the section above does for the tab: reads the list and asks again after the channel is saved. */
+function TabWithList({ instance, onUpdate }: { instance: Instance; onUpdate: (i: Instance) => void }) {
+  const { data, reload } = useResource("channels", () => api.channels.list(instance.slug));
+  return <ChannelWebTab instance={instance} onUpdate={onUpdate} channels={data?.channels} onChannelsChanged={reload} />;
+}
+
 function renderTab(instance: Instance, onUpdate = vi.fn()) {
   return render(
     <PageActionsProvider>
-      <ChannelWebTab instance={instance} onUpdate={onUpdate} />
+      <TabWithList instance={instance} onUpdate={onUpdate} />
       <SaveButton />
     </PageActionsProvider>,
   );
@@ -65,6 +74,7 @@ beforeEach(() => {
   mockSecretsSet.mockResolvedValue({ secrets: [] });
   mockChannelsList.mockResolvedValue({ channels: [] });
   mockChannelsSet.mockResolvedValue({ channel: null });
+  mockWebEndpoint.mockResolvedValue({ endpointUrl: "https://agents.example.com/v1/chat/completions", baseUrlConfigured: true });
   mockInstanceUpdate.mockResolvedValue({ instance: agent({ authEnabled: true }) });
 });
 
@@ -222,16 +232,16 @@ describe("ChannelWebTab", () => {
   describe("the Web channel switch", () => {
     it("starts off when the agent has no web row, and is not dirty", async () => {
       renderTab(agent({ authEnabled: true }));
-      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      const sw = await screen.findByRole("button", { name: "common.on" });
       await waitFor(() => expect(sw).not.toBeDisabled());
-      expect(sw).not.toBeChecked();
+      expect(screen.getByRole("button", { name: "common.off" })).toHaveAttribute("aria-pressed", "true");
       expect(screen.queryByText("common.save")).not.toBeInTheDocument();
     });
 
     it("reads the stored state", async () => {
       mockChannelsList.mockResolvedValue({ channels: [{ channelType: "web", enabled: true, config: {} }] });
       renderTab(agent({ authEnabled: true }));
-      await waitFor(() => expect(screen.getByLabelText("channels.tab.webEnabled")).toBeChecked());
+      await waitFor(() => expect(screen.getByRole("button", { name: "common.on" })).toHaveAttribute("aria-pressed", "true"));
     });
 
     it("saves the key, then the agent, then switches the channel on", async () => {
@@ -239,15 +249,9 @@ describe("ChannelWebTab", () => {
       mockSecretsSet.mockImplementation(async () => { order.push("secret"); return { secrets: [] }; });
       mockInstanceUpdate.mockImplementation(async () => { order.push("agent"); return { instance: agent({ authEnabled: true }) }; });
       mockChannelsSet.mockImplementation(async () => { order.push("channel"); return { channel: null }; });
-      const onWebEnabledChange = vi.fn();
 
-      render(
-        <PageActionsProvider>
-          <ChannelWebTab instance={agent({ authEnabled: true })} onUpdate={vi.fn()} onWebEnabledChange={onWebEnabledChange} />
-          <SaveButton />
-        </PageActionsProvider>,
-      );
-      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      renderTab(agent({ authEnabled: true }));
+      const sw = await screen.findByRole("button", { name: "common.on" });
       await waitFor(() => expect(sw).not.toBeDisabled());
       await userEvent.click(sw);
       await userEvent.click(await screen.findByText("channels.tab.webKeyGenerate"));
@@ -255,12 +259,13 @@ describe("ChannelWebTab", () => {
 
       await waitFor(() => expect(order).toEqual(["secret", "agent", "channel"]));
       expect(mockChannelsSet).toHaveBeenCalledWith("bot-1", "web", {}, true);
-      expect(onWebEnabledChange).toHaveBeenLastCalledWith(true);
+      // The picker's dot follows: the list is read again once the channel is saved.
+      await waitFor(() => expect(mockChannelsList).toHaveBeenCalledTimes(2));
     });
 
     it("does not switch Web on while authentication is on and no key exists", async () => {
       renderTab(agent({ authEnabled: true }));
-      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      const sw = await screen.findByRole("button", { name: "common.on" });
       await waitFor(() => expect(sw).not.toBeDisabled());
       await userEvent.click(sw);
       await userEvent.click(screen.getByText("common.save"));
@@ -271,7 +276,7 @@ describe("ChannelWebTab", () => {
 
     it("asks for the risk notice before saving Web on with authentication turned off", async () => {
       renderTab(agent({ authEnabled: true }));
-      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      const sw = await screen.findByRole("button", { name: "common.on" });
       await waitFor(() => expect(sw).not.toBeDisabled());
       await userEvent.click(sw);
       await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
@@ -292,6 +297,44 @@ describe("ChannelWebTab", () => {
 
       await waitFor(() => expect(mockInstanceUpdate).toHaveBeenCalled());
       expect(mockChannelsSet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("publishing the endpoint", () => {
+    const WEB_ON = { channels: [{ channelType: "web", enabled: true, config: {} }] };
+
+    it("should_show_no_endpoint_while_the_channel_is_off", async () => {
+      renderTab(agent({ authEnabled: true }));
+      await waitFor(() => expect(mockChannelsList).toHaveBeenCalled());
+      expect(screen.queryByTestId("web-endpoint")).toBeNull();
+    });
+
+    it("should_show_the_address_and_keyed_examples_with_a_placeholder_never_a_secret", async () => {
+      mockChannelsList.mockResolvedValue(WEB_ON);
+      renderTab(agent({ authEnabled: true }));
+      expect(await screen.findByText("https://agents.example.com/v1/chat/completions")).toBeInTheDocument();
+      const examples = screen.getAllByText(/Authorization/, { selector: "code" });
+      expect(examples).toHaveLength(2);
+      expect(examples[0].textContent).toContain("Bearer $AGENT_API_KEY");
+      expect(examples[1].textContent).toContain("process.env.AGENT_API_KEY");
+      expect(screen.getByText("channels.tab.webEndpointKeyNeverInPage")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("should_warn_and_drop_the_header_when_authentication_is_off", async () => {
+      mockChannelsList.mockResolvedValue(WEB_ON);
+      renderTab(agent({ authEnabled: false }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("channels.tab.webEndpointOpenWarning");
+      expect(screen.queryByText(/Authorization/, { selector: "code" })).toBeNull();
+    });
+
+    it("should_not_link_to_a_page_the_reader_cannot_open_when_the_public_address_is_missing", async () => {
+      mockChannelsList.mockResolvedValue(WEB_ON);
+      mockWebEndpoint.mockResolvedValue({ endpointUrl: "http://localhost:4000/v1/chat/completions", baseUrlConfigured: false });
+      renderTab(agent({ authEnabled: true }));
+      expect(await screen.findByText("channels.tab.webEndpointNoBaseUrl")).toBeInTheDocument();
+      expect(screen.getByText("channels.tab.webEndpointLocalAddress")).toBeInTheDocument();
+      expect(screen.queryByRole("link")).toBeNull();
     });
   });
 });

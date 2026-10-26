@@ -7,6 +7,9 @@ import { createSkill } from "../../skills/skills.store.js";
 import { enableSkill } from "../../instances/instance-skills.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 interface CreatedSkill {
   id: string;
@@ -118,7 +121,7 @@ export default defineTool({
     } catch (err) {
       const skill = err instanceof SkillCreatedButNotEnabledError ? err.skill : undefined;
       const message = errMsg(err);
-      console.error(`createSkill error: ${message}`);
+      log.error("create-skill", message);
       ctx.audit.log({
         action: "skill.create",
         details: { name, slug, skillId: skill?.id },

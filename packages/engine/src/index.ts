@@ -24,9 +24,7 @@ import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
 import { loadAllHooks } from "./hooks/hook-loader.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
-import { traceStore } from "./analytics/trace.store.js";
-import { auditStore } from "./audit/audit.store.js";
-import { managementAuditStore } from "./management-audit/management-audit.store.js";
+import { initializeBufferedInsertQueues, shutdownBufferedInsertQueues } from "./utils/buffered-insert-queue.js";
 import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
@@ -48,6 +46,9 @@ import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
 import { closeMcpClientPool } from "./agents/tools/mcp/mcp-client-pool.js";
+import { createLogger } from "./utils/create-logger.js";
+
+const log = createLogger();
 
 // ---------------------------------------------------------------------------
 // Module-level caches (kept in index.ts — they depend on DB lookups)
@@ -81,65 +82,62 @@ function formatDbTarget(databaseUrl: string): string {
   }
 }
 
+/** Run a boot step whose failure must not stop the boot: log it and carry on. */
+async function nonFatal(label: string, run: () => Promise<unknown>, withStack = false): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    if (withStack) console.error(label, fatalDetail(err));
+    else log.error("boot", label, err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // main()
 // ---------------------------------------------------------------------------
 
 async function main() {
   console.log("Polyant starting...");
-  for (const warning of retiredEnvironmentWarnings()) console.warn(warning);
-
-  // 0. Seed the initial platform admin if the users table is empty (idempotent).
-  // Runs before the rest of the boot so the system is "ready for first
-  // access" the moment the server is up.
-  try {
-    await seedInitialAdmin();
-  } catch (err) {
-    console.error("[users] Initial admin seed failed:", err);
-  }
+  for (const warning of retiredEnvironmentWarnings()) log.warn("boot", warning);
 
   // 1. Initialize AI Gateway (logging + LangSmith) + Trace Store
   initAIGateway(db);
-  traceStore.initialize(db);
-  auditStore.initialize(db);
-  managementAuditStore.initialize(db);
+  initializeBufferedInsertQueues(db);
 
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
-  console.log("Tool registry loaded");
+  log.info("boot", "Tool registry loaded");
 
   // 1b-0. Load hook function registry (auto-discover *.hook.ts files)
   await loadAllHooks();
-  console.log("Hook function registry loaded");
+  log.info("boot", "Hook function registry loaded");
 
 
   // 1b-ii. Sync tool registry to DB
   await syncToolsToDb();
-  console.log("Tool registry synced to DB");
+  log.info("boot", "Tool registry synced to DB");
 
-  // 2. (Instances are managed via the admin panel — no auto-seeding)
-
-  // 3. Initialize memory layer (pgvector)
-  const pgvectorStatus = await initMemory();
-
-  // 3a. Fail knowledge documents whose ingestion died with its process, now and
-  // periodically after.
-  const stopStuckDocumentSweep = await startStuckDocumentSweep();
-
-  // 3b. Recover webhook events stuck in "processing" — see follow-up to #81.
-  // A fresh boot has no in-flight room cycle, so anything in PROCESSING is a
-  // zombie from a prior crash that has to be requeued.
-  try {
-    const resetEvents = await resetStuckProcessingEvents();
-    if (resetEvents > 0) {
-      console.log(`[Webhooks] Reset ${resetEvents} stale processing event(s) to pending`);
-    }
-  } catch (err) {
-    console.error(
-      "[Webhooks] Boot cleanup failed (non-fatal):",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
+  // The remaining boot steps touch the database independently of each other and of the
+  // tool registry, so they run together.
+  const [, pgvectorStatus, stopStuckDocumentSweep] = await Promise.all([
+    // Seed initial platform admin if the users table is empty (idempotent), so the
+    // system is "ready for first access" the moment the server is up.
+    nonFatal("[users] Initial admin seed failed:", () => seedInitialAdmin(), true),
+    // Initialize memory layer (pgvector).
+    initMemory(),
+    // Fail knowledge documents whose ingestion died with its process, now and
+    // periodically after.
+    startStuckDocumentSweep(),
+    // Recover webhook events stuck in "processing" — see follow-up to #81. A fresh
+    // boot has no in-flight room cycle, so anything in PROCESSING is a zombie from a
+    // prior crash that has to be requeued.
+    nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
+      const resetEvents = await resetStuckProcessingEvents();
+      if (resetEvents > 0) {
+        log.info("webhooks", `Reset ${resetEvents} stale processing event(s) to pending`);
+      }
+    }),
+  ]);
 
   // --- Message handlers (sync + streaming) ---
 
@@ -282,8 +280,9 @@ async function main() {
     // leaves `outcome.regenerate` set, but there the run is being cancelled (and
     // runPipelinePost's abort gate skips persistence), not hitting the cap.
     if (outcome.regenerate && !abortSignal?.aborted) {
-      console.warn(
-        `[pipeline] ${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
+      log.warn(
+        "pipeline",
+        `${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
       );
     }
 
@@ -502,7 +501,7 @@ async function main() {
   for (const inst of allInstances) {
     if (inst.status === "active") {
       channelManager.startAllForInstance(inst.slug).catch((err) => {
-        console.error(`Failed to start channels for instance "${inst.slug}" — skipping:`, err);
+        log.error("boot", `Failed to start channels for instance "${inst.slug}" — skipping`, err);
       });
     }
   }
@@ -534,7 +533,7 @@ async function main() {
   // Graceful shutdown. The steps run in order and each on its own (see
   // `runShutdownSteps`), so one that fails cannot keep the process alive.
   const shutdown = async () => {
-    console.log("\nShutting down...");
+    log.info("boot", "Shutting down...");
     let failed: string[] = [];
     try {
       failed = await runShutdownSteps([
@@ -563,17 +562,15 @@ async function main() {
               closeHttpServer(nestApp),
               drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
             ]);
-            console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
+            log.info("boot", `HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
             if (background.pending > 0) {
-              console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+              log.warn("boot", `${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
             }
           },
         },
         { name: "channels", run: () => channelManager.shutdownAll() },
         { name: "MCP client pool", run: () => closeMcpClientPool() },
-        { name: "trace store", run: () => traceStore.shutdown() },
-        { name: "audit store", run: () => auditStore.shutdown() },
-        { name: "management audit store", run: () => managementAuditStore.shutdown() },
+        { name: "buffered log writers", run: () => shutdownBufferedInsertQueues() },
         { name: "AI gateway", run: () => shutdownGateway() },
         { name: "file logger", run: () => shutdownFileLogger() },
       ]);

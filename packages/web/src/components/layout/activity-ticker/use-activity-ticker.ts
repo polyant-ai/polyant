@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useActivityStreamContext } from "@/lib/activity-stream/provider";
 import { stepId } from "@/lib/activity-stream/merge";
+import { isOwnPlaygroundConversation } from "@/lib/activity-stream/own-playground-chats";
 import type { FeedEvent } from "@/lib/activity-stream/types";
 
 /** How long each event stays on screen before being replaced. */
@@ -64,6 +65,10 @@ export function useActivityTicker(): UseActivityTickerResult {
       // Drop stale events on arrival — defensive: shouldn't happen given the
       // server is fire-and-forget, but covers network buffering and clock skew.
       if (isStale(ev)) return;
+
+      // "New conversation" for a Playground chat this person just started is
+      // an echo of their own action, not news.
+      if (ev.conversation?.lifecycle === "created" && isOwnPlaygroundConversation(ev.conversationId)) return;
 
       const incomingStep = stepId(ev.id);
 

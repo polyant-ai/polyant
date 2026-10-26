@@ -8,7 +8,9 @@ import { TaskState, Role, type Task, type TaskStatus, type Message, type Part } 
 import type { IncomingMessage, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
 import { extractText } from "./a2a-context.js";
-import { a2aLog } from "./a2a-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const a2aLog = createLogger();
 
 function textPart(value: string): Part {
   return { content: { $case: "text", value }, metadata: undefined, filename: "", mediaType: "text/plain" };

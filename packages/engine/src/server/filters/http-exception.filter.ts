@@ -3,6 +3,10 @@
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { redactWebhookPath } from "./redact-webhook-path.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 /** A response body shaped like NestJS's default HttpException JSON payload. */
 interface ErrorResponseBody {
@@ -26,7 +30,7 @@ function handleHttpException(exception: HttpException, method: string, path: str
   // A 4xx is the client's mistake or a refusal working as meant: a warning. Errors are the server's own failures.
   const line = `[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`;
   if (status >= 500) console.error(line);
-  else console.warn(line);
+  else log.warn("http", line);
   return {
     status,
     body: typeof body === "string" ? { statusCode: status, message: body } : (body as Record<string, unknown>),
@@ -51,7 +55,7 @@ function exposedClientError(exception: unknown): { status: number; message: stri
 }
 
 function handleExposedClientError(error: { status: number; message: string }, method: string, path: string): HandledError {
-  console.warn(`[${method}] ${path} -> ${error.status}: ${error.message}`);
+  log.warn("http", `[${method}] ${path} -> ${error.status}: ${error.message}`);
   return { status: error.status, body: { statusCode: error.status, message: error.message } };
 }
 
@@ -64,7 +68,7 @@ function handleExposedClientError(error: { status: number; message: string }, me
  * aids endpoint enumeration. The real message is logged server-side only.
  */
 function handleValidationError(exception: TypeError | RangeError, method: string, path: string): HandledError {
-  console.warn(`[${method}] ${path} -> 400 (validation): ${exception.message}`);
+  log.warn("http", `[${method}] ${path} -> 400 (validation): ${exception.message}`);
   return {
     status: 400,
     body: { statusCode: 400, message: "Invalid request body", error: "Bad Request" },
@@ -73,7 +77,7 @@ function handleValidationError(exception: TypeError | RangeError, method: string
 
 /** Unknown error — logged server-side in full, never leaked to the client. */
 function handleUnknownError(exception: unknown, method: string, path: string): HandledError {
-  const errorMessage = exception instanceof Error ? exception.message : String(exception);
+  const errorMessage = errMsg(exception);
   console.error(`[${method}] ${path} -> 500 (unhandled): ${errorMessage}`);
   return {
     status: 500,

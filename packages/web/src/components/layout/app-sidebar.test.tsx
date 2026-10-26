@@ -69,17 +69,19 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     );
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
-    // The agent, by its slug, and the way back out.
-    expect(within(content).getByText("bot-1")).toBeInTheDocument();
+    // The way back out; the agent's name is the page heading, not a line here.
     expect(within(content).getByRole("link", { name: /agenti/i })).toBeInTheDocument();
     // Its macros are HEADINGS now, and each section under them is its own row —
     // it was one row per macro, with the sections behind a tab row.
-    expect(within(content).getByText("Comportamento")).toBeInTheDocument();
-    expect(within(content).queryByRole("link", { name: /^comportamento$/i })).not.toBeInTheDocument();
+    expect(within(content).getByText("Risorse")).toBeInTheDocument();
+    expect(within(content).queryByRole("link", { name: /^risorse$/i })).not.toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /^prompt$/i })).toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /^strumenti$/i })).toBeInTheDocument();
-    expect(within(content).getByRole("link", { name: /^automazioni$/i })).toBeInTheDocument();
-    expect(within(content).queryByRole("link", { name: /^webhook$/i })).not.toBeInTheDocument();
+    // Automazioni is a heading over four rows, and Webhook is one of them.
+    expect(within(content).getByText("Automazioni")).toBeInTheDocument();
+    expect(within(content).queryByRole("link", { name: /^automazioni$/i })).not.toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /^webhook$/i })).toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /^hook$/i })).toBeInTheDocument();
 
     /*
       And none of the daily work. Conversazioni and Memoria are the trap here:
@@ -93,6 +95,22 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     ).toBe(`${AGENT}?tab=conversations`);
   });
 
+  it("shows the way back and then the sections, with no line naming the agent between them", () => {
+    mockPathname.value = AGENT;
+    render(
+      <I18nProvider initialLocale="it">
+        <SidebarProvider>
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin: false }} />
+        </SidebarProvider>
+      </I18nProvider>,
+    );
+
+    const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
+    // The agent's name is the page heading; repeating its slug under the back link was noise.
+    expect(within(content).getByRole("link", { name: /agenti/i })).toBeInTheDocument();
+    expect(within(content).queryByText("bot-1")).not.toBeInTheDocument();
+  });
+
   it("shows the daily nav, and no agent entries, everywhere else", () => {
     render(
       <I18nProvider initialLocale="it">
@@ -104,7 +122,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /conversazioni/i })).toBeInTheDocument();
-    expect(within(content).queryByText("Comportamento")).not.toBeInTheDocument();
+    expect(within(content).queryByText("Risorse")).not.toBeInTheDocument();
     expect(within(content).queryByRole("link", { name: /^prompt$/i })).not.toBeInTheDocument();
   });
 });
@@ -143,5 +161,22 @@ describe("AppSidebar — Members is org administration, Settings is platform adm
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /impostazioni/i })).toBeInTheDocument();
+  });
+});
+
+// The mark is the one way home from anywhere in the panel; a plain <span> there
+// leaves a user on a deep page with only the browser's back button.
+describe("AppSidebar — the Polyant mark", () => {
+  it("is a link named Polyant that leads to the root page", () => {
+    render(
+      <I18nProvider initialLocale="it">
+        <SidebarProvider>
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin: false }} />
+        </SidebarProvider>
+      </I18nProvider>,
+    );
+
+    const header = document.querySelector<HTMLElement>('[data-sidebar="header"]')!;
+    expect(within(header).getByRole("link", { name: "Polyant" }).getAttribute("href")).toBe("/");
   });
 });

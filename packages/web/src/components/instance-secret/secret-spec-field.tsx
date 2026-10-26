@@ -2,9 +2,7 @@
 
 "use client";
 
-import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,22 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import type { RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { localizeText } from "@/lib/i18n/localized-text";
 import { BRAND_NAMES } from "@/lib/provider-secrets";
-import { SecretField, SecretStatusBadge } from "./secret-field";
+import { RemoveKeyButton, SecretField, SecretStatusBadge } from "./secret-field";
 import type { SecretSpecsForm } from "./use-secret-specs";
 
 /**
@@ -63,33 +50,6 @@ export function secretSpecDescription(spec: Pick<RequiredSecretSpec, "descriptio
   return spec.description === undefined ? undefined : localizeText(spec.description, locale);
 }
 
-export function RemoveKeyButton({ onRemove }: { onRemove: () => void }) {
-  const { t } = useI18n();
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={t("common.delete")} className="shrink-0 text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t("settings.tab.removeKeyTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>{t("settings.tab.removeKeyDescription")}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onRemove}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {t("settings.tab.removeKey")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
 
 // ── Readable field ─────────────────────────────────────────────────────
 // For a field declared `sensitive: false` (a base URL, a region): cleartext,

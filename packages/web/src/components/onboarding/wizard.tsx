@@ -74,6 +74,8 @@ export function Wizard() {
   const [web, setWeb] = useState<WebState>(NO_WEB);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [sending, setSending] = useState(false);
+  // An assistant reply arrived without an error: the only thing that completes the chat step.
+  const [replied, setReplied] = useState(false);
   const [kbTitle, setKbTitle] = useState("");
   const [kbText, setKbText] = useState("");
   const [kbAdded, setKbAdded] = useState(false);
@@ -231,6 +233,10 @@ export function Wizard() {
           return next;
         }),
     )
+      .then((reply) => {
+        // An empty reply is not an answer: the step is done only after text came back.
+        if (reply.trim() !== "") setReplied(true);
+      })
       .catch((err: unknown) => {
         if (abort.current?.signal.aborted) return;
         setLines((prev) => prev.slice(0, -1));
@@ -252,7 +258,7 @@ export function Wizard() {
     model: applied.model,
     agent: !!agent,
     channels: web.enabled,
-    chat: lines.some((l) => l.role === "user"),
+    chat: replied,
     knowledge: kbAdded,
   };
 
@@ -334,7 +340,7 @@ export function Wizard() {
   const status = useMemo(
     () => (sid: WizardStepId): WizardStepState => (doneNow[sid] && sid !== "welcome" ? "done" : stepState(onboarding!, sid)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onboarding, applied, agent, web.enabled, lines, kbAdded],
+    [onboarding, applied, agent, web.enabled, replied, kbAdded],
   );
 
   if (!onboarding) return null;

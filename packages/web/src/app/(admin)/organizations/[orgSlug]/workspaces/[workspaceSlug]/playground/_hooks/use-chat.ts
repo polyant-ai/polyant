@@ -4,11 +4,12 @@
 
 import { useReducer, useCallback, useRef } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import { rememberPlaygroundChat } from "@/lib/activity-stream/own-playground-chats";
 import {
   streamChatCompletion,
   type ChatMessage as SSEMessage,
   type PlaygroundHookExecution,
-} from "../_lib/stream-parser";
+} from "@/lib/stream-parser";
 import {
   api,
   type ConversationMessage,
@@ -427,6 +428,7 @@ export function useChat(defaultInstanceSlug: string) {
         .map((m) => ({ role: m.role, content: m.content }));
       history.push({ role: "user", content: text });
 
+      rememberPlaygroundChat(state.chatId);
       const controller = new AbortController();
       abortRef.current = controller;
 

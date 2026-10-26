@@ -76,6 +76,7 @@ export class ConversationsController {
     @Query("offset") offsetStr?: string,
     @Query("updatedSince") updatedSinceStr?: string,
     @Query("updatedUntil") updatedUntilStr?: string,
+    @Query("userIdentifier") userIdentifier?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const { limit, offset } = parsePagination(limitStr, offsetStr, { defaultLimit: 20, maxLimit: 100 });
@@ -88,6 +89,7 @@ export class ConversationsController {
     if (search) {
       const result = await conversationStore.searchConversations(search, {
         instanceId: instanceSlug,
+        userIdentifier: userIdentifier?.trim() || undefined,
         limit,
         offset,
         scope,
@@ -103,6 +105,7 @@ export class ConversationsController {
     const result = await conversationStore.listConversations({
       instanceId: instanceSlug,
       source,
+      userIdentifier: userIdentifier?.trim() || undefined,
       updatedSince,
       updatedUntil,
       limit,

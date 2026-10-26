@@ -29,6 +29,37 @@ const TRANSLATIONS: Record<Locale, Translations> = {
   it: it as Translations,
 };
 
+/**
+ * Looks a key up and fills its `{placeholders}`.
+ *
+ * Plurals: when `params.count` is a number (or its string form) and the file also holds `<key>_one`
+ * (or `_zero`, `_two`, `_few`, `_many` for locales that need them), the form the
+ * locale's plural rules pick for that count is used. The plain key stays the
+ * general form, so a string only needs a `_one` sibling where its singular reads
+ * differently ("1 documento" against "{count} documenti").
+ */
+export function translate(
+  locale: Locale,
+  key: TranslationKey,
+  params?: Record<string, string | number>,
+): string {
+  const table = TRANSLATIONS[locale] as Record<string, string>;
+  let value: string | undefined;
+  // `count` arrives as a number or, from older call sites, as its string form.
+  const count = params?.count === undefined || params.count === "" ? Number.NaN : Number(params.count);
+  if (Number.isFinite(count)) {
+    const category = new Intl.PluralRules(locale).select(count);
+    if (category !== "other") value = table[`${key}_${category}`];
+  }
+  value ??= table[key] ?? key;
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      value = value.replaceAll(`{${k}}`, String(v));
+    }
+  }
+  return value;
+}
+
 type TranslateFn = (
   key: TranslationKey,
   params?: Record<string, string | number>,
@@ -80,15 +111,7 @@ export function I18nProvider({
   }, []);
 
   const t: TranslateFn = useCallback(
-    (key, params) => {
-      let value: string = TRANSLATIONS[locale][key] ?? key;
-      if (params) {
-        for (const [k, v] of Object.entries(params)) {
-          value = value.replaceAll(`{${k}}`, String(v));
-        }
-      }
-      return value;
-    },
+    (key, params) => translate(locale, key, params),
     [locale],
   );
 

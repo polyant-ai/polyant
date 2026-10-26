@@ -30,3 +30,15 @@ export function isSafeImageSrc(icon: string): boolean {
   if (icon.startsWith("/") && !icon.startsWith("//")) return true;
   return false;
 }
+
+/** Up to two initials of a person's name, for an avatar fallback; "?" when there is no name. */
+export function initials(name?: string | null): string {
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}

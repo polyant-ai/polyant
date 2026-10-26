@@ -29,6 +29,13 @@ updates:
       # requiring the TS6 API — both downstream of TypeScript 7.1.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # The web package stays on ESLint 9: eslint-config-next pulls in
+      # eslint-plugin-react 7.37.5, whose peer range stops at ESLint 9 and whose
+      # rules call `context.getFilename()`, removed in ESLint 10 (#577 failed
+      # with exactly that). The engine is already on ESLint 10 and still gets
+      # minor updates. Remove this once eslint-plugin-react supports ESLint 10.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
     groups:
       ai-sdk:

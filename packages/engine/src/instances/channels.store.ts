@@ -13,6 +13,9 @@ import {
   pruneAndResolveWhatsAppConfig,
   WHATSAPP_AUTH_MODE_API_KEY,
 } from "./whatsapp-channel-config.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 // Re-exported so every existing caller can keep importing WhatsApp
 // credential-mode symbols from `channels.store.js` — the actual schemas and
@@ -81,7 +84,7 @@ function safeDecryptConfig(encrypted: string): Record<string, unknown> {
   try {
     return JSON.parse(decrypt(encrypted)) as Record<string, unknown>;
   } catch (err) {
-    console.error("[Channels] Failed to decrypt channel config:", err);
+    log.error("channels", "Failed to decrypt channel config", err);
     return {};
   }
 }

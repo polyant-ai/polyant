@@ -2,276 +2,64 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, CheckCircle2, XCircle, ChevronDown, Link2, Unlink } from "lucide-react";
+import { Plus, Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
-import {
-  api,
-  getUserErrorMessage,
-  type McpAuthMode,
-  type McpOAuthAccount,
-  type McpServer,
-  type McpTestResult,
-} from "@/lib/api";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { ListEmpty, ListLoading } from "@/components/list-states";
+import { SwitchList } from "@/components/switch-list";
+import { api, getUserErrorMessage, type McpServer } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
+import { useFormat } from "@/lib/use-format";
 import { useI18n } from "@/lib/i18n/context";
+import { McpServerSheet } from "./mcp-server-sheet";
 import { SectionActions } from "./section-actions";
 
 interface Props {
   slug: string;
 }
 
-type StaticAuthType = "bearer" | "header";
-
-interface FormState {
-  slug: string;
-  name: string;
-  url: string;
-  authMode: McpAuthMode;
-  oauthAccount: McpOAuthAccount;
-  enabled: boolean;
-  allowList: string;
-  staticAuthType: StaticAuthType;
-  headerName: string;
-  token: string;
-  tokenPlaceholder: string;
-  scopes: string;
-  advancedOpen: boolean;
-  staticClientId: string;
-  staticClientSecret: string;
-  staticClientSecretPlaceholder: string;
-}
-
-const EMPTY_FORM: FormState = {
-  slug: "",
-  name: "",
-  url: "",
-  authMode: "static",
-  oauthAccount: "conversation",
-  enabled: true,
-  allowList: "",
-  staticAuthType: "bearer",
-  headerName: "",
-  token: "",
-  tokenPlaceholder: "",
-  scopes: "",
-  advancedOpen: false,
-  staticClientId: "",
-  staticClientSecret: "",
-  staticClientSecretPlaceholder: "",
-};
-
-function splitList(value: string): string[] {
-  return value.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
-function joinList(value: unknown): string {
-  return Array.isArray(value) ? value.join(", ") : "";
-}
-
-/** Builds the config payload sent to the engine; blank secret fields are omitted so the
- * server restores the existing masked value (`mergeMaskedMcpSecrets`) instead of clearing it. */
-function buildConfig(form: FormState): Record<string, unknown> {
-  const allowList = splitList(form.allowList);
-  // No credential at all. The engine's schema for this mode is `.strict()`, so
-  // sending a leftover token here would be a 400 rather than a secret stored for
-  // nothing — hence only the allowList, which is about which tools may be called
-  // and has nothing to do with how the server authenticates.
-  if (form.authMode === "none") {
-    return allowList.length ? { allowList } : {};
-  }
-  if (form.authMode === "static") {
-    const auth: Record<string, unknown> =
-      form.staticAuthType === "header"
-        ? { type: "header", headerName: form.headerName }
-        : { type: "bearer" };
-    if (form.token) auth.token = form.token;
-    return { auth, ...(allowList.length ? { allowList } : {}) };
-  }
-  const scopes = splitList(form.scopes);
-  const config: Record<string, unknown> = { account: form.oauthAccount };
-  if (scopes.length) config.scopes = scopes;
-  if (allowList.length) config.allowList = allowList;
-  if (form.staticClientId || form.staticClientSecret) {
-    const staticClient: Record<string, unknown> = {};
-    if (form.staticClientId) staticClient.clientId = form.staticClientId;
-    if (form.staticClientSecret) staticClient.clientSecret = form.staticClientSecret;
-    config.staticClient = staticClient;
-  }
-  return config;
-}
-
-function formFromServer(server: McpServer): FormState {
-  const config = server.config;
-  const base: FormState = {
-    ...EMPTY_FORM,
-    slug: server.slug,
-    name: server.name,
-    url: server.url,
-    authMode: server.authMode,
-    enabled: server.enabled,
-    allowList: joinList(config.allowList),
-  };
-  if (server.authMode === "static") {
-    const auth = (config.auth as { type?: string; headerName?: string; token?: string } | undefined) ?? {};
-    return {
-      ...base,
-      staticAuthType: auth.type === "header" ? "header" : "bearer",
-      headerName: auth.headerName ?? "",
-      tokenPlaceholder: typeof auth.token === "string" ? auth.token : "",
-    };
-  }
-  const staticClient = config.staticClient as { clientId?: string; clientSecret?: string } | undefined;
-  return {
-    ...base,
-    oauthAccount: config.account === "shared" ? "shared" : "conversation",
-    scopes: joinList(config.scopes),
-    advancedOpen: !!staticClient,
-    staticClientId: staticClient?.clientId ?? "",
-    staticClientSecretPlaceholder: typeof staticClient?.clientSecret === "string" ? staticClient.clientSecret : "",
-  };
-}
-
 export function McpServersTab({ slug }: Props) {
   const { t } = useI18n();
-  const [servers, setServers] = useState<McpServer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const fmt = useFormat();
+  const { data, error, loading, reload } = useResource(["mcp-servers", slug], () => api.mcpServers.list(slug));
+  const servers = data ?? [];
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Changes for each opening, so the dialog's form starts afresh.
+  const [dialogKey, setDialogKey] = useState(0);
   const [editing, setEditing] = useState<McpServer | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<McpServer | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<McpTestResult | null>(null);
   // The server whose shared account is being connected in another tab. The
   // provider redirects there, not here, so the list is read again when this
   // tab regains focus.
   const [connecting, setConnecting] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.mcpServers.list(slug);
-      setServers(res);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("mcp.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, t]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   useEffect(() => {
     if (!connecting) return;
     const onFocus = () => {
       setConnecting(null);
-      void load();
+      reload();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [connecting, load]);
+  }, [connecting, reload]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm(EMPTY_FORM);
-    setTestResult(null);
+    setDialogKey((k) => k + 1);
     setDialogOpen(true);
   };
 
   const openEdit = (server: McpServer) => {
     setEditing(server);
-    setForm(formFromServer(server));
-    setTestResult(null);
+    setDialogKey((k) => k + 1);
     setDialogOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!form.name || !form.url) {
-      toast.error(t("mcp.validation.required"));
-      return;
-    }
-    if (!editing && !form.slug) {
-      toast.error(t("mcp.validation.slugRequired"));
-      return;
-    }
-    // Saving is an upsert: a new server under a taken slug would replace that one.
-    if (!editing && servers.some((server) => server.slug === form.slug)) {
-      toast.error(t("mcp.validation.slugTaken"));
-      return;
-    }
-    if (form.authMode === "static" && !editing && !form.token) {
-      toast.error(t("mcp.validation.tokenRequired"));
-      return;
-    }
-    if (form.authMode === "static" && form.staticAuthType === "header" && !form.headerName) {
-      toast.error(t("mcp.validation.headerNameRequired"));
-      return;
-    }
-    setSaving(true);
-    try {
-      const serverSlug = editing ? editing.slug : form.slug;
-      await api.mcpServers.set(slug, serverSlug, {
-        name: form.name,
-        url: form.url,
-        authMode: form.authMode,
-        enabled: form.enabled,
-        config: buildConfig(form),
-      });
-      toast.success(editing ? t("mcp.updated") : t("mcp.created"));
-      setDialogOpen(false);
-      await load();
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("mcp.saveFailed")));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleToggle = async (server: McpServer, enabled: boolean) => {
-    setServers((prev) => prev.map((s) => (s.id === server.id ? { ...s, enabled } : s)));
     try {
       await api.mcpServers.set(slug, server.slug, {
         name: server.name,
@@ -281,9 +69,11 @@ export function McpServersTab({ slug }: Props) {
         config: server.config,
       });
     } catch (err) {
-      setServers((prev) => prev.map((s) => (s.id === server.id ? { ...s, enabled: server.enabled } : s)));
       toast.error(getUserErrorMessage(err, t("mcp.toggleFailed")));
+      reload();
+      throw err;
     }
+    await reload();
   };
 
   const handleConnectShared = async (server: McpServer) => {
@@ -309,7 +99,7 @@ export function McpServersTab({ slug }: Props) {
     try {
       await api.mcpServers.disconnectShared(slug, server.slug);
       toast.success(t("mcp.shared.disconnected"));
-      await load();
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("mcp.shared.disconnectFailed")));
     }
@@ -321,49 +111,25 @@ export function McpServersTab({ slug }: Props) {
       await api.mcpServers.delete(slug, deleting.slug);
       toast.success(t("mcp.deleted"));
       setDeleting(null);
-      await load();
+      setDialogOpen(false);
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("mcp.deleteFailed")));
     }
   };
 
-  const handleTest = async () => {
-    if (!form.url) {
-      toast.error(t("mcp.validation.urlRequiredForTest"));
-      return;
-    }
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await api.mcpServers.test(slug, {
-        slug: form.slug || undefined,
-        name: form.name || form.slug,
-        url: form.url,
-        authMode: form.authMode,
-        enabled: form.enabled,
-        config: buildConfig(form),
-      });
-      setTestResult(result);
-    } catch (err) {
-      setTestResult({ ok: false, error: getUserErrorMessage(err, t("mcp.test.failed")) });
-    } finally {
-      setTesting(false);
-    }
-  };
+  if (error && data === undefined) return <LoadFailed message={t("mcp.loadFailed")} onRetry={reload} />;
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        {t("common.loading")}
-      </div>
-    );
-  }
+  if (loading && data === undefined) return <ListLoading className="" />;
+
+  const isShared = (server: McpServer) => server.authMode === "oauth" && server.config.account === "shared";
+  // Read from the list, so connecting or disconnecting the shared account shows in the open drawer.
+  const current = editing ? servers.find((server) => server.slug === editing.slug) ?? editing : null;
 
   return (
     <div className="space-y-6">
       {/* The page draws the title and the line under it; the long explanation
-          of static and OAuth servers lives in the server's dialog. */}
+          of static and OAuth servers lives in the server's drawer. */}
       <SectionActions>
         <Button onClick={openCreate} size="sm">
           <Plus className="mr-1 size-4" />
@@ -372,317 +138,86 @@ export function McpServersTab({ slug }: Props) {
       </SectionActions>
 
       {servers.length === 0 ? (
-        <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
-          <p>{t("mcp.empty")}</p>
-        </div>
+        <ListEmpty className="mt-8" title={t("mcp.empty")} />
       ) : (
-        <ListTable>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <ListHead className="w-[26%]">{t("mcp.col.name")}</ListHead>
-              <ListHead>{t("mcp.col.url")}</ListHead>
-              <ListHead className="w-40">{t("mcp.col.auth")}</ListHead>
-              <ListHead className="w-24">{t("mcp.col.enabled")}</ListHead>
-              <ListHead align="end" className="w-28">{t("mcp.col.actions")}</ListHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {servers.map((server) => (
-              <ListRow key={server.id} muted={!server.enabled}>
-                <ListNameCell name={server.name} summary={<code className="text-xs">{server.slug}</code>} />
-                <TableCell>
-                  <span className="truncate block text-xs text-muted-foreground">{server.url}</span>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-xs">
-                    {t(`mcp.authMode.${server.authMode}` as const)}
-                  </Badge>
-                  {server.authMode === "oauth" && server.config.account === "shared" && (
-                    <SharedAccountState
-                      server={server}
-                      waiting={connecting === server.slug}
-                      onConnect={() => handleConnectShared(server)}
-                      onDisconnect={() => handleDisconnectShared(server)}
-                    />
-                  )}
-                </TableCell>
-                <ListControlCell className="text-left">
-                  <Switch
-                    checked={server.enabled}
-                    onCheckedChange={(v) => handleToggle(server, v)}
-                  />
-                </ListControlCell>
-                <ListControlCell>
-                  <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(server)}>
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive"
-                      onClick={() => setDeleting(server)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </ListControlCell>
-              </ListRow>
-            ))}
-          </TableBody>
-        </ListTable>
-      )}
-
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{editing ? t("mcp.editTitle") : t("mcp.createTitle")}</DialogTitle>
-            <DialogDescription>{t("mcp.dialogDescription")}</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-            <div className="space-y-2">
-              <Label>{t("mcp.form.slug")}</Label>
-              <Input
-                value={form.slug}
-                onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") }))}
-                readOnly={!!editing}
-                className={editing ? "opacity-60" : ""}
-                placeholder="my-mcp-server"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("mcp.form.name")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="My MCP Server"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("mcp.form.url")}</Label>
-              <Input
-                value={form.url}
-                onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                placeholder="https://mcp.example.com/mcp"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("mcp.form.authMode")}</Label>
-              <Select
-                value={form.authMode}
-                onValueChange={(v) => setForm((f) => ({ ...f, authMode: v as McpAuthMode }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("mcp.authMode.none")}</SelectItem>
-                  <SelectItem value="static">{t("mcp.authMode.static")}</SelectItem>
-                  <SelectItem value="oauth">{t("mcp.authMode.oauth")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {form.authMode === "none" ? (
-              // Deliberately empty: the point of this mode is that there is
-              // nothing to ask for. A note, not a disabled field, so the form does
-              // not look like it is withholding something.
-              <p className="text-sm text-muted-foreground">{t("mcp.form.noAuthHelp")}</p>
-            ) : form.authMode === "static" ? (
-              <>
-                <div className="space-y-2">
-                  <Label>{t("mcp.form.staticAuthType")}</Label>
-                  <Select
-                    value={form.staticAuthType}
-                    onValueChange={(v) => setForm((f) => ({ ...f, staticAuthType: v as StaticAuthType }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bearer">{t("mcp.form.bearer")}</SelectItem>
-                      <SelectItem value="header">{t("mcp.form.header")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {form.staticAuthType === "header" && (
-                  <div className="space-y-2">
-                    <Label>{t("mcp.form.headerName")}</Label>
-                    <Input
-                      value={form.headerName}
-                      onChange={(e) => setForm((f) => ({ ...f, headerName: e.target.value }))}
-                      placeholder="X-Api-Key"
-                    />
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label>{t("mcp.form.token")}</Label>
-                  <Input
-                    type="password"
-                    value={form.token}
-                    onChange={(e) => setForm((f) => ({ ...f, token: e.target.value }))}
-                    placeholder={form.tokenPlaceholder || undefined}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label>{t("mcp.form.oauthAccount")}</Label>
-                  <Select
-                    value={form.oauthAccount}
-                    onValueChange={(v) => setForm((f) => ({ ...f, oauthAccount: v as McpOAuthAccount }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="conversation">{t("mcp.form.oauthAccount.conversation")}</SelectItem>
-                      <SelectItem value="shared">{t("mcp.form.oauthAccount.shared")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {form.oauthAccount === "shared" ? t("mcp.form.sharedNote") : t("mcp.form.oauthNote")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("mcp.form.scopes")}</Label>
-                  <Input
-                    value={form.scopes}
-                    onChange={(e) => setForm((f) => ({ ...f, scopes: e.target.value }))}
-                    placeholder="read, write"
-                  />
-                  <p className="text-xs text-muted-foreground">{t("mcp.form.scopesHelp")}</p>
-                </div>
-                <Collapsible
-                  open={form.advancedOpen}
-                  onOpenChange={(open) => setForm((f) => ({ ...f, advancedOpen: open }))}
-                >
-                  <CollapsibleTrigger className="flex w-full items-center gap-2 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                    <ChevronDown className={`size-4 transition-transform ${form.advancedOpen ? "" : "-rotate-90"}`} />
-                    {t("mcp.form.advanced")}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="mt-2 space-y-4">
-                      <div className="space-y-2">
-                        <Label>{t("mcp.form.staticClientId")}</Label>
-                        <Input
-                          value={form.staticClientId}
-                          onChange={(e) => setForm((f) => ({ ...f, staticClientId: e.target.value }))}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>{t("mcp.form.staticClientSecret")}</Label>
-                        <Input
-                          type="password"
-                          value={form.staticClientSecret}
-                          onChange={(e) => setForm((f) => ({ ...f, staticClientSecret: e.target.value }))}
-                          placeholder={form.staticClientSecretPlaceholder || undefined}
-                        />
-                      </div>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </>
-            )}
-
-            <div className="space-y-2 border-t pt-4">
-              <Label>{t("mcp.form.allowList")}</Label>
-              <Input
-                value={form.allowList}
-                onChange={(e) => setForm((f) => ({ ...f, allowList: e.target.value }))}
-                placeholder="search, get_page"
-              />
-              <p className="text-xs text-muted-foreground">{t("mcp.form.allowListHelp")}</p>
-            </div>
-
-            <div className="space-y-2 border-t pt-4">
-              <Button variant="outline" size="sm" onClick={handleTest} disabled={testing}>
-                {testing && <Loader2 className="mr-1 size-4 animate-spin" />}
-                {testing ? t("mcp.test.testing") : t("mcp.test.button")}
-              </Button>
-              {testResult && (
-                <div
-                  className={`rounded-md border p-3 text-sm ${
-                    testResult.ok ? "border-success/30 bg-success/10" : "border-destructive/30 bg-destructive/10"
-                  }`}
-                >
-                  {testResult.ok ? (
-                    testResult.requiresOAuth ? (
-                      <p className="flex items-center gap-1.5 text-success">
-                        <CheckCircle2 className="size-3.5 shrink-0" />
-                        {form.authMode === "oauth" && form.oauthAccount === "shared"
-                          ? t("mcp.test.requiresSharedConnection")
-                          : t("mcp.test.requiresOAuth")}
-                      </p>
-                    ) : (
-                      <div>
-                        <p className="flex items-center gap-1.5 text-success">
-                          <CheckCircle2 className="size-3.5 shrink-0" />
-                          {t("mcp.test.success")}
-                        </p>
-                        {testResult.tools && testResult.tools.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {testResult.tools.map((toolName) => (
-                              <Badge key={toolName} variant="secondary" className="text-xs">
-                                {toolName}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-1 text-xs text-muted-foreground">{t("mcp.test.noTools")}</p>
-                        )}
-                      </div>
-                    )
-                  ) : (
-                    <p className="flex items-center gap-1.5 text-destructive">
-                      <XCircle className="size-3.5 shrink-0" />
-                      {testResult.error ?? t("mcp.test.failed")}
+        <SwitchList
+          rows={servers}
+          rowKey={(server) => server.id}
+          name={(server) => server.name}
+          nameHeader={t("mcp.col.name")}
+          summary={(server) => server.slug}
+          searchText={(server) => [server.url, t(`mcp.authMode.${server.authMode}` as const)]}
+          columns={[
+            {
+              header: t("mcp.col.url"),
+              cell: (server) => (
+                <span className="block truncate text-xs text-muted-foreground" title={server.url}>{server.url}</span>
+              ),
+            },
+            {
+              header: t("mcp.col.auth"),
+              className: "w-40",
+              cell: (server) => (
+                <>
+                  <Badge variant="secondary">{t(`mcp.authMode.${server.authMode}` as const)}</Badge>
+                  {isShared(server) && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {sharedAccountText(server, connecting === server.slug)}
                     </p>
                   )}
-                </div>
-              )}
-            </div>
-          </div>
+                </>
+              ),
+            },
+          ]}
+          isOn={(server) => server.enabled}
+          onToggle={handleToggle}
+          switchLabel={(server) => t("mcp.enabled", { name: server.name })}
+          onOpen={openEdit}
+          selectedKey={dialogOpen ? editing?.slug : null}
+        />
+      )}
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-              {saving ? t("common.saving") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <McpServerSheet
+        key={dialogKey}
+        agentSlug={slug}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editing={editing}
+        takenSlugs={servers.map((server) => server.slug)}
+        onSaved={reload}
+        onDelete={setDeleting}
+        accountState={
+          current && isShared(current) ? (
+            <SharedAccountState
+              server={current}
+              waiting={connecting === current.slug}
+              onConnect={() => handleConnectShared(current)}
+              onDisconnect={() => handleDisconnectShared(current)}
+            />
+          ) : undefined
+        }
+      />
 
-      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("mcp.deleteTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("mcp.deleteDescription", { name: deleting?.name ?? "" })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {t("common.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("mcp.deleteTitle")}
+        description={t("mcp.deleteDescription", { name: deleting?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        onConfirm={handleDelete}
+      />
     </div>
   );
+
+  /** Whether the shared account is connected, as one line. */
+  function sharedAccountText(server: McpServer, waiting: boolean): string {
+    const connected = server.sharedAccount ?? null;
+    return connected
+      ? t("mcp.shared.connectedOn", { date: fmt.date(connected.connectedAt) })
+      : waiting
+        ? t("mcp.shared.waiting")
+        : t("mcp.shared.notConnected");
+  }
 }
 
 /** Whether the agent's shared account is connected, and the control that changes it. */
@@ -697,26 +232,27 @@ function SharedAccountState({
   onConnect: () => void;
   onDisconnect: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
+  const fmt = useFormat();
   const connected = server.sharedAccount ?? null;
   return (
-    <div className="mt-1.5 space-y-1">
-      <p className="text-xs text-muted-foreground">
+    <div className="space-y-2 border-t pt-4">
+      <p className="text-sm text-muted-foreground">
         {connected
           ? t("mcp.shared.connectedOn", {
-              date: new Date(connected.connectedAt).toLocaleDateString(locale),
+              date: fmt.date(connected.connectedAt),
             })
           : waiting
             ? t("mcp.shared.waiting")
             : t("mcp.shared.notConnected")}
       </p>
       {connected ? (
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onDisconnect}>
+        <Button variant="outline" size="sm" onClick={onDisconnect}>
           <Unlink className="mr-1 size-3.5" />
           {t("mcp.shared.disconnect")}
         </Button>
       ) : (
-        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={onConnect}>
+        <Button variant="outline" size="sm" onClick={onConnect}>
           <Link2 className="mr-1 size-3.5" />
           {t("mcp.shared.connect")}
         </Button>

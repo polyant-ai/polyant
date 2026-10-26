@@ -19,7 +19,7 @@ export async function generateConversationTitle(opts: GenerateTitleOptions): Pro
   if (existingTitle) return;
 
   const contextClause = opts.context ? ` ${opts.context}` : "";
-  const system = `Generate a short conversation title (max 6-8 words) with a single relevant emoji at the very start. Match the language of the user's message.${contextClause} Respond ONLY with the title, nothing else. Examples: "🐍 Tutorial gioco snake in Python", "📊 Sales dashboard design"`;
+  const system = `Generate a short conversation title (max 6-8 words) with a single relevant emoji at the very start. Match the language of the user's message.${contextClause} Respond ONLY with the title, nothing else: no speaker label such as "User:" or "Assistant:", no quotation marks. Examples: "🐍 Tutorial gioco snake in Python", "📊 Sales dashboard design"`;
 
   const titleResponse = await chat({
     tier: "fast",

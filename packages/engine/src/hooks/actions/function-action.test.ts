@@ -77,7 +77,7 @@ describe("functionActionExecutor", () => {
   });
 
   it("should_capture_replaceResponse_and_warn_when_mutatesResponse_not_declared", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { promise, captured } = run(def({ mutatesResponse: false, handler: () => ({ replaceResponse: { message: "x" } }) }));
     await promise;
     expect(captured.replaceResponse).toEqual({ message: "x" });
@@ -86,7 +86,7 @@ describe("functionActionExecutor", () => {
   });
 
   it("should_not_warn_when_mutatesResponse_declared_true", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { promise, captured } = run(def({ mutatesResponse: true, handler: () => ({ replaceResponse: { message: "x" } }) }));
     await promise;
     expect(captured.replaceResponse).toEqual({ message: "x" });
@@ -95,7 +95,7 @@ describe("functionActionExecutor", () => {
   });
 
   it("should_drop_regenerate_and_warn_when_mutatesResponse_not_declared", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { promise, captured } = run(def({ mutatesResponse: false, handler: () => ({ regenerate: { reason: "dirty" } }) }));
     await promise;
     // Hard gate: regenerate replays the whole turn, so it is DROPPED (not honored) when
@@ -106,7 +106,7 @@ describe("functionActionExecutor", () => {
   });
 
   it("should_capture_regenerate_without_warning_when_mutatesResponse_declared", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const { promise, captured } = run(def({ mutatesResponse: true, handler: () => ({ regenerate: {} }) }));
     await promise;
     expect(captured.regenerate).toEqual({});

@@ -19,7 +19,6 @@ const EN: Record<AudioReplyReason, string> = {
   stt_disabled: "Voice messages are not supported. Please type your message instead.",
 };
 
-export function audioReply(reason: AudioReplyReason, _language: string = "en"): string {
-  // English by default; the language argument is reserved for future i18n.
+export function audioReply(reason: AudioReplyReason): string {
   return EN[reason];
 }

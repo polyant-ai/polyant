@@ -2,40 +2,26 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { api, getUserErrorMessage, isForbidden, type ManagementApiKey } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
+import { PageHeader } from "@/components/layout/page-header";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { PermissionRequired } from "@/components/layout/permission-required";
-import { CreateApiKeyDialog } from "./create-api-key-dialog";
-
-function isExpired(key: ManagementApiKey): boolean {
-  return key.expiresAt !== null && new Date(key.expiresAt).getTime() <= Date.now();
-}
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { useListView } from "@/components/use-list-view";
+import { ListEmpty, ListLoading, ListNoResults } from "@/components/list-states";
+import { ApiKeySheet, isExpired } from "./api-key-sheet";
+import { CreateApiKeySheet } from "./create-api-key-sheet";
 
 /**
  * The organization's management API keys: the credential polyant-cli and other
@@ -47,61 +33,64 @@ export default function ApiKeysPage() {
   const { t } = useI18n();
   const format = useFormat();
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const [keys, setKeys] = useState<ManagementApiKey[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
+  const { data, error, loading, reload, mutate } = useResource(["api-keys", orgSlug], () => api.apiKeys.list(orgSlug));
+  const keys = data?.keys ?? [];
+  const forbidden = isForbidden(error);
   const [creating, setCreating] = useState(false);
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [openKeyId, setOpenKeyId] = useState<string | null>(null);
 
-  const fetchKeys = useCallback(async () => {
-    try {
-      const { keys } = await api.apiKeys.list(orgSlug);
-      setKeys(keys);
-    } catch (err) {
-      if (isForbidden(err)) setForbidden(true);
-      else toast.error(getUserErrorMessage(err, t("apiKeys.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, orgSlug]);
-
-  useEffect(() => {
-    fetchKeys();
-  }, [fetchKeys]);
-
-  const handleRevoke = async (key: ManagementApiKey) => {
+  const handleRevoke = async (key: ManagementApiKey): Promise<boolean> => {
     setBusyKeyId(key.id);
     try {
       await api.apiKeys.remove(orgSlug, key.id);
-      setKeys((prev) => prev.filter((k) => k.id !== key.id));
+      mutate((current) => ({ ...current, keys: current.keys.filter((k) => k.id !== key.id) }));
+      reload();
       toast.success(t("apiKeys.revoked"));
+      return true;
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("apiKeys.revokeFailed")));
+      return false;
     } finally {
       setBusyKeyId(null);
     }
   };
 
+  const expiryText = (key: ManagementApiKey) =>
+    key.expiresAt === null ? t("apiKeys.noExpiry") : isExpired(key) ? t("apiKeys.expired") : format.date(key.expiresAt);
+  const visible = useListView(keys, search, (key) => [key.name, expiryText(key)], (key) => key.name);
+  const openKey = openKeyId === null ? null : keys.find((key) => key.id === openKeyId) ?? null;
+
   const header = (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("apiKeys.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("apiKeys.subtitle")}</p>
-      </div>
-      {!loading && !forbidden && (
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="size-4" />
-          {t("apiKeys.create.button")}
-        </Button>
-      )}
-    </div>
+    <PageHeader
+      title={t("apiKeys.title")}
+      subtitle={t("apiKeys.subtitle")}
+      actions={
+        data !== undefined && (
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            {t("apiKeys.create.button")}
+          </Button>
+        )
+      }
+    />
   );
 
-  if (loading) {
+  if (loading && data === undefined) {
     return (
       <div>
         {header}
-        <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
+        <ListLoading />
+      </div>
+    );
+  }
+
+  if (error && !forbidden) {
+    return (
+      <div>
+        {header}
+        <LoadFailed message={t("apiKeys.loadFailed")} onRetry={reload} />
       </div>
     );
   }
@@ -120,72 +109,59 @@ export default function ApiKeysPage() {
       {header}
 
       {keys.length === 0 ? (
-        <div className="mt-16 flex flex-col items-center text-center">
-          <p className="text-muted-foreground">{t("apiKeys.empty.title")}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{t("apiKeys.empty.description")}</p>
-        </div>
+        <ListEmpty title={t("apiKeys.empty.title")} description={t("apiKeys.empty.description")} />
       ) : (
-        <Table className="mt-6">
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("apiKeys.table.name")}</TableHead>
-              <TableHead>{t("apiKeys.table.created")}</TableHead>
-              <TableHead>{t("apiKeys.table.lastUsed")}</TableHead>
-              <TableHead>{t("apiKeys.table.expires")}</TableHead>
-              <TableHead className="w-[120px]">{t("apiKeys.table.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {keys.map((key) => (
-              <TableRow key={key.id}>
-                <TableCell className="font-medium">{key.name}</TableCell>
-                <TableCell className="text-muted-foreground">{format.date(key.createdAt)}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {key.lastUsedAt ? format.relative(key.lastUsedAt) : t("apiKeys.neverUsed")}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {key.expiresAt === null ? (
-                    t("apiKeys.noExpiry")
-                  ) : isExpired(key) ? (
-                    <Badge variant="secondary">{t("apiKeys.expired")}</Badge>
-                  ) : (
-                    format.date(key.expiresAt)
-                  )}
-                </TableCell>
-                <TableCell>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="sm" disabled={busyKeyId === key.id}>
-                        {t("apiKeys.revoke.button")}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>{t("apiKeys.revoke.title")}</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t("apiKeys.revoke.description", { name: key.name })}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleRevoke(key)}>
-                          {t("apiKeys.revoke.confirm")}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <>
+          <ListToolbar value={search} onChange={setSearch} className="mt-6" />
+          {visible.length === 0 ? (
+            <ListNoResults />
+          ) : (
+            <ListTable>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <ListHead>{t("apiKeys.table.name")}</ListHead>
+                  <ListHead className="w-36">{t("apiKeys.table.created")}</ListHead>
+                  <ListHead className="w-36">{t("apiKeys.table.lastUsed")}</ListHead>
+                  <ListHead className="w-36">{t("apiKeys.table.expires")}</ListHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.map((key) => (
+                  <ListRow key={key.id} onOpen={() => setOpenKeyId(key.id)} selected={openKeyId === key.id}>
+                    <ListNameCell name={key.name} onOpen={() => setOpenKeyId(key.id)} />
+                    <TableCell className="text-muted-foreground">{format.date(key.createdAt)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {key.lastUsedAt ? format.relative(key.lastUsedAt) : t("apiKeys.neverUsed")}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {key.expiresAt === null ? (
+                        t("apiKeys.noExpiry")
+                      ) : isExpired(key) ? (
+                        <Badge variant="secondary">{t("apiKeys.expired")}</Badge>
+                      ) : (
+                        format.date(key.expiresAt)
+                      )}
+                    </TableCell>
+                  </ListRow>
+                ))}
+              </TableBody>
+            </ListTable>
+          )}
+        </>
       )}
 
-      <CreateApiKeyDialog
+      <ApiKeySheet
+        apiKey={openKey}
+        busy={openKey !== null && busyKeyId === openKey.id}
+        onRevoke={handleRevoke}
+        onClose={() => setOpenKeyId(null)}
+      />
+
+      <CreateApiKeySheet
         orgSlug={orgSlug}
         open={creating}
         onOpenChange={setCreating}
-        onCreated={fetchKeys}
+        onCreated={reload}
       />
     </div>
   );

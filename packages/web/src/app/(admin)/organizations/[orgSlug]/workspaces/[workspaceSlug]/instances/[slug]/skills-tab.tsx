@@ -4,19 +4,12 @@
 
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
-import { Puzzle, Settings2, ArrowUpCircle, Zap } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ListEmpty } from "@/components/list-states";
+import { SwitchList } from "@/components/switch-list";
 import { api, getUserErrorMessage, type SkillState, type ToolState } from "@/lib/api";
-import { SkillEnvDialog } from "./skill-env-dialog";
 import { useI18n } from "@/lib/i18n/context";
+import { AgentSkillSheet } from "./agent-skill-sheet";
 import { usePageSaveAction } from "./page-actions-context";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +34,7 @@ export function SkillsTab({ slug, skills, tools, onSkillsUpdate, onToolsUpdate }
   const [skillToggles, setSkillToggles] = useState<Record<string, boolean>>({});
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
-  const [envDialogSkill, setEnvDialogSkill] = useState<string | null>(null);
+  const [openSkill, setOpenSkill] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [togglingAutoLoad, setTogglingAutoLoad] = useState<string | null>(null);
 
@@ -177,128 +170,71 @@ export function SkillsTab({ slug, skills, tools, onSkillsUpdate, onToolsUpdate }
   // Render
   // ---------------------------------------------------------------------------
 
-  // Group: enabled first, then disabled — both alphabetically (backend already sorts by name)
-  const sortedSkills = useMemo(() => {
-    const enabled = skills.filter((s) => getSkillEnabled(s.name));
-    const disabled = skills.filter((s) => !getSkillEnabled(s.name));
-    return [...enabled, ...disabled];
-  }, [skills, skillToggles, skillEnabledMap]);
-
-  const renderSkillCard = (skill: SkillState) => {
-    const isEnabled = getSkillEnabled(skill.name);
-    const hasEnv = (skill.requiredEnv?.length ?? 0) > 0;
-    const envMissing = isEnabled && hasEnv && !skill.envConfigured;
-    const toolCount = skill.requiredTools?.length ?? 0;
-
-    return (
-      <div
-        key={skill.name}
-        className={`rounded-lg border p-4 transition-colors ${
-          isEnabled ? "bg-background border-primary/20" : "bg-muted/30 opacity-60"
-        }`}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Puzzle className="size-4 shrink-0 text-primary" />
-              <span className="font-medium text-sm">{skill.name}</span>
-              {toolCount > 0 && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {t("capabilities.toolCount").replace("{count}", String(toolCount))}
-                </Badge>
-              )}
-              {skill.pinnedVersion && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {t("skills.tab.version").replace("{version}", skill.pinnedVersion)}
-                </Badge>
-              )}
-              {hasEnv && (
-                <Badge
-                  variant={envMissing ? "destructive" : "secondary"}
-                  className="text-[10px] px-1.5 py-0"
-                >
-                  {skill.requiredEnv!.length} env var{skill.requiredEnv!.length > 1 ? "s" : ""}
-                </Badge>
-              )}
-              {skill.hasUpdate && (
-                <Badge
-                  variant="outline"
-                  className="border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400 text-[10px] px-1.5 py-0"
-                >
-                  {t("skills.tab.updateAvailable")}
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">{skill.description}</p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            {isEnabled && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1.5">
-                      <Zap className={`size-3.5 ${skill.autoLoad ? "text-amber-500" : "text-muted-foreground/50"}`} />
-                      <Switch
-                        size="sm"
-                        checked={skill.autoLoad ?? false}
-                        disabled={togglingAutoLoad === skill.name}
-                        onCheckedChange={(checked) => handleAutoLoadToggle(skill.name, checked)}
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>{t("skills.tab.autoLoadTooltip")}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {skill.hasUpdate && (
-              <Button variant="outline" size="sm" disabled={upgrading === skill.name} onClick={() => handleUpgrade(skill.name)}>
-                <ArrowUpCircle className="mr-1.5 size-4" />
-                {upgrading === skill.name ? t("common.saving") : t("skills.tab.upgrade")}
-              </Button>
-            )}
-            {isEnabled && hasEnv && (
-              <Button variant="ghost" size="sm" onClick={() => setEnvDialogSkill(skill.name)}>
-                <Settings2 className="mr-1.5 size-4" />
-                {t("skills.tab.configure")}
-              </Button>
-            )}
-            <Switch
-              checked={isEnabled}
-              onCheckedChange={(checked) => handleSkillToggle(skill.name, checked)}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const opened = openSkill ? skills.find((skill) => skill.name === openSkill) ?? null : null;
 
   if (skills.length === 0) {
-    return (
-      <div className="max-w-3xl">
-        <p className="text-sm text-muted-foreground">{t("skills.tab.empty")}</p>
-      </div>
-    );
+    return <ListEmpty className="mt-8" title={t("skills.tab.empty")} />;
   }
 
   return (
-    <div className="max-w-3xl">
+    <div>
+      {/* By name, and not enabled-first: a row that jumps to the top when its switch is flicked is hard to follow. */}
+      <SwitchList
+        rows={skills}
+        rowKey={(skill) => skill.name}
+        name={(skill) => skill.name}
+        nameHeader={t("skills.table.name")}
+        summary={(skill) => skill.description || undefined}
+        searchText={(skill) => [skill.category]}
+        badges={(skill) => {
+          const isEnabled = getSkillEnabled(skill.name);
+          const hasEnv = (skill.requiredEnv?.length ?? 0) > 0;
+          const envMissing = isEnabled && hasEnv && !skill.envConfigured;
+          const toolCount = skill.requiredTools?.length ?? 0;
+          return (
+            <>
+              {toolCount > 0 && (
+                <Badge variant="secondary">{t("capabilities.toolCount").replace("{count}", String(toolCount))}</Badge>
+              )}
+              {skill.pinnedVersion && (
+                <Badge variant="secondary">{t("skills.tab.version").replace("{version}", skill.pinnedVersion)}</Badge>
+              )}
+              {hasEnv && (
+                <Badge variant={envMissing ? "destructive" : "secondary"}>
+                  {skill.requiredEnv!.length} env var{skill.requiredEnv!.length > 1 ? "s" : ""}
+                </Badge>
+              )}
+              {skill.hasUpdate && <Badge variant="secondary">{t("skills.tab.updateAvailable")}</Badge>}
+            </>
+          );
+        }}
+        columns={[
+          {
+            header: t("skills.table.category"),
+            className: "w-40",
+            cell: (skill) =>
+              skill.category ? <Badge variant="secondary">{skill.category}</Badge> : <span className="text-muted-foreground">—</span>,
+          },
+        ]}
+        isOn={(skill) => getSkillEnabled(skill.name)}
+        // The switch only stages the change: the page's Save writes it.
+        onToggle={async (skill, checked) => handleSkillToggle(skill.name, checked)}
+        switchLabel={(skill) => t("skills.tab.enabled", { name: skill.name })}
+        onOpen={(skill) => setOpenSkill(skill.name)}
+        selectedKey={openSkill}
+      />
 
-      <div className="space-y-2">
-        {sortedSkills.map(renderSkillCard)}
-      </div>
-
-      {envDialogSkill && (
-        <SkillEnvDialog
-          open
-          onOpenChange={(open) => !open && setEnvDialogSkill(null)}
-          slug={slug}
-          skillName={envDialogSkill}
-          onSaved={refreshSkills}
-        />
-      )}
+      <AgentSkillSheet
+        slug={slug}
+        skill={opened}
+        enabled={opened ? getSkillEnabled(opened.name) : false}
+        upgrading={upgrading === openSkill}
+        togglingAutoLoad={togglingAutoLoad === openSkill}
+        onAutoLoadChange={(checked) => opened && handleAutoLoadToggle(opened.name, checked)}
+        onUpgrade={() => opened && handleUpgrade(opened.name)}
+        onEnvSaved={refreshSkills}
+        onClose={() => setOpenSkill(null)}
+      />
     </div>
   );
 }

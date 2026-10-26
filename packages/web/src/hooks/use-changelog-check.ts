@@ -28,7 +28,7 @@ export function useChangelogCheck(): UseChangelogCheckReturn {
 
   const [data, setData] = useState<ChangelogData | null>(null);
   const [unseenChangelogs, setUnseenChangelogs] = useState<ChangelogEntry[]>([]);
-  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  const [seen, setSeen] = useState(false);
 
   useEffect(() => {
     // Only a Platform Admin is shown anything: everyone else would download
@@ -39,12 +39,8 @@ export function useChangelogCheck(): UseChangelogCheckReturn {
       .then((changelogData) => {
         setData(changelogData);
 
-        if (!canViewChangelog) return;
-
         const lastSeenVersion = localStorage.getItem(STORAGE_KEY);
-        const unseen = extractUnseenChangelogs(lastSeenVersion, changelogData.version, changelogData.changelog);
-        setUnseenChangelogs(unseen);
-        setNewVersionAvailable(unseen.length > 0);
+        setUnseenChangelogs(extractUnseenChangelogs(lastSeenVersion, changelogData.version, changelogData.changelog));
       })
       .catch((err) => {
         console.error("Failed to fetch changelog.json:", err);
@@ -53,12 +49,12 @@ export function useChangelogCheck(): UseChangelogCheckReturn {
 
   const markAsSeen = () => {
     if (data) localStorage.setItem(STORAGE_KEY, data.version);
-    setNewVersionAvailable(false);
+    setSeen(true);
   };
 
   return {
     version: data?.version ?? "",
-    newVersionAvailable: canViewChangelog && newVersionAvailable,
+    newVersionAvailable: canViewChangelog && !seen && unseenChangelogs.length > 0,
     unseenChangelogs: canViewChangelog ? unseenChangelogs : [],
     markAsSeen,
   };

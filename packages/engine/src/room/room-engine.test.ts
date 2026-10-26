@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
@@ -59,12 +59,14 @@ vi.mock("./activity-log.store.js", () => ({ appendDailyLog: mockAppendDailyLog }
 vi.mock("./room.store.js", () => ({
   setRoomConversationId: mockSetRoomConversationId,
 }));
+const mockRoomLog = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("../analytics/trace.store.js", () => ({ traceStore: mockTraceStore }));
 vi.mock("../memory/extractor.js", () => ({ extractMemories: mockExtractMemories }));
 vi.mock("../ai-gateway/index.js", () => ({ chat: mockChat }));
-vi.mock("./room-logger.js", () => ({
-  roomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+vi.mock("../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
+  createLogger: () => mockRoomLog,
 }));
 vi.mock("../webhooks/webhooks.schema.js", () => ({
   eventDefinitions: {
@@ -284,6 +286,70 @@ describe("executeRoomCycle", () => {
     });
   });
 
+  /*
+    The turn's safety order, pinned as one sequence: the pre-LLM hook can stop the
+    turn before the model is called, the post-LLM hook sees the model's text before
+    anything is committed, and state is flushed only after both have run.
+  */
+  describe("turn order", () => {
+    const order: string[] = [];
+    const record = (label: string) => () => {
+      order.push(label);
+    };
+
+    beforeEach(() => {
+      order.length = 0;
+      mockFlush.mockImplementation(async () => record("flush")());
+      mockSupervise.mockImplementation(async () => {
+        order.push("supervise");
+        return { text: "model text", steps: [], usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, durationMs: 1, toolBuildingMs: 1 };
+      });
+      mockConversationStore.appendMessages.mockImplementation(async (_id: string, msgs: Array<{ role: string }>) => {
+        order.push(`append:${msgs[0]?.role}`);
+      });
+      mockChannelManager.sendOutbound.mockImplementation(async () => record("send")());
+    });
+
+    afterEach(() => {
+      mockFlush.mockImplementation(async () => {});
+      mockChannelManager.sendOutbound.mockReset();
+    });
+
+    it("runs message_received, supervise, response_generated, flush, then persists the reply", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      expect(order).toEqual([
+        "append:user",
+        "hook:message_received",
+        "supervise",
+        "hook:response_generated",
+        "flush",
+        "append:assistant",
+      ]);
+    });
+
+    it("on a halt skips supervise and response_generated, flushes, sends, then persists the reply", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [
+          {
+            hookId: "h", event, actionType: "tool", toolName: "gate",
+            success: true, durationMs: 1, halt: { message: "closed" },
+          },
+        ];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      expect(order).toEqual(["append:user", "hook:message_received", "flush", "send", "append:assistant"]);
+    });
+  });
+
   describe("control returns this engine cannot honor", () => {
     it("warns, naming the hook, when a hook asks to regenerate the turn", async () => {
       // The hook is accepted, executed and logged successful; the room engine is
@@ -298,14 +364,12 @@ describe("executeRoomCycle", () => {
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
       mockDb.select.mockReturnValue(createChainMock([]) as any);
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      warn.mockClear();
+      mockRoomLog.warn.mockClear();
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
-      const warned = warn.mock.calls.map((c) => String(c[0]));
+      const warned = mockRoomLog.warn.mock.calls.map((c) => String(c[1]));
       expect(warned.some((m) => m.includes("requireTool") && m.includes("regenerate") && m.includes("room"))).toBe(true);
-      warn.mockRestore();
     });
   });
 

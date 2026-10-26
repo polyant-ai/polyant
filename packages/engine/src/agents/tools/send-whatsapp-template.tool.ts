@@ -5,6 +5,10 @@ import { defineTool } from "@polyant-ai/plugin-sdk";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getTriggerContext } from "../../webhooks/trigger-context.js";
 import { renderStubTemplate } from "../../channels/adapters/whatsapp/stub-templates.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 // Primary path: send via Twilio Content API (contentSid + contentVariables).
 // After delivery succeeds, the real rendered body of the template is fetched
@@ -87,8 +91,9 @@ export default defineTool({
           variablesMap,
         );
       } catch (err) {
-        console.warn(
-          `[send_whatsapp_template] content api fetch failed for ${contentSid}: ${err instanceof Error ? err.message : String(err)} — falling back to stub catalog / summary`,
+        log.warn(
+          "send_whatsapp_template",
+          `content api fetch failed for ${contentSid}: ${errMsg(err)} — falling back to stub catalog / summary`,
         );
         replyText =
           renderStubTemplate(contentSid, variablesMap) ??
@@ -105,7 +110,7 @@ export default defineTool({
       };
     } catch (err) {
       return {
-        error: `Failed to send WhatsApp template: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Failed to send WhatsApp template: ${errMsg(err)}`,
       };
     }
   },

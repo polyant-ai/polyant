@@ -1,22 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders, userEvent } from "@/test-utils";
 import { SkillsTab } from "./skills-tab";
 import type { SkillState } from "@/lib/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList } = vi.hoisted(() => ({
+const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSetAutoLoad, mockUpgrade, mockToolsUpdate } = vi.hoisted(() => ({
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
   mockSkillsUpdate: vi.fn(),
   mockSkillsList: vi.fn(),
-}));
-
-vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
-  I18nProvider: ({ children }: { children: React.ReactNode }) => children,
+  mockSetAutoLoad: vi.fn(),
+  mockUpgrade: vi.fn(),
+  mockToolsUpdate: vi.fn(),
 }));
 
 const lastSaveAction = vi.hoisted(() => ({
@@ -34,6 +32,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => mockToastSuccess(...args),
     error: (...args: unknown[]) => mockToastError(...args),
+    info: vi.fn(),
   },
 }));
 
@@ -42,27 +41,21 @@ vi.mock("@/lib/api", () => ({
     skills: {
       update: (...args: unknown[]) => mockSkillsUpdate(...args),
       list: (...args: unknown[]) => mockSkillsList(...args),
-      getEnv: vi.fn(),
+      getEnv: vi.fn().mockResolvedValue({ env: [] }),
       setEnv: vi.fn(),
-      setAutoLoad: vi.fn().mockResolvedValue({}),
-      upgrade: vi.fn().mockResolvedValue({}),
+      setAutoLoad: (...args: unknown[]) => mockSetAutoLoad(...args),
+      upgrade: (...args: unknown[]) => mockUpgrade(...args),
     },
     tools: {
-      update: vi.fn().mockResolvedValue({ tools: [] }),
+      update: (...args: unknown[]) => mockToolsUpdate(...args),
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
-// Mock the SkillEnvDialog since it's a separate component
-vi.mock("./skill-env-dialog", () => ({
-  SkillEnvDialog: ({ open, onOpenChange, skillName }: { open: boolean; onOpenChange: (open: boolean) => void; skillName: string }) =>
-    open ? (
-      <div data-testid="skill-env-dialog">
-        <span>Env dialog for {skillName}</span>
-        <button onClick={() => onOpenChange(false)}>Close</button>
-      </div>
-    ) : null,
+// The environment panel reads and writes its own endpoints and has its own tests.
+vi.mock("./skill-env-panel", () => ({
+  SkillEnvPanel: ({ skillName }: { skillName: string }) => <div data-testid="skill-env-panel">Env panel for {skillName}</div>,
 }));
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -72,6 +65,7 @@ function makeSkills(): SkillState[] {
     {
       name: "web-search",
       description: "Search the web for information",
+      category: "research",
       enabled: true,
       requiredEnv: [{ name: "TAVILY_API_KEY", sensitive: true }],
       envConfigured: true,
@@ -96,272 +90,254 @@ function makeSkills(): SkillState[] {
   ];
 }
 
+const onSkillsUpdate = vi.fn();
+const onToolsUpdate = vi.fn();
+
+function renderTab(skills: SkillState[] = makeSkills()) {
+  return renderWithProviders(
+    <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
+  );
+}
+
+const rowOf = (name: string) => screen.getByRole("button", { name }).closest("tr") as HTMLElement;
+const switchOf = (name: string) => screen.getByRole("switch", { name: `Attivo: ${name}` });
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("SkillsTab", () => {
-  const onSkillsUpdate = vi.fn();
-  const onToolsUpdate = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders empty state when no skills exist", () => {
-    render(<SkillsTab slug="test-instance" skills={[]} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />);
-
-    expect(screen.getByText("skills.tab.empty")).toBeInTheDocument();
+  it("renders the empty state when no skills exist", () => {
+    renderTab([]);
+    expect(screen.getByText(/Nessuna skill disponibile/)).toBeInTheDocument();
   });
 
-  it("renders all skills with names and descriptions", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
+  it("lists every skill with its description under the name, in a table", () => {
+    renderTab();
+    for (const name of ["web-search", "code-review", "email-sender"]) {
+      expect(within(rowOf(name)).getByText(name)).toBeInTheDocument();
+    }
+    expect(within(rowOf("web-search")).getByText("Search the web for information")).toBeInTheDocument();
+    expect(within(rowOf("web-search")).getByText("research")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Nome", "Categoria", "Attivo"]);
+  });
 
-    expect(screen.getByText("web-search")).toBeInTheDocument();
-    expect(screen.getByText("code-review")).toBeInTheDocument();
+  // A long description used to push every row to a different height; clamped, the
+  // list stays scannable and the full text is still one hover away.
+  it("clamps a skill's description to two lines with the full text on hover, and omits an empty one", () => {
+    const long = "Search the web for information ".repeat(20).trim();
+    renderTab([
+      { name: "long-one", description: long, enabled: true, requiredEnv: [], envConfigured: true },
+      { name: "no-description", description: "", enabled: true, requiredEnv: [], envConfigured: true },
+    ]);
+    const description = screen.getByText(long);
+    expect(description).toHaveClass("line-clamp-2");
+    expect(description).toHaveAttribute("title", long);
+    expect(document.querySelectorAll("[title]")).toHaveLength(1);
+  });
+
+  it("filters the list on the name, the description and the category as typed", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const search = screen.getByRole("searchbox", { name: "Cerca" });
+
+    await user.type(search, "smtp");
     expect(screen.getByText("email-sender")).toBeInTheDocument();
+    expect(screen.queryByText("web-search")).not.toBeInTheDocument();
 
-    expect(screen.getByText("Search the web for information")).toBeInTheDocument();
-    expect(screen.getByText("Review code for best practices")).toBeInTheDocument();
-    expect(screen.getByText("Send emails via SMTP")).toBeInTheDocument();
+    await user.clear(search);
+    await user.type(search, "research");
+    expect(screen.getByText("web-search")).toBeInTheDocument();
+    expect(screen.queryByText("email-sender")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "zzz");
+    expect(screen.getByText("Nessun risultato")).toBeInTheDocument();
   });
 
-  it("shows switches reflecting skill enabled state", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    const switches = screen.getAllByRole("switch");
-    // Component sorts enabled-first (preserving array order), then disabled.
-    // Rendered order: web-search (enabled), email-sender (enabled), code-review (disabled)
-    // web-search   (enabled): autoLoad[0] + main[1]
-    // email-sender (enabled): autoLoad[2] + main[3]
-    // code-review  (disabled): main only[4]
-    // Total: 5 switches
-    expect(switches[1]).toBeChecked(); // web-search main
-    expect(switches[3]).toBeChecked(); // email-sender main
-    expect(switches[4]).not.toBeChecked(); // code-review main
+  // Enabled-first made a row jump to the top the moment its switch was flicked.
+  it("lists the skills alphabetically and keeps a row in place when it is switched on", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const order = () => screen.getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0].textContent);
+    expect(order()).toEqual(["code-review", "email-sender", "web-search"]);
+    await user.click(switchOf("code-review"));
+    expect(order()).toEqual(["code-review", "email-sender", "web-search"]);
   });
 
-  it("shows env var badge for skills with required env", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
+  it("ends the drawer with Upgrade, then Close, and describes the skill in one line", async () => {
+    const user = userEvent.setup();
+    renderTab([
+      { name: "pinned", description: "Old", enabled: true, requiredEnv: [], envConfigured: true, pinnedVersion: "1", hasUpdate: true },
+      { name: "plain", description: "", enabled: true, requiredEnv: [], envConfigured: true },
+    ]);
+    await user.click(screen.getByRole("button", { name: "pinned" }));
+    let drawer = await screen.findByRole("dialog");
+    const footer = drawer.querySelector("[data-slot=sheet-footer]") as HTMLElement;
+    expect(within(footer).getAllByRole("button").map((b) => b.textContent)).toEqual(["Aggiorna", "Chiudi"]);
+    expect(drawer.querySelector("[data-slot=sheet-description]")).toHaveTextContent("Old");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    // web-search has 1 env var, email-sender has 2 env vars
+    // A skill without a description still has its line.
+    await user.click(screen.getByRole("button", { name: "plain" }));
+    drawer = await screen.findByRole("dialog");
+    expect(drawer.querySelector("[data-slot=sheet-description]")).toHaveTextContent("Nessuna descrizione");
+  });
+
+  it("shows one switch per row, in the last column, reflecting whether the skill is enabled", () => {
+    renderTab();
+    expect(screen.getAllByRole("switch")).toHaveLength(3);
+    expect(switchOf("web-search")).toBeChecked();
+    expect(switchOf("email-sender")).toBeChecked();
+    expect(switchOf("code-review")).not.toBeChecked();
+    const cells = within(rowOf("web-search")).getAllByRole("cell");
+    expect(within(cells[cells.length - 1]).getByRole("switch")).toBe(switchOf("web-search"));
+  });
+
+  it("shows the env var badge only for skills with required env", () => {
+    renderTab();
     expect(screen.getByText("1 env var")).toBeInTheDocument();
     expect(screen.getByText("2 env vars")).toBeInTheDocument();
+    expect(screen.getAllByText(/env var/)).toHaveLength(2);
   });
 
-  it("does not show env var badge for skills without required env", () => {
-    const skills: SkillState[] = [
-      {
-        name: "simple-skill",
-        description: "No env needed",
-        enabled: true,
-        requiredEnv: [],
-        envConfigured: true,
-      },
-    ];
-
-    render(
-      <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    expect(screen.queryByText(/env var/)).not.toBeInTheDocument();
-  });
-
-  it("shows configure button for enabled skills with env vars", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    // web-search (enabled, has env) and email-sender (enabled, has env) should have configure buttons
-    const configureButtons = screen.getAllByText("skills.tab.configure");
-    expect(configureButtons).toHaveLength(2);
-  });
-
-  it("does not show configure button for disabled skills", () => {
-    const skills: SkillState[] = [
-      {
-        name: "disabled-skill",
-        description: "A disabled skill",
-        enabled: false,
-        requiredEnv: [{ name: "SOME_KEY", sensitive: true }],
-        envConfigured: false,
-      },
-    ];
-
-    render(
-      <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    expect(screen.queryByText("skills.tab.configure")).not.toBeInTheDocument();
-  });
-
-  it("does not show save button when nothing is toggled", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
+  it("does not show the save button when nothing is toggled", () => {
+    renderTab();
     expect(lastSaveAction.current?.isDirty).toBe(false);
   });
 
-  it("shows save button when a skill is toggled", async () => {
+  it("marks the page dirty when a skill is toggled and clean again when it is reverted", async () => {
     const user = userEvent.setup();
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    // Toggle code-review main switch (index 4: sorted enabled-first)
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[4]);
-
+    renderTab();
+    await user.click(switchOf("code-review"));
     expect(lastSaveAction.current?.isDirty).toBe(true);
-  });
-
-  it("hides save button when toggle is reverted", async () => {
-    const user = userEvent.setup();
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    const switches = screen.getAllByRole("switch");
-    // Toggle code-review on then off
-    await user.click(switches[4]);
-    expect(lastSaveAction.current?.isDirty).toBe(true);
-
-    await user.click(switches[4]);
+    await user.click(switchOf("code-review"));
     expect(lastSaveAction.current?.isDirty).toBe(false);
   });
 
-  it("saves enabled skills and calls onSkillsUpdate", async () => {
+  it("toggling the switch never opens the drawer", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(switchOf("code-review"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the skill's drawer from anywhere on its row", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(within(rowOf("web-search")).getByText("Search the web for information"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByRole("heading", { name: "web-search" })).toBeInTheDocument();
+  });
+
+  it("keeps the per-skill controls in the drawer, not on the row", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    // Only the Active switches are on the list: no auto-load switch, configure or upgrade button per row.
+    expect(screen.getAllByRole("switch")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: /Configura/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "web-search" }));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByRole("switch", { name: /Caricamento automatico/ })).toBeInTheDocument();
+    expect(within(drawer).getByTestId("skill-env-panel")).toHaveTextContent("Env panel for web-search");
+  });
+
+  it("offers the environment panel only for an enabled skill that declares variables", async () => {
+    const user = userEvent.setup();
+    renderTab([
+      { name: "disabled-skill", description: "A disabled skill", enabled: false, requiredEnv: [{ name: "SOME_KEY", sensitive: true }], envConfigured: false },
+    ]);
+    await user.click(screen.getByRole("button", { name: "disabled-skill" }));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).queryByTestId("skill-env-panel")).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("saves the auto-load switch of the drawer at once and reports it", async () => {
+    const user = userEvent.setup();
+    mockSetAutoLoad.mockResolvedValue({});
+    renderTab();
+    await user.click(screen.getByRole("button", { name: "web-search" }));
+    const drawer = await screen.findByRole("dialog");
+    await user.click(within(drawer).getByRole("switch", { name: /Caricamento automatico/ }));
+    await waitFor(() => expect(mockSetAutoLoad).toHaveBeenCalledWith("test-instance", "web-search", true));
+    expect(onSkillsUpdate).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ name: "web-search", autoLoad: true })]));
+    expect(mockToastSuccess).toHaveBeenCalledWith("Caricamento automatico attivato");
+  });
+
+  it("upgrades a skill from its drawer when a newer version exists", async () => {
+    const user = userEvent.setup();
+    mockUpgrade.mockResolvedValue({});
+    mockSkillsList.mockResolvedValue({ skills: makeSkills() });
+    renderTab([{ name: "pinned", description: "Old", enabled: true, requiredEnv: [], envConfigured: true, pinnedVersion: "1", hasUpdate: true }]);
+    await user.click(screen.getByRole("button", { name: "pinned" }));
+    const drawer = await screen.findByRole("dialog");
+    await user.click(within(drawer).getByRole("button", { name: "Aggiorna" }));
+    await waitFor(() => expect(mockUpgrade).toHaveBeenCalledWith("test-instance", "pinned"));
+    expect(mockToastSuccess).toHaveBeenCalledWith("Skill aggiornata con successo");
+  });
+
+  it("saves enabled skills with the page's save and calls onSkillsUpdate", async () => {
     const user = userEvent.setup();
     const skills = makeSkills();
-    const updatedSkills = skills.map((s) =>
-      s.name === "code-review" ? { ...s, enabled: true } : s,
-    );
+    const updatedSkills = skills.map((s) => (s.name === "code-review" ? { ...s, enabled: true } : s));
     mockSkillsUpdate.mockResolvedValueOnce({ skills: updatedSkills });
+    renderTab(skills);
 
-    render(
-      <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    // Enable code-review (main switch at index 2)
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[4]);
-
+    await user.click(switchOf("code-review"));
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
-      // All three should be enabled now
       expect(mockSkillsUpdate).toHaveBeenCalledWith(
         "test-instance",
         expect.arrayContaining(["web-search", "code-review", "email-sender"]),
       );
     });
-
     expect(onSkillsUpdate).toHaveBeenCalledWith(updatedSkills);
-    expect(mockToastSuccess).toHaveBeenCalledWith("skills.tab.saved");
+    expect(mockToastSuccess).toHaveBeenCalledWith("Skill aggiornate");
   });
 
-  it("shows error toast on save failure", async () => {
+  it("shows an error toast on save failure", async () => {
     const user = userEvent.setup();
     mockSkillsUpdate.mockRejectedValueOnce(new Error("Save failed"));
-
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[4]); // Toggle code-review
-
+    renderTab();
+    await user.click(switchOf("code-review"));
     await lastSaveAction.current!.onSave();
-
-    await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith("skills.tab.saveFailed");
-    });
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Salvataggio fallito"));
   });
 
-  it("opens env dialog when configure button is clicked", async () => {
+  it("enabling a skill also drafts its required tools on", async () => {
     const user = userEvent.setup();
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
+    mockSkillsUpdate.mockResolvedValue({ skills: [] });
+    mockToolsUpdate.mockResolvedValue({ tools: [] });
+    renderWithProviders(
+      <SkillsTab
+        slug="test-instance"
+        skills={[{ name: "needs-tool", description: "", enabled: false, requiredTools: ["fetch"], requiredEnv: [], envConfigured: true }]}
+        tools={[{ name: "fetch", enabled: false } as never]}
+        onSkillsUpdate={onSkillsUpdate}
+        onToolsUpdate={onToolsUpdate}
+      />,
     );
-
-    // Click first configure button (web-search)
-    const configureButtons = screen.getAllByText("skills.tab.configure");
-    await user.click(configureButtons[0]);
-
-    expect(screen.getByTestId("skill-env-dialog")).toBeInTheDocument();
-    expect(screen.getByText("Env dialog for web-search")).toBeInTheDocument();
+    await user.click(switchOf("needs-tool"));
+    await lastSaveAction.current!.onSave();
+    await waitFor(() => expect(mockToolsUpdate).toHaveBeenCalledWith("test-instance", ["fetch"]));
   });
 
-  it("closes env dialog when dismissed", async () => {
+  it("disables the save while saving", async () => {
     const user = userEvent.setup();
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    // Open dialog
-    const configureButtons = screen.getAllByText("skills.tab.configure");
-    await user.click(configureButtons[0]);
-
-    expect(screen.getByTestId("skill-env-dialog")).toBeInTheDocument();
-
-    // Close dialog
-    await user.click(screen.getByText("Close"));
-
-    expect(screen.queryByTestId("skill-env-dialog")).not.toBeInTheDocument();
-  });
-
-  it("shows destructive badge when skill is enabled but env not configured", () => {
-    const skills: SkillState[] = [
-      {
-        name: "misconfigured-skill",
-        description: "Needs setup",
-        enabled: true,
-        requiredEnv: [{ name: "API_KEY", sensitive: true }],
-        envConfigured: false,
-      },
-    ];
-
-    render(
-      <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    // The badge should have destructive variant - check for data attribute or class
-    const badge = screen.getByText("1 env var");
-    // shadcn Badge with variant="destructive" renders with that data attribute
-    expect(badge.closest("[data-slot='badge']") ?? badge).toBeInTheDocument();
-  });
-
-  it("disables save button while saving", async () => {
-    const user = userEvent.setup();
-
     let resolveUpdate: (value: unknown) => void;
-    mockSkillsUpdate.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveUpdate = resolve;
-      }),
-    );
-
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[4]);
-
+    mockSkillsUpdate.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
+    renderTab();
+    await user.click(switchOf("code-review"));
     const savePromise = lastSaveAction.current!.onSave();
-
     await waitFor(() => expect(lastSaveAction.current?.saving).toBe(true));
-
     resolveUpdate!({ skills: makeSkills() });
     await savePromise;
-
-    // The flag clears in a render after the update callback, so wait for it
-    // explicitly rather than reading it the moment the callback has run.
     await waitFor(() => expect(lastSaveAction.current?.saving).toBe(false));
     expect(onSkillsUpdate).toHaveBeenCalled();
   });

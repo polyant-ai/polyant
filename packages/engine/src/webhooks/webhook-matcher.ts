@@ -4,8 +4,10 @@ import { chat } from "../ai-gateway/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
-import { webhookLog } from "./webhook-logger.js";
 import { projectEventPayload } from "../room/payload-projection.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const webhookLog = createLogger();
 
 /**
  * Verdicts accepted as a match. Kept deliberately tight: this set is what wakes

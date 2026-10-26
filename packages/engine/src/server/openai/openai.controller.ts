@@ -28,6 +28,10 @@ import type {
 } from "./openai.types.js";
 import { MissingProviderKeyException, SHOULD_NOT_RETRY_HEADER } from "./missing-provider-key.exception.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 // Restrict model to the instance-slug shape — same pattern as instances.controller.ts.
 // This is the only user-controlled value that we echo back into the SSE stream
@@ -159,8 +163,8 @@ export class OpenAIController {
         relay.observe(event.type);
         chunkCount++;
         if (event.type === "error") {
-          const errDetail = event.error instanceof Error ? event.error.message : String(event.error ?? "Unknown error");
-          console.error(`[SSE] LLM stream error event:`, errDetail);
+          const errDetail = event.error == null ? "Unknown error" : errMsg(event.error);
+          log.error("sse", "LLM stream error event", errDetail);
           res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, `⚠️ ${errDetail}`))}\n\n`);
           continue;
         }
@@ -183,14 +187,14 @@ export class OpenAIController {
         }
       }
     } catch (err) {
-      console.error(`[SSE] stream error after ${chunkCount} chunks:`, err);
+      log.error("sse", `stream error after ${chunkCount} chunks`, err);
       const errorMsg = "An error occurred while generating the response.";
       res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, errorMsg))}\n\n`);
     }
 
     relay.stopHeartbeat();
     // Await completion to trigger post-processor (fire-and-forget side effect)
-    stream.completed.catch((err) => console.error("[SSE] Stream completion error:", err));
+    stream.completed.catch((err) => log.error("sse", "Stream completion error", err));
     if (relay.clientGone) {
       res.end();
       return;

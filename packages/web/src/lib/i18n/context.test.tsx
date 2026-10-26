@@ -2,7 +2,7 @@
 
 import { renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { I18nProvider, useI18n } from "./context";
+import { I18nProvider, translate, useI18n } from "./context";
 import type { Locale } from "./types";
 
 // ── Wrapper ────────────────────────────────────────────────────────────
@@ -141,5 +141,23 @@ describe("useI18n outside provider", () => {
     }).toThrow("useI18n must be used within I18nProvider");
 
     spy.mockRestore();
+  });
+
+  describe("plural forms", () => {
+    it("uses the _one form when the count is 1", () => {
+      // Catches "1 messaggi": the plain key is the general (plural) form.
+      expect(translate("it", "conversations.detail.messages", { count: 1 })).toBe("1 messaggio");
+      expect(translate("it", "conversations.detail.messages", { count: 0 })).toBe("0 messaggi");
+      expect(translate("it", "conversations.detail.messages", { count: 2 })).toBe("2 messaggi");
+      expect(translate("en", "conversations.detail.messages", { count: 1 })).toBe("1 message");
+    });
+
+    it("reads a count passed as a string too", () => {
+      expect(translate("it", "conversations.detail.messages", { count: "1" })).toBe("1 messaggio");
+    });
+
+    it("falls back to the plain key when no _one form exists", () => {
+      expect(translate("it", "tools.pickerCount", { count: 1 })).toBe("Strumenti: 1");
+    });
   });
 });

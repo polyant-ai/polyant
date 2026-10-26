@@ -2,15 +2,18 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, getUserErrorMessage } from "@/lib/api";
 import type { RoomConfigResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n/context";
 import { RoomConfigSection, type RoomFormState } from "./room-config-section";
 import { BacklogSection, type BacklogEvent } from "./room-backlog-section";
 import { ActivityLogSection, type ActivityLog } from "./room-activity-section";
+import { useResource } from "@/hooks/use-resource";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 interface Props {
   slug: string;
@@ -33,6 +36,9 @@ const EMPTY_ROOM_FORM: RoomFormState = {
   evalIntervalMinutes: 5,
 };
 
+const NO_ACTIVITY: ActivityLog[] = [];
+const NO_BACKLOG: BacklogEvent[] = [];
+
 function isConfiguredRoom(
   room: RoomConfigResponse | null,
 ): room is RoomConfigResponse & Required<Pick<RoomConfig, "id" | "enabled" | "prompt" | "outboundChannel" | "outboundTarget" | "evalIntervalMinutes">> & { configured: true } {
@@ -41,55 +47,37 @@ function isConfiguredRoom(
 
 export function RoomTab({ slug }: Props) {
   const { t } = useI18n();
-  const [room, setRoom] = useState<RoomConfig | null>(null);
-  const [backlog, setBacklog] = useState<BacklogEvent[]>([]);
-  const [activity, setActivity] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [backlogStatus, setBacklogStatus] = useState("pending");
 
-  const [roomForm, setRoomForm] = useState<RoomFormState>(EMPTY_ROOM_FORM);
+  const { data, loading, reload } = useResource(["room", slug], async () => {
+    const roomRes = await api.room.get(slug).catch(() => null);
+    if (!isConfiguredRoom(roomRes)) return { room: null, activity: [] as ActivityLog[] };
+    const activity = await api.room.activity(slug, { limit: 50 });
+    return { room: roomRes as RoomConfig, activity: activity ?? [] };
+  });
+  const room = data?.room ?? null;
+  const activity = data?.activity ?? NO_ACTIVITY;
 
-  useEffect(() => {
-    loadAll();
-  }, [slug]);
+  // The backlog follows the status filter, and only exists once the room does.
+  const { data: backlogData } = useResource(room ? ["room-backlog", slug, backlogStatus] : null, () =>
+    api.room.backlog(slug, { status: backlogStatus }).catch(() => ({ events: [] as BacklogEvent[] })),
+  );
+  const backlog = backlogData?.events ?? NO_BACKLOG;
 
-  useEffect(() => {
-    if (!room) return;
-    api.room.backlog(slug, { status: backlogStatus }).then((res) => {
-      setBacklog(res.events ?? []);
-    }).catch(() => setBacklog([]));
-  }, [backlogStatus, room, slug]);
-
-  async function loadAll() {
-    setLoading(true);
-    try {
-      const roomRes = await api.room.get(slug).catch(() => null);
-      if (isConfiguredRoom(roomRes)) {
-        setRoom(roomRes);
-        setRoomForm({
-          enabled: roomRes.enabled,
-          prompt: roomRes.prompt ?? "",
-          outboundChannel: roomRes.outboundChannel ?? "",
-          outboundTarget: roomRes.outboundTarget ?? "",
-          evalIntervalMinutes: roomRes.evalIntervalMinutes ?? 5,
-        });
-        const [backlogRes, activityRes] = await Promise.all([
-          api.room.backlog(slug, { status: backlogStatus }),
-          api.room.activity(slug, { limit: 50 }),
-        ]);
-        setBacklog(backlogRes.events ?? []);
-        setActivity(activityRes ?? []);
-      } else {
-        setRoom(null);
-        setRoomForm(EMPTY_ROOM_FORM);
-        setBacklog([]);
-        setActivity([]);
+  const baseline: RoomFormState = room
+    ? {
+        enabled: room.enabled,
+        prompt: room.prompt ?? "",
+        outboundChannel: room.outboundChannel ?? "",
+        outboundTarget: room.outboundTarget ?? "",
+        evalIntervalMinutes: room.evalIntervalMinutes ?? 5,
       }
-    } finally {
-      setLoading(false);
-    }
-  }
+    : EMPTY_ROOM_FORM;
+  const { draft: roomForm, set, isDirty } = useDraft(baseline);
+  const setRoomForm = (next: RoomFormState) => {
+    for (const field of Object.keys(next) as (keyof RoomFormState)[]) set(field, next[field]);
+  };
 
   async function handleSaveRoom() {
     setSaving(true);
@@ -102,7 +90,7 @@ export function RoomTab({ slug }: Props) {
         evalIntervalMinutes: roomForm.evalIntervalMinutes,
       });
       toast.success(t("room.saved"));
-      await loadAll();
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("room.saveFailed")));
     } finally {
@@ -113,40 +101,20 @@ export function RoomTab({ slug }: Props) {
   async function handleDeleteRoom() {
     try {
       await api.room.delete(slug);
-      setRoom(null);
-      setRoomForm(EMPTY_ROOM_FORM);
-      setBacklog([]);
-      setActivity([]);
       toast.success(t("room.deleted"));
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("room.deleteFailed")));
     }
   }
 
-  const baseline: RoomFormState = room
-    ? {
-        enabled: room.enabled,
-        prompt: room.prompt ?? "",
-        outboundChannel: room.outboundChannel ?? "",
-        outboundTarget: room.outboundTarget ?? "",
-        evalIntervalMinutes: room.evalIntervalMinutes ?? 5,
-      }
-    : EMPTY_ROOM_FORM;
-
-  const isDirty =
-    roomForm.enabled !== baseline.enabled ||
-    roomForm.prompt !== baseline.prompt ||
-    roomForm.outboundChannel !== baseline.outboundChannel ||
-    roomForm.outboundTarget !== baseline.outboundTarget ||
-    roomForm.evalIntervalMinutes !== baseline.evalIntervalMinutes;
-
   usePageSaveAction({ isDirty, saving, onSave: handleSaveRoom });
 
-  if (loading) {
+  if (loading && data === undefined) {
     return (
-      <div className="max-w-3xl animate-pulse space-y-4">
-        <div className="h-48 rounded-lg bg-muted" />
-        <div className="h-32 rounded-lg bg-muted" />
+      <div className="max-w-3xl space-y-4">
+        <Skeleton className="h-48 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
       </div>
     );
   }

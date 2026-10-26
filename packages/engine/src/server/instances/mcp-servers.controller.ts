@@ -29,8 +29,10 @@ import { testMcpConnection } from "../../agents/tools/mcp/mcp-test.js";
 import { assertSafeMcpUrl } from "../../agents/tools/mcp/mcp-url-guard.js";
 import { McpSharedOAuthProvider } from "../../agents/tools/mcp/mcp-shared-oauth-provider.js";
 import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
-import { mcpLog } from "../../agents/tools/mcp/mcp-logger.js";
 import { errMsg } from "../../utils/error.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const mcpLog = createLogger();
 
 const setBodySchema = z.object({
   name: z.string().min(1).max(100),

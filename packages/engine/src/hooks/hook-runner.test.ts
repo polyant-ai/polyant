@@ -65,8 +65,8 @@ describe("runHooks", () => {
     executeMock.mockReset().mockResolvedValue(undefined);
     auditLogMock.mockReset();
     recordExecutionMock.mockReset().mockResolvedValue(undefined);
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   });
 
   it("should_execute_hooks_sequentially_in_store_order", async () => {
@@ -309,7 +309,7 @@ describe("warnUnhonoredControls", () => {
   }
 
   it("names the hook and the control an engine dropped", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     warn.mockClear();
     warnUnhonoredControls(
       [summary({ regenerate: { reason: "tool not called" } })],
@@ -325,7 +325,7 @@ describe("warnUnhonoredControls", () => {
   });
 
   it("stays silent for controls the engine honors", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     warn.mockClear();
     warnUnhonoredControls(
       [summary({ halt: { message: "stop" } }), summary({ replaceResponse: { message: "new" } })],
@@ -337,7 +337,7 @@ describe("warnUnhonoredControls", () => {
   });
 
   it("warns for every dropped control, injectContext included", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     warn.mockClear();
     warnUnhonoredControls(
       [summary({ injectContext: "extra" }), summary({ regenerate: { reason: "x" } })],

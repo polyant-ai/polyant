@@ -27,7 +27,6 @@ vi.mock("./authz.store.js", () => ({
 }));
 
 import { AuthorizationService } from "./authorization.service.js";
-import { OssStrategy } from "./authorization-strategy.js";
 import { bindingCache, platformAdminCache, bindingCacheKey } from "./authz.caches.js";
 import { Permission } from "./permissions.js";
 import type { AgentScope } from "./authz.store.js";
@@ -39,7 +38,7 @@ const scope: AgentScope = {
 };
 
 function makeService(): AuthorizationService {
-  return new AuthorizationService(new OssStrategy());
+  return new AuthorizationService();
 }
 
 describe("AuthorizationService", () => {

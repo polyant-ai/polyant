@@ -12,6 +12,7 @@ const mockHookExecutions = vi.fn();
 const mockDelete = vi.fn();
 const mockRename = vi.fn();
 const mockPush = vi.fn();
+const search = vi.hoisted(() => ({ current: new URLSearchParams() }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -47,7 +48,7 @@ vi.mock("next/navigation", () => ({
     workspaceSlug: "sales",
     conversationId: encodeURIComponent(CONVERSATION_ID),
   }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => search.current,
   usePathname: () => "/organizations/acme/workspaces/sales/conversations",
 }));
 
@@ -74,6 +75,7 @@ function makeConversation(overrides: Partial<ConversationListItem> = {}): Conver
     title: "Booking a visit",
     summary: null,
     channel: "telegram",
+    userIdentifier: null,
     instanceId: INSTANCE_ID,
     instanceName: "Front desk",
     messageCount: 2,
@@ -175,6 +177,27 @@ describe("ConversationDetailPage", () => {
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith("/organizations/acme/workspaces/sales/conversations"),
     );
+  });
+
+  it("goes back to the list by default, and to the agent's Conversations section when opened from it", async () => {
+    search.current = new URLSearchParams();
+    const first = render(<ConversationDetailPage />);
+    await screen.findByRole("heading", { name: "Booking a visit" });
+    expect(screen.getByRole("link", { name: /conversations.detail.breadcrumb/ })).toHaveAttribute(
+      "href",
+      "/organizations/acme/workspaces/sales/conversations",
+    );
+    first.unmount();
+
+    search.current = new URLSearchParams("from=agent");
+    render(<ConversationDetailPage />);
+    await screen.findByRole("heading", { name: "Booking a visit" });
+    // Catches «Indietro» dropping a reader opened from an agent into the workspace-wide list.
+    expect(screen.getByRole("link", { name: /conversations.detail.breadcrumb/ })).toHaveAttribute(
+      "href",
+      "/organizations/acme/workspaces/sales/instances/bot-1?tab=conversations",
+    );
+    search.current = new URLSearchParams();
   });
 
   it("says so when the conversation has no messages", async () => {

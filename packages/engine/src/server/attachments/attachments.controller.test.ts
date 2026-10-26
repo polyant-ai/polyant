@@ -131,7 +131,7 @@ describe("AttachmentsController.getAttachment", () => {
   });
 
   it("should serve a claimless principal on a single-org deployment", async () => {
-    // ALB-OIDC identities and pre-RBAC JWTs carry no orgId. Hard-failing them
+    // Pre-RBAC JWTs carry no orgId. Hard-failing them
     // would break attachment download outright on a single-tenant install, so
     // the shared resolver falls back to the deployment's only organization.
     mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);

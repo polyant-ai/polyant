@@ -194,7 +194,7 @@ describe("supervise + MCP tools", () => {
     );
     mockGetEnabledToolNames.mockResolvedValue(new Set(["search"]));
     mockBuildMcpTools.mockResolvedValue({ tools: { search: mcpTool }, close: vi.fn().mockResolvedValue(undefined) });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await supervise({ instanceId: TEST_INSTANCE, message: "hi" });
 

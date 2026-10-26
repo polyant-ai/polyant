@@ -13,10 +13,14 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { skills } from "./schema.js";
+import { buildSkillMetadata, parseSkillMetadata } from "./skill-metadata.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
 
 export interface SkillSummary {
+  /** The skill's slug: how agents and URLs address it. It never changes after creation. */
   name: string;
+  /** The name people read, editable. Distinct from `name`, which is the slug. */
+  displayName: string;
   description: string;
   category?: string;
   requiredEnv?: Array<{ name: string; description?: string; sensitive: boolean }>;
@@ -52,9 +56,7 @@ export class SkillsService {
   }): Promise<SkillDetail> {
     const safeName = data.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
-    const metadata: Record<string, unknown> = {};
-    if (data.requiredEnv) metadata.requiredEnv = data.requiredEnv;
-    if (data.requiredTools) metadata.requiredTools = data.requiredTools;
+    const metadata = buildSkillMetadata(data);
 
     const input: CreateSkillInput = {
       slug: safeName,
@@ -81,6 +83,8 @@ export class SkillsService {
   async updateSkill(
     slug: string,
     data: {
+      /** Replaces the display name; the slug is not an input and cannot change. */
+      displayName?: string;
       description: string;
       content: string;
       requiredEnv?: Array<{ name: string; description?: string; sensitive: boolean }>;
@@ -88,11 +92,10 @@ export class SkillsService {
       changelog?: string;
     },
   ): Promise<SkillDetail | null> {
-    const metadata: Record<string, unknown> = {};
-    if (data.requiredEnv) metadata.requiredEnv = data.requiredEnv;
-    if (data.requiredTools) metadata.requiredTools = data.requiredTools;
+    const metadata = buildSkillMetadata(data);
 
     const input: UpdateSkillInput = {
+      name: data.displayName,
       description: data.description,
       content: data.content,
       metadata,
@@ -119,19 +122,17 @@ export class SkillsService {
   // --- Private helpers ---
 
   private toSummary(row: SkillWithVersion): SkillSummary {
-    const meta = row.currentVersion?.metadata as {
-      requiredEnv?: Array<{ name: string; description?: string; sensitive: boolean }>;
-      requiredTools?: string[];
-    } | null;
+    const meta = parseSkillMetadata(row.currentVersion?.metadata) as Pick<SkillSummary, "requiredEnv" | "requiredTools">;
     const summary: SkillSummary = {
       name: row.slug,
+      displayName: row.name,
       description: row.description,
       category: row.category,
     };
-    if (meta?.requiredEnv && meta.requiredEnv.length > 0) {
+    if (meta.requiredEnv && meta.requiredEnv.length > 0) {
       summary.requiredEnv = meta.requiredEnv;
     }
-    if (meta?.requiredTools && meta.requiredTools.length > 0) {
+    if (meta.requiredTools && meta.requiredTools.length > 0) {
       summary.requiredTools = meta.requiredTools;
     }
     return summary;

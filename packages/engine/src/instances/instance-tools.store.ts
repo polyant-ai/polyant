@@ -41,6 +41,12 @@ export async function getEnabledToolNames(instanceId: InstanceUuid): Promise<Set
 // Recompute
 // ---------------------------------------------------------------------------
 
+/** The ids of the tools every agent gets (`tools.is_global`); the same rows for every agent. */
+export async function listGlobalToolIds(executor: DbExecutor = db): Promise<string[]> {
+  const rows = await executor.select({ id: tools.id }).from(tools).where(eq(tools.isGlobal, true));
+  return rows.map((r) => r.id);
+}
+
 /**
  * Recompute the full set of enabled tools for an instance.
  *
@@ -53,6 +59,11 @@ export async function getEnabledToolNames(instanceId: InstanceUuid): Promise<Set
 export async function recomputeInstanceTools(
   instanceId: InstanceUuid,
   executor?: DbExecutor,
+  /**
+   * The global tool ids, when the caller recomputes many agents and has read
+   * them once (`listGlobalToolIds`); omitted, each call reads them itself.
+   */
+  precomputed?: { readonly globalToolIds: readonly string[] },
 ): Promise<void> {
   // Reads and the final diff must run on the CALLER's transaction when there is
   // one: a write issued on a second pooled connection cannot see the
@@ -95,10 +106,7 @@ export async function recomputeInstanceTools(
   }
 
   // 4. Get global tool IDs
-  const globalToolRows = await exec
-    .select({ id: tools.id })
-    .from(tools)
-    .where(eq(tools.isGlobal, true));
+  const globalToolIds = precomputed?.globalToolIds ?? (await listGlobalToolIds(exec));
 
   // 5. Get manual tool rows (preserve them)
   const manualRows = await exec
@@ -115,10 +123,10 @@ export async function recomputeInstanceTools(
   const desiredRows: { instanceId: string; toolId: string; source: string }[] = [];
   const seenToolIds = new Set<string>();
 
-  for (const row of globalToolRows) {
-    if (!seenToolIds.has(row.id)) {
-      seenToolIds.add(row.id);
-      desiredRows.push({ instanceId, toolId: row.id, source: "global" });
+  for (const id of globalToolIds) {
+    if (!seenToolIds.has(id)) {
+      seenToolIds.add(id);
+      desiredRows.push({ instanceId, toolId: id, source: "global" });
     }
   }
 
@@ -207,31 +215,15 @@ export async function enableToolsByName(
 // ---------------------------------------------------------------------------
 
 /**
- * Seed instance tools using DEFAULT_TOOL_NAMES.
- * Resolves tool names to IDs, inserts as source='manual'.
+ * Seed instance tools using DEFAULT_TOOL_NAMES, as manual rows.
+ *
+ * MUST be given the caller's executor: on the create path the instance row is
+ * still uncommitted inside `createInstanceWithDefaults`'s transaction, so an
+ * insert on a different pooled connection cannot see it and dies on the FK.
  */
 export async function seedInstanceTools(
   instanceId: InstanceUuid,
   executor: DbExecutor,
 ): Promise<void> {
-  const toolRows = await executor
-    .select({ id: tools.id, name: tools.name })
-    .from(tools)
-    .where(inArray(tools.name, DEFAULT_TOOL_NAMES));
-
-  if (toolRows.length === 0) return;
-
-  const values = toolRows.map((t) => ({
-    instanceId,
-    toolId: t.id,
-    source: "manual" as const,
-  }));
-
-  // MUST be the caller's executor: on the create path the instance row is still
-  // uncommitted inside `createInstanceWithDefaults`'s transaction, so an insert
-  // on a different pooled connection cannot see it and dies on the FK.
-  await executor
-    .insert(instanceTools)
-    .values(values)
-    .onConflictDoNothing();
+  await enableToolsByName(instanceId, DEFAULT_TOOL_NAMES, executor);
 }

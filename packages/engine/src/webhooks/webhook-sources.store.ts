@@ -7,7 +7,9 @@ import { eventSources, eventDefinitions } from "./webhooks.schema.js";
 import { encrypt, decrypt, generateToken } from "../crypto/index.js";
 import { resolveInstanceId } from "../instances/resolve-instance-id.js";
 import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
-import { webhookLog } from "./webhook-logger.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const webhookLog = createLogger();
 
 export interface EventSource {
   id: string;

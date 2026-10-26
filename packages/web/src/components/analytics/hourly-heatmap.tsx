@@ -12,19 +12,18 @@ import {
 } from "@/components/ui/chart";
 import type { HourlyRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-const chartConfig = {
-  count: {
-    label: "Messages",
-    color: "var(--chart-1)",
-  },
-} satisfies ChartConfig;
-
 interface HourlyHeatmapProps {
   data: HourlyRow[];
 }
 
 export function HourlyHeatmap({ data }: HourlyHeatmapProps) {
   const { t } = useI18n();
+  const chartConfig = {
+    count: {
+      label: t("analytics.kpi.messages"),
+      color: "var(--chart-1)",
+    },
+  } satisfies ChartConfig;
 
   return (
     <Card>

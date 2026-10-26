@@ -2,8 +2,8 @@
 
 /**
  * The scheduled triggers of an agent: what is listed, what a new task sends,
- * and the row actions — pause/resume, run now, and a delete that only happens
- * after confirmation.
+ * the Active switch on the row, and run now / delete, which live in the task's
+ * drawer, the delete only after confirmation.
  */
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -78,15 +78,10 @@ const REPORT = task({
   enabled: false,
 });
 
-/**
- * The row actions are icon-only buttons whose names live in hover tooltips,
- * so they have no accessible name; they are taken by position within the row:
- * pause/resume, run now, edit, delete.
- */
-function rowActions(name: string) {
-  const row = screen.getByText(name).closest("tr") as HTMLElement;
-  const [toggle, runNow, edit, remove] = within(row).getAllByRole("button");
-  return { toggle, runNow, edit, remove };
+/** Opens a task's drawer from its row and returns it. */
+async function openTask(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("button", { name }));
+  return screen.findByRole("dialog");
 }
 
 async function renderLoaded() {
@@ -114,6 +109,15 @@ describe("TriggersScheduledTab", () => {
     expect(screen.getByText("scheduledTasks.statusPaused")).toBeInTheDocument();
   });
 
+  it("draws the status as the shared badge without an icon, and an empty channel as an em dash", async () => {
+    await renderLoaded();
+    const badge = screen.getByText("scheduledTasks.statusActive");
+    expect(badge.querySelector("svg")).toBeNull();
+    const row = screen.getByText("Daily digest").closest("tr") as HTMLElement;
+    expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+    expect(within(row).queryByText("-")).not.toBeInTheDocument();
+  });
+
   it("shows the empty state when the agent has no task", async () => {
     mockList.mockResolvedValue({ tasks: [] });
     render(<TriggersScheduledTab slug="bot-1" />);
@@ -135,7 +139,7 @@ describe("TriggersScheduledTab", () => {
     const timezone = within(dialog).getByPlaceholderText("UTC");
     await user.clear(timezone);
     await user.type(timezone, "Europe/Rome");
-    await user.click(within(dialog).getByRole("button", { name: "scheduledTasks.form.create" }));
+    await user.click(within(dialog).getByRole("button", { name: "common.add" }));
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
     expect(mockCreate).toHaveBeenCalledWith("bot-1", {
@@ -152,24 +156,40 @@ describe("TriggersScheduledTab", () => {
     expect(mockList).toHaveBeenCalledTimes(2);
   });
 
-  it("refuses to create a task without a name or prompt", async () => {
+  it("keeps Add off until the task has a name and a prompt", async () => {
     const user = userEvent.setup();
     await renderLoaded();
 
     await user.click(screen.getByRole("button", { name: "scheduledTasks.newTask" }));
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "scheduledTasks.form.create" }));
+    const add = within(dialog).getByRole("button", { name: "common.add" });
+    expect(add).toBeDisabled();
 
-    expect(mockToast.error).toHaveBeenCalledWith("scheduledTasks.validation.required");
+    await user.type(within(dialog).getByPlaceholderText("Daily briefing"), "Morning check");
+    expect(add).toBeDisabled();
+    await user.type(within(dialog).getByPlaceholderText("scheduledTasks.form.promptPlaceholder"), "Check the inbox");
+    expect(add).toBeEnabled();
     expect(mockCreate).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("offers no delete or run-now on the row, only in the task's drawer", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    expect(screen.queryByRole("button", { name: "common.delete" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "scheduledTasks.runNow" })).not.toBeInTheDocument();
+
+    const drawer = await openTask(user, "Weekly report");
+
+    expect(within(drawer).getByRole("button", { name: "common.delete" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "scheduledTasks.runNow" })).toBeInTheDocument();
   });
 
   it("does not delete a task when the confirmation is cancelled", async () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(rowActions("Weekly report").remove);
+    const drawer = await openTask(user, "Weekly report");
+    await user.click(within(drawer).getByRole("button", { name: "common.delete" }));
     const confirm = await screen.findByRole("alertdialog");
     expect(confirm).toHaveTextContent("scheduledTasks.deleteTitle");
     await user.click(within(confirm).getByRole("button", { name: "common.cancel" }));
@@ -182,7 +202,8 @@ describe("TriggersScheduledTab", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(rowActions("Weekly report").remove);
+    const drawer = await openTask(user, "Weekly report");
+    await user.click(within(drawer).getByRole("button", { name: "common.delete" }));
     expect(mockDelete).not.toHaveBeenCalled();
     const confirm = await screen.findByRole("alertdialog");
     await user.click(within(confirm).getByRole("button", { name: "common.delete" }));
@@ -192,22 +213,55 @@ describe("TriggersScheduledTab", () => {
     await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith("scheduledTasks.deleted"));
   });
 
-  it("pauses an enabled task and resumes a paused one", async () => {
+  it("pauses an enabled task and resumes a paused one from the Active switch, without opening the drawer", async () => {
     const user = userEvent.setup();
     await renderLoaded();
+    const [digestSwitch, reportSwitch] = screen.getAllByRole("switch");
 
-    await user.click(rowActions("Daily digest").toggle);
+    await user.click(digestSwitch);
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith("bot-1", "task-1", { enabled: false }));
 
-    await user.click(rowActions("Weekly report").toggle);
+    await user.click(reportSwitch);
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith("bot-1", "task-2", { enabled: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("runs a task now and reports the engine's answer", async () => {
+  it("keeps a paused task's switch off when the engine refuses to resume it", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockRejectedValue(new Error("refused"));
+    await renderLoaded();
+    const reportSwitch = screen.getAllByRole("switch")[1];
+
+    await user.click(reportSwitch);
+
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith("scheduledTasks.toggleFailed"));
+    await waitFor(() => expect(reportSwitch).not.toBeChecked());
+  });
+
+  it("finds a task by its name, description or schedule", async () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(rowActions("Weekly report").runNow);
+    await user.type(screen.getByRole("searchbox"), "7 days");
+
+    expect(screen.getByText("Weekly report")).toBeInTheDocument();
+    expect(screen.queryByText("Daily digest")).not.toBeInTheDocument();
+  });
+
+  it("lists tasks by name, whatever order the engine answers in", async () => {
+    mockList.mockResolvedValue({ tasks: [REPORT, DIGEST] });
+    await renderLoaded();
+
+    const names = screen.getAllByRole("button", { name: /Daily digest|Weekly report/ }).map((b) => b.textContent);
+    expect(names).toEqual(["Daily digest", "Weekly report"]);
+  });
+
+  it("runs a task now from its drawer and reports the engine's answer", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    const drawer = await openTask(user, "Weekly report");
+    await user.click(within(drawer).getByRole("button", { name: "scheduledTasks.runNow" }));
 
     await waitFor(() => expect(mockRun).toHaveBeenCalledWith("bot-1", "task-2"));
     await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith("Run queued"));
@@ -217,9 +271,10 @@ describe("TriggersScheduledTab", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(rowActions("Daily digest").edit);
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("scheduledTasks.editTitle");
+    const dialog = await openTask(user, "Daily digest");
+    // The drawer is titled with the task's own name and describes its schedule.
+    expect(dialog).toHaveTextContent("Daily digest");
+    expect(dialog).toHaveTextContent("every day at 09:00");
     const name = within(dialog).getByDisplayValue("Daily digest");
     await user.clear(name);
     await user.type(name, "Daily digest v2");

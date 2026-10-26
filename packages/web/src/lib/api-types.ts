@@ -388,7 +388,10 @@ export interface SkillEnvStatus {
 // ── Skill Library (global) ───────────────────────────────────────────
 
 export interface LibrarySkillSummary {
+  /** The slug: how URLs and agents address the skill. It never changes. */
   name: string;
+  /** The name people read; editable. */
+  displayName: string;
   description: string;
   category?: string;
   requiredEnv?: RequiredEnvEntry[];
@@ -396,7 +399,10 @@ export interface LibrarySkillSummary {
 }
 
 export interface LibrarySkillDetail {
+  /** The slug: how URLs and agents address the skill. It never changes. */
   name: string;
+  /** The name people read; editable. */
+  displayName: string;
   description: string;
   category?: string;
   requiredEnv?: RequiredEnvEntry[];
@@ -477,6 +483,8 @@ export interface ConversationListItem {
   title: string | null;
   summary: string | null;
   channel: string | null;
+  /** The contact exactly as stored (email, phone number, channel handle), when the channel gave one. */
+  userIdentifier: string | null;
   instanceId: string | null;
   instanceName: string | null;
   messageCount: number;
@@ -589,11 +597,37 @@ export interface LlmDebugPayload {
 }
 
 /** Response of GET /api/conversations/:id/messages/:messageId/debug. */
+/** One model call made during a turn. */
+export interface TurnModelCall {
+  /** "conversation" for the agent's answer, "service" for the calls around it, "embedding" for an embedder. */
+  callType: string;
+  provider: string;
+  model: string;
+  durationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  /** "ok", "error" or "aborted". */
+  outcome: string;
+  /** The class of the failure, never its message. */
+  errorKind: string | null;
+  createdAt: string | null;
+}
+
 export interface MessageDebug {
   /** Null when the turn was generated with DEBUG off. */
   debugPayload: LlmDebugPayload | null;
   /** Per-step tool trace for the turn (always present for tool-using turns). */
   steps: StepDetail[] | null;
+  /** How the turn arrived; null for a message with no pipeline trace. */
+  turn?: {
+    channel: string;
+    streaming: boolean;
+    /** Present only on a voice turn. */
+    speechToText: { provider: string; durationMs: number | null; audioDurationSec: number | null } | null;
+  } | null;
+  /** The turn's model calls, from the user message that opened it to the next one. */
+  modelCalls?: TurnModelCall[];
 }
 
 // ── Memories ──────────────────────────────────────────────────────────
@@ -653,6 +687,8 @@ export interface ChannelRow {
 export interface ModelRow {
   provider: string;
   model: string;
+  /** conversation, service (titles, summaries, checks) or embedding. */
+  callType: string;
   calls: number;
   tokens: number;
   cost: number;
@@ -748,6 +784,8 @@ export interface KnowledgeDocument {
   status: "uploading" | "processing" | "ready" | "error";
   chunkCount: number;
   errorMessage: string | null;
+  /** Off: stored, but retrieval skips it. */
+  enabled: boolean;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -756,35 +794,53 @@ export interface KnowledgeDocumentDetail extends KnowledgeDocument {
   rawContent: string;
 }
 
-// ── Audit Logs ─────────────────────────────────────────────────────
+// ── Monitor ────────────────────────────────────────────────────────
 
-export interface AuditLogEntry {
+/** What became of an item. Open on the engine side; a build may add outcomes. */
+export type MonitorOutcome = "ok" | "error" | "blocked" | "running";
+
+/** One row of the Monitor timeline. `type` and `group` are open strings: a build may add types. */
+export interface MonitorItem {
   id: string;
-  instanceId: string;
+  type: string;
+  group: string;
+  /** ISO 8601 with microseconds. */
+  time: string;
+  agent: { slug: string; name: string };
   conversationId: string | null;
-  toolName: string;
-  action: string;
-  details: Record<string, unknown>;
-  success: boolean;
-  error: string | null;
+  summary: string;
+  outcome: MonitorOutcome;
   durationMs: number | null;
-  output: string | null;
-  createdAt: string;
+  /**
+   * Short named facts the panel words in the reader's language, for a type whose summary
+   * is not one sentence the engine can write (a change: who did what to whom).
+   */
+  facts?: Record<string, string>;
 }
 
-export interface AuditLogListResult {
-  items: AuditLogEntry[];
-  total: number;
-  limit: number;
-  offset: number;
+/** A labelled block of the detail drawer; `key` names it. */
+export interface MonitorSection {
+  key: string;
+  kind: "json" | "text";
+  value: unknown;
 }
 
-export interface AuditStatsResult {
-  totalEntries: number;
-  errorCount: number;
-  errorRate: number;
-  byTool: Array<{ toolName: string; count: number }>;
-  byAction: Array<{ action: string; count: number }>;
+export interface MonitorDetail extends MonitorItem {
+  error: string | null;
+  sections: MonitorSection[];
+}
+
+/** A type the caller can read, with how long its rows are kept (`null`: as long as the conversation). */
+export interface MonitorTypeInfo {
+  type: string;
+  group: string;
+  retentionDays: number | null;
+}
+
+export interface MonitorPage {
+  items: MonitorItem[];
+  nextCursor: string | null;
+  types: MonitorTypeInfo[];
 }
 
 // ── Event Sources & Room ──────────────────────────────────────────

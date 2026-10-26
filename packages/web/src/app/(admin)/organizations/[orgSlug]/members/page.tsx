@@ -2,85 +2,45 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ShieldAlert } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import {
   api,
   getUserErrorMessage,
   isForbidden,
-  MEMBER_ROLES,
   type MemberRole,
   type OrganizationMember,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PageHeader } from "@/components/layout/page-header";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { PermissionRequired } from "@/components/layout/permission-required";
-import type { TranslationKey } from "@/lib/i18n/types";
-
-const ROLE_LABEL_KEY: Record<MemberRole, TranslationKey> = {
-  owner: "role.owner",
-  admin: "role.admin",
-  member: "role.member",
-  viewer: "role.viewer",
-};
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { useListView } from "@/components/use-list-view";
+import { ListEmpty, ListLoading, ListNoResults } from "@/components/list-states";
+import { MemberSheet, ROLE_LABEL_KEY } from "./member-sheet";
 
 export default function MembersPage() {
   const { t } = useI18n();
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload, mutate } = useResource(["members", orgSlug], () => api.members.list(orgSlug));
+  const members = data?.members ?? [];
   // `org.member:manage` is admin+. The entry is now offered to every role (it
   // used to be platform-admin-only, which hid it from the org Owner it exists
   // for), so a viewer reaching it is expected and gets an explanation.
-  const [forbidden, setForbidden] = useState(false);
+  const forbidden = isForbidden(error);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-
-  const fetchMembers = useCallback(async () => {
-    try {
-      const { members } = await api.members.list(orgSlug);
-      setMembers(members);
-    } catch (err) {
-      if (isForbidden(err)) setForbidden(true);
-      else toast.error(getUserErrorMessage(err, t("members.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, orgSlug]);
-
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
+  const [search, setSearch] = useState("");
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
 
   // The org must always keep at least one Owner. When a single Owner remains,
   // the UI locks that Owner's role select + remove action (the engine enforces
@@ -93,9 +53,7 @@ export default function MembersPage() {
     setBusyUserId(member.userId);
     try {
       await api.members.assign(member.userId, roleKey, orgSlug);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === member.userId ? { ...m, roleKey } : m)),
-      );
+      reload();
       toast.success(t("members.roleUpdated"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("members.roleUpdateFailed")));
@@ -104,24 +62,33 @@ export default function MembersPage() {
     }
   };
 
-  const handleRemove = async (member: OrganizationMember) => {
+  const handleRemove = async (member: OrganizationMember): Promise<boolean> => {
     setBusyUserId(member.userId);
     try {
       await api.members.remove(member.userId, orgSlug);
-      setMembers((prev) => prev.filter((m) => m.userId !== member.userId));
+      mutate((current) => ({ ...current, members: current.members.filter((m) => m.userId !== member.userId) }));
+      reload();
       toast.success(t("members.removed"));
+      return true;
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("members.removeFailed")));
+      return false;
     } finally {
       setBusyUserId(null);
     }
   };
 
-  if (loading) {
+  const roleLabel = (m: OrganizationMember) => (m.roleKey ? t(ROLE_LABEL_KEY[m.roleKey]) : "");
+  const visible = useListView(members, search, (m) => [m.name, m.email, roleLabel(m)], (m) => m.name ?? m.email);
+  const openMember = openUserId === null ? null : members.find((m) => m.userId === openUserId) ?? null;
+
+  const header = <PageHeader title={t("members.title")} subtitle={t("members.subtitle")} />;
+
+  if (loading && data === undefined) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
-        <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
+        {header}
+        <ListLoading />
       </div>
     );
   }
@@ -129,19 +96,24 @@ export default function MembersPage() {
   if (forbidden) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("members.subtitle")}</p>
+        {header}
         <PermissionRequired description={t("permission.required.members")} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div>
+        {header}
+        <LoadFailed message={t("members.loadFailed")} onRetry={reload} />
       </div>
     );
   }
 
   return (
     <div>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("members.subtitle")}</p>
-      </div>
+      {header}
 
       {isSoloOwner && (
         <div className="mt-6 flex items-start gap-3 rounded-md border border-border bg-secondary p-4">
@@ -156,93 +128,59 @@ export default function MembersPage() {
       )}
 
       {members.length === 0 ? (
-        <div className="mt-16 flex flex-col items-center text-center">
-          <p className="text-muted-foreground">{t("members.empty.title")}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("members.empty.description")}
-          </p>
-        </div>
+        <ListEmpty title={t("members.empty.title")} description={t("members.empty.description")} />
       ) : (
-        <Table className="mt-6" data-tour="members-table">
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("members.table.member")}</TableHead>
-              <TableHead>{t("members.table.email")}</TableHead>
-              <TableHead className="w-[200px]">{t("members.table.role")}</TableHead>
-              <TableHead className="w-[120px]">{t("members.table.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {members.map((member) => {
-              const locked = isSoloOwner && member.roleKey === "owner";
-              const busy = busyUserId === member.userId;
-              // Removing yourself is leaving, not member management, and the
-              // engine refuses it: the session would keep an organization it no
-              // longer belongs to, and the panel would empty out at the next
-              // reload with nothing said. The row states why instead of
-              // offering a button whose only outcome is a 403.
-              const isSelf = member.userId === currentUserId;
-              return (
-                <TableRow key={member.userId}>
-                  <TableCell className="font-medium">
-                    {member.name ?? member.email}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{member.email}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={member.roleKey ?? undefined}
-                      disabled={locked || busy}
-                      onValueChange={(value) =>
-                        handleRoleChange(member, value as MemberRole)
-                      }
+        <>
+          <ListToolbar value={search} onChange={setSearch} className="mt-6" />
+          {visible.length === 0 ? (
+            <ListNoResults />
+          ) : (
+            <div data-tour="members-table">
+              <ListTable>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <ListHead>{t("common.name")}</ListHead>
+                    <ListHead className="w-40">{t("common.role")}</ListHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visible.map((member) => (
+                    <ListRow
+                      key={member.userId}
+                      onOpen={() => setOpenUserId(member.userId)}
+                      selected={openUserId === member.userId}
                     >
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder={t("members.rolePlaceholder")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MEMBER_ROLES.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {t(ROLE_LABEL_KEY[role])}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    {isSelf ? (
-                      <span className="text-sm text-muted-foreground">
-                        {t("members.remove.self")}
-                      </span>
-                    ) : (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="sm" disabled={locked || busy}>
-                          {t("members.remove.button")}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>{t("members.remove.title")}</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("members.remove.description", { email: member.email })}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleRemove(member)}>
-                            {t("members.remove.confirm")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                      <ListNameCell
+                        name={member.name ?? member.email}
+                        onOpen={() => setOpenUserId(member.userId)}
+                        summary={member.name ? member.email : undefined}
+                      />
+                      <TableCell>
+                        {member.roleKey ? <Badge variant="secondary">{t(ROLE_LABEL_KEY[member.roleKey])}</Badge> : "—"}
+                      </TableCell>
+                    </ListRow>
+                  ))}
+                </TableBody>
+              </ListTable>
+            </div>
+          )}
+        </>
       )}
+
+      <MemberSheet
+        member={openMember}
+        locked={openMember !== null && isSoloOwner && openMember.roleKey === "owner"}
+        busy={openMember !== null && busyUserId === openMember.userId}
+        // Removing yourself is leaving, not member management, and the
+        // engine refuses it: the session would keep an organization it no
+        // longer belongs to, and the panel would empty out at the next
+        // reload with nothing said. The drawer states why instead of
+        // offering a button whose only outcome is a 403.
+        isSelf={openMember !== null && openMember.userId === currentUserId}
+        onRoleChange={handleRoleChange}
+        onRemove={handleRemove}
+        onClose={() => setOpenUserId(null)}
+      />
     </div>
   );
 }

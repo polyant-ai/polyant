@@ -137,14 +137,20 @@ export function PlatformTab() {
   };
 
   return (
-    <div className="flex max-w-xl flex-col gap-8">
-      <div className="space-y-1">
-        <h2 className="text-lg font-medium">{t("settings.platform.title")}</h2>
-        <p className="text-sm text-muted-foreground">{t("settings.platform.help")}</p>
+    <div className="flex flex-col gap-8">
+      {/* The values below are edited in place; the one Save sits at the top right. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="max-w-xl space-y-1">
+          <h2 className="text-lg font-medium">{t("settings.platform.title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("settings.platform.help")}</p>
+        </div>
+        <Button size="sm" onClick={save} disabled={!dirty || saving}>
+          {saving ? t("common.saving") : t("common.save")}
+        </Button>
       </div>
 
       {GROUPS.map((group) => (
-        <div key={group.title} className="space-y-4">
+        <div key={group.title} className="max-w-xl space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground">{t(group.title)}</h3>
           {group.keys.map((key) => (
             <div key={key} className="space-y-1">
@@ -166,12 +172,6 @@ export function PlatformTab() {
           ))}
         </div>
       ))}
-
-      <div>
-        <Button onClick={save} disabled={!dirty || saving}>
-          {t("settings.platform.save")}
-        </Button>
-      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ConversationListItem, Instance } from "@/lib/api";
 
 // ── Mocks ────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ vi.mock("@/lib/format", () => ({
   formatDateTime: vi.fn((iso: string) => iso),
   formatTime: vi.fn((iso: string) => iso),
   formatNumber: vi.fn((value: number) => String(value)),
+  formatCurrency: vi.fn((value: number) => `$${value.toFixed(4)}`),
 }));
 
 const mockPaginationFns = vi.hoisted(() => ({
@@ -58,10 +60,13 @@ vi.mock("@/hooks/use-pagination", () => ({
   })),
 }));
 
+const mockSearchParams = vi.hoisted(() => ({ value: "" }));
+const mockPush = vi.hoisted(() => vi.fn());
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn(), refresh: vi.fn() }),
   useParams: () => ({ orgSlug: "default", workspaceSlug: "general" }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearchParams.value),
   usePathname: () => "/organizations/default/workspaces/general/conversations",
 }));
 
@@ -92,6 +97,7 @@ function makeConversation(overrides: Partial<ConversationListItem> = {}): Conver
     title: "Test Conversation",
     summary: "A summary",
     channel: "telegram",
+    userIdentifier: null,
     instanceId: "inst-1",
     instanceName: "My Instance",
     messageCount: 5,
@@ -159,6 +165,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 
 describe("ConversationsPage", () => {
   beforeEach(() => {
+    mockSearchParams.value = "";
     vi.clearAllMocks();
     mockInstancesList.mockResolvedValue({ instances: [] });
     mockConversationsList.mockResolvedValue({
@@ -181,7 +188,7 @@ describe("ConversationsPage", () => {
     mockConversationsList.mockReturnValue(new Promise(() => {}));
     render(<ConversationsPage />);
 
-    expect(screen.getByText("common.loading")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "common.loading" })).toBeInTheDocument();
   });
 
   it("shows empty state when no conversations are returned", async () => {
@@ -215,7 +222,7 @@ describe("ConversationsPage", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
   });
 
-  it("links each conversation to its detail page", async () => {
+  it("links the title to the conversation's page and opens it from the rest of the row", async () => {
     const conv = makeConversation({ conversationId: "conv-abc" });
     mockConversationsList.mockResolvedValue({
       conversations: [conv],
@@ -226,15 +233,12 @@ describe("ConversationsPage", () => {
 
     render(<ConversationsPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Test Conversation")).toBeInTheDocument();
-    });
+    const link = await screen.findByRole("link", { name: "Test Conversation" });
+    expect(link).toHaveAttribute("href", "/organizations/default/workspaces/general/conversations/conv-abc");
 
-    const link = screen.getByText("Test Conversation").closest("a");
-    expect(link).toHaveAttribute(
-      "href",
-      "/organizations/default/workspaces/general/conversations/conv-abc",
-    );
+    await userEvent.click(screen.getByText("5"));
+
+    expect(mockPush).toHaveBeenCalledWith("/organizations/default/workspaces/general/conversations/conv-abc");
   });
 
   it("fetches instances for the filter dropdown", async () => {
@@ -320,5 +324,37 @@ describe("ConversationsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("conversations.newChat")).toBeInTheDocument();
     });
+  });
+
+  it("shows the contact in its own column, and a dash for a conversation without one", async () => {
+    mockConversationsList.mockResolvedValue({
+      conversations: [
+        makeConversation({ id: "c1", conversationId: "a", title: "With contact", userIdentifier: "anna@example.com" }),
+        makeConversation({ id: "c2", conversationId: "b", title: "No contact", userIdentifier: null }),
+      ],
+      total: 2,
+      limit: 20,
+      offset: 0,
+    });
+
+    render(<ConversationsPage />);
+
+    // Catches the contact being stored by the engine but never reaching the screen.
+    expect(await screen.findByText("anna@example.com")).toBeInTheDocument();
+    expect(screen.getByText("conversations.column.userIdentifier")).toBeInTheDocument();
+  });
+
+  it("has a single search box, and no separate contact field", async () => {
+    render(<ConversationsPage />);
+    await waitFor(() => expect(mockConversationsList).toHaveBeenCalled());
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+  });
+
+  it("still narrows to a contact given by a direct link", async () => {
+    mockSearchParams.value = "contact=anna";
+    render(<ConversationsPage />);
+    await waitFor(() =>
+      expect(mockConversationsList).toHaveBeenLastCalledWith(expect.objectContaining({ userIdentifier: "anna" })),
+    );
   });
 });

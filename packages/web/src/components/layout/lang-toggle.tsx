@@ -15,18 +15,24 @@ import type { Locale } from "@/lib/i18n/types";
 
 function FlagIT({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 21 15" className={className}>
-      <rect width="21" height="15" rx="2" fill="#fff" />
-      <rect width="7" height="15" fill="#009246" rx="2 0 0 2" />
-      <rect x="7" width="7" height="15" fill="#fff" />
-      <rect x="14" width="7" height="15" fill="#CE2B37" rx="0 2 2 0" />
+    <svg viewBox="0 0 21 15" className={className} aria-hidden="true">
+      <defs>
+        <clipPath id="flagItClip">
+          <rect width="21" height="15" rx="2" />
+        </clipPath>
+      </defs>
+      <g clipPath="url(#flagItClip)">
+        <rect width="21" height="15" fill="#fff" />
+        <rect width="7" height="15" fill="#009246" />
+        <rect x="14" width="7" height="15" fill="#CE2B37" />
+      </g>
     </svg>
   );
 }
 
 function FlagGB({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 21 15" className={className}>
+    <svg viewBox="0 0 21 15" className={className} aria-hidden="true">
       <defs>
         <clipPath id="flagGbClip">
           <rect width="21" height="15" rx="2" />
@@ -49,13 +55,13 @@ const LANGUAGES: { locale: Locale; flag: React.FC<{ className?: string }>; label
 ];
 
 export function LangToggle() {
-  const { locale, setLocale } = useI18n();
+  const { locale, setLocale, t } = useI18n();
   const current = LANGUAGES.find((l) => l.locale === locale) ?? LANGUAGES[0];
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-7">
+        <Button variant="ghost" size="icon" className="size-7" aria-label={t("common.language")}>
           <current.flag className="w-5 h-3.5" />
         </Button>
       </DropdownMenuTrigger>

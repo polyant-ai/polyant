@@ -1,29 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
+import { runDirectTurn, persistDirectReply, postProcessDirectTurn, recordDirectTurnTrace } from "../agents/direct-turn.js";
 import { randomBytes } from "crypto";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
-import { runHooks, firstHalt, firstReplaceResponse, hookProvenance, warnUnhonoredControls } from "../hooks/hook-runner.js";
-import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
-import { traceStore } from "../analytics/trace.store.js";
+import type { HookEventPayload } from "../hooks/hook-types.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
-import { extractMemories } from "../memory/extractor.js";
-import { generateConversationTitle } from "../utils/title-generator.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { renderTemplate } from "./template-renderer.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
-import { webhookLog } from "./webhook-logger.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
+import { contactConversationId } from "../channels/outbound-conversation.js";
+import { createLogger } from "../utils/create-logger.js";
 
-// Webhook turns are supervise-direct: no replay loop, so `regenerate` and
-// `injectContext` cannot be acted on here.
-const WEBHOOK_HOOK_CONTROLS = ["halt", "replaceResponse"] as const;
+const webhookLog = createLogger();
 
 /**
  * Trigger an immediate conversation from a matched webhook event.
@@ -104,8 +99,8 @@ export async function triggerConversation(
 
   // 2. Build conversation ID (channel-keyed or fresh per event in internal mode)
   const conversationId = hasChannel
-    ? `${instanceSlug}:${definition.outboundChannel}:${renderedTarget}`
-    : `${instanceSlug}:webhook:${definition.id}:${cycleStart}`;
+    ? contactConversationId(instanceSlug, definition.outboundChannel!, renderedTarget!)
+    : contactConversationId(instanceSlug, "webhook", `${definition.id}:${cycleStart}`);
 
   const ensureResult = await conversationStore.ensureConversation(conversationId, instanceSlug, {
     channel: channelLabel,
@@ -195,8 +190,7 @@ export async function triggerConversation(
   const harnessCategories = hasChannel
     ? new Set<string>([definition.outboundChannel!, "conversation-trigger"])
     : new Set<string>();
-  // Pre-LLM hook (halt-capable). Webhook is supervise-direct, so wire it
-  // manually. Only message_received fires here (see the halt-and-respond spec §6).
+  // Webhook is supervise-direct, so its hook payload is wired here.
   const hookPayload: HookEventPayload = {
     instance: { slug: instanceSlug },
     conversation: { id: conversationId },
@@ -204,107 +198,37 @@ export async function triggerConversation(
     user: { name: definition.name },
     message: { text: messageToSupervise },
   };
-  const hookCtx: HookRunContext = {
-    instanceId: instanceSlug,
-    conversationId,
-    secrets: instanceConfig.secrets,
-    apiKeys: instanceConfig.apiKeys,
-    provider: instanceConfig.provider,
-    model: instanceConfig.model,
-    flags: {
-      memory: instanceConfig.memoryEnabled,
-      knowledge: instanceConfig.knowledgeEnabled,
-      thinking: instanceConfig.thinkingEnabled,
-      debug: instanceConfig.debugEnabled,
-      stateInPrompt: instanceConfig.stateInPromptEnabled,
-      toolResultsInHistory: instanceConfig.toolResultsInHistoryEnabled,
-    },
-    state: stateBuffer.api(),
-  };
-  // Pre-LLM hook (halt-capable). Keep the summaries for provenance on halt.
-  const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
-  warnUnhonoredControls(preHookSummaries, "webhook", WEBHOOK_HOOK_CONTROLS);
-  const halt = firstHalt(preHookSummaries);
 
-  let result: SupervisorOutput | undefined;
-  if (!halt) {
-    try {
-      result = await supervise({
-        message: messageToSupervise,
-        instanceId: instanceSlug,
-        conversationId,
-        conversationSummary: undefined,
-        contextPrompt: safeContextPrompt,
-        channelIdentity: hasChannel && renderedTarget
-          ? { channel: definition.outboundChannel!, channelId: renderedTarget }
-          : undefined,
-        provider: instanceConfig.provider,
-        model: instanceConfig.model,
-        apiKeys: instanceConfig.apiKeys,
-        secrets: instanceConfig.secrets,
-        memoryEnabled: instanceConfig.memoryEnabled,
-        knowledgeEnabled: instanceConfig.knowledgeEnabled,
-        thinkingEnabled: instanceConfig.thinkingEnabled,
-        debugEnabled: instanceConfig.debugEnabled,
-        datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
-        datetime: instanceConfig.datetime,
-        cacheConfig: instanceConfig.cacheConfig,
-        includeHarness: harnessCategories,
-        stateBuffer,
-        // Webhook is supervise-direct with no browser present to authorize an MCP
-        // oauth server, even when the conversationId happens to be channel-stable.
-        // Leave MCP oauth servers off (design spec §8.3); see SupervisorInput.allowOAuth.
-        allowOAuth: false,
-      });
-    } catch (err) {
+  const outcome = await runDirectTurn({
+    source: "webhook",
+    instanceSlug,
+    instanceConfig,
+    conversationId,
+    stateBuffer,
+    hookPayload,
+    log: webhookLog,
+    scope: "TriggerEngine",
+    // The tool-delivered content (`replyText` when replyHandled) is the reply, so
+    // history matches what the recipient saw, else the supervisor's free-form text.
+    replyTextOf: (r) => (r.replyHandled && r.replyText ? r.replyText : r.text),
+    supervisorExtras: {
+      contextPrompt: safeContextPrompt,
+      channelIdentity: hasChannel && renderedTarget
+        ? { channel: definition.outboundChannel!, channelId: renderedTarget }
+        : undefined,
+      knowledgeEnabled: instanceConfig.knowledgeEnabled,
+      includeHarness: harnessCategories,
+    },
+    onSuperviseError: (err) => {
       webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
       if (hasChannel) clearTriggerContext(conversationId);
-      return;
-    }
-  }
-
-  // Post-LLM hook (response-replacement capable). Webhook is non-streaming, so a
-  // replace always applies. Only runs in the non-halt path (result is defined).
-  // response_generated hooks can also write state, so run BEFORE the flush below.
-  let replace: ReturnType<typeof firstReplaceResponse>;
-  let postHooks = preHookSummaries; // default to pre-summaries so provenance covers the halt case
-  if (!halt) {
-    postHooks = await runHooks(
-      "response_generated",
-      // Webhook is supervise-direct with no replay loop, so regenerationCount is always 0.
-      { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
-      hookCtx,
-    );
-    warnUnhonoredControls(postHooks, "webhook", WEBHOOK_HOOK_CONTROLS);
-    replace = firstReplaceResponse(postHooks);
-  }
-
-  // Commit conversation state (commit-on-success): reached only when supervise
-  // succeeded (the catch above returns) and the response_generated hooks ran.
-  // Awaited so a tool's derived value is durable before the next inbound turn
-  // reads it. Errors logged, not propagated.
-  try {
-    await stateBuffer.flush();
-  } catch (err) {
-    webhookLog.error("TriggerEngine", `failed to flush conversation state for ${conversationId}`, err);
-  }
-
-  // Reply precedence: a pre-LLM halt, then a post-LLM replaceResponse (a hook
-  // explicitly rewrote the reply — wins even over a tool-delivered replyText),
-  // then the tool-delivered content (`replyText` when replyHandled) so history
-  // matches what the recipient saw, else the supervisor's free-form text.
-  const finalText = halt
-    ? halt.message
-    : replace
-      ? replace.message
-      : (result!.replyHandled && result!.replyText ? result!.replyText : result!.text);
-  // Provenance: the pre-LLM halt or the post-LLM replace that authored the reply.
-  const provenance = halt ? hookProvenance(preHookSummaries) : hookProvenance(postHooks);
+    },
+  });
+  if (!outcome) return;
+  const { finalText, result } = outcome;
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
-  await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}), ...(provenance ? { metadata: provenance } : {}) },
-  ]);
+  await persistDirectReply(conversationId, outcome);
 
   // Send response to the configured outbound channel — unless a tool has already
   // delivered the reply (e.g. send_whatsapp_template signaled replyHandled).
@@ -332,38 +256,16 @@ export async function triggerConversation(
   );
 
   // 6. Fire-and-forget post-processing
-  const postProcess = async () => {
-    await generateConversationTitle({
-      conversationId,
-      instanceId: instanceSlug,
-      provider: instanceConfig.provider,
-      apiKeys: instanceConfig.apiKeys,
-      content: `Webhook trigger: ${definition.name}\nAssistant: ${finalText.slice(0, 300)}`,
-      context: "This is a webhook-triggered outbound conversation.",
-    });
-
-    if (instanceConfig.memoryEnabled !== false) {
-      extractMemories(conversationId, instanceSlug, instanceConfig.apiKeys, instanceConfig.provider).catch((err) =>
-        webhookLog.error("PostProcess", "Memory extraction failed", err),
-      );
-    }
-  };
-  postProcess().catch((err) => webhookLog.error("PostProcess", "post-processing error", err));
-
-  // Record trace
-  traceStore.record({
+  postProcessDirectTurn({
     conversationId,
-    instanceId: instanceSlug,
-    channel: channelLabel,
-    contextPrepMs,
-    toolBuildingMs: result?.toolBuildingMs ?? 0,
-    llmCallMs: result?.durationMs ?? 0,
-    totalMs: Date.now() - cycleStart,
-    promptTokens: result?.usage?.promptTokens ?? 0,
-    completionTokens: result?.usage?.completionTokens ?? 0,
-    toolCalls: result?.toolCallTraces,
-    isStreaming: false,
+    instanceSlug,
+    instanceConfig,
+    titleContent: `Webhook trigger: ${definition.name}\nAssistant: ${finalText.slice(0, 300)}`,
+    titleContext: "This is a webhook-triggered outbound conversation.",
+    log: webhookLog,
   });
+
+  recordDirectTurnTrace({ conversationId, instanceSlug, channel: channelLabel, contextPrepMs, cycleStart, result });
 
   webhookLog.info("TriggerEngine", `conversation ${conversationId} completed (${Date.now() - cycleStart}ms)`);
 }

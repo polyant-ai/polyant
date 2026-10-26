@@ -11,7 +11,6 @@ import {
 import {
   AGENT_MACROS,
   AGENT_SECTIONS,
-  agentSectionsByMacro,
   DEFAULT_AGENT_TAB,
   macroOfTab,
   resolveAgentTab,
@@ -47,15 +46,24 @@ describe("resolveDestination", () => {
     expect(d?.backHref).toBe("/organizations/acme/workspaces/vendite/instances");
   });
 
-  it("places one Automazione row in Comportamento before Avanzate", () => {
+  it("draws six groups in order, each holding its own rows in order", () => {
+    // Catches a section landing under the wrong heading or the groups being reordered.
     const groups = resolveDestination(AGENT)!.groups;
-    const behaviour = groups.find((group) => group.key === "behaviour")!;
+    expect(groups.map((g) => [g.key, g.items.map((item) => item.key)])).toEqual([
+      ["overview", ["overview", "analytics", "conversations", "logs"]],
+      ["configuration", ["general", "prompts", "settings", "channels", "params"]],
+      ["knowledge", ["knowledge", "memories"]],
+      ["resources", ["skills", "tools", "mcp"]],
+      ["automation", ["hooks", "webhooks", "scheduled", "room"]],
+      ["governance", ["privacy"]],
+    ]);
+    expect(groups).toHaveLength(AGENT_MACROS.length);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(AGENT_SECTIONS.length);
+  });
 
-    expect(groups).toHaveLength(AGENT_MACROS.length - 1);
-    expect(groups.find((group) => group.key === "automation")).toBeUndefined();
-    expect(groups.flatMap((group) => group.items)).toHaveLength(AGENT_SECTIONS.length - 2);
-    expect(behaviour.items.map((item) => item.key).slice(-2)).toEqual(["automation", "params"]);
-    expect(behaviour.items.find((item) => item.key === "automation")?.href).toBe(`${AGENT}?tab=webhooks`);
+  it("links every row to its own ?tab= value, so existing addresses keep working", () => {
+    const rows = resolveDestination(AGENT)!.groups.flatMap((group) => group.items);
+    for (const row of rows) expect(row.href).toBe(`${AGENT}?tab=${row.key}`);
   });
 });
 
@@ -63,21 +71,24 @@ describe("isDestinationItemActive", () => {
   /**
    * The sections share ONE pathname and differ only in `?tab=`, so a path
    * comparison would light every row at once. By LEAF, not by macro: every
-   * section has its own row now, and lighting the macro would light all seven
-   * rows of Comportamento for one open page.
+   * section has its own row, and lighting the macro would light every row of
+   * its group for one open page.
    */
   it("lights one row per open section, not its whole macro", () => {
-    const behaviour = `${AGENT}?tab=prompts`;
-    expect(isDestinationItemActive(behaviour, AGENT, "prompts")).toBe(true);
-    // `hooks` shares the macro and must stay dark all the same.
-    expect(macroOfTab("hooks")).toBe(macroOfTab("prompts"));
-    expect(isDestinationItemActive(behaviour, AGENT, "hooks")).toBe(false);
-    expect(isDestinationItemActive(behaviour, AGENT, "privacy")).toBe(false);
+    const prompts = `${AGENT}?tab=prompts`;
+    expect(isDestinationItemActive(prompts, AGENT, "prompts")).toBe(true);
+    // `general` shares the group and must stay dark all the same.
+    expect(macroOfTab("general")).toBe(macroOfTab("prompts"));
+    expect(isDestinationItemActive(prompts, AGENT, "general")).toBe(false);
+    expect(isDestinationItemActive(prompts, AGENT, "privacy")).toBe(false);
   });
 
-  it("keeps Automazione active in each of its three tabs", () => {
-    for (const tab of ["webhooks", "scheduled", "room"]) {
-      expect(isDestinationItemActive(`${AGENT}?tab=webhooks`, AGENT, tab)).toBe(true);
+  it("lights only the open automation row, not its siblings", () => {
+    // Catches the old behaviour where Webhook stayed lit for every automation tab.
+    const webhooks = `${AGENT}?tab=webhooks`;
+    expect(isDestinationItemActive(webhooks, AGENT, "webhooks")).toBe(true);
+    for (const tab of ["hooks", "scheduled", "room"]) {
+      expect(isDestinationItemActive(webhooks, AGENT, tab)).toBe(false);
     }
   });
 

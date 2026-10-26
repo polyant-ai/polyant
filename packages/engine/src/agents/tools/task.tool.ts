@@ -14,6 +14,9 @@ const SPAWN_TASK_DESCRIPTION =
   "The sub-agent runs the task without knowledge of the current conversation and returns the result. " +
   "Useful for deep research, complex analysis, or tasks that require multiple autonomous steps.";
 
+const TASK_DESCRIBE = "Detailed description of the task to perform";
+const LABEL_DESCRIBE = "Short label to identify the task in logs. Pass null if not needed.";
+
 // Catalog entry only — spawnTask is a meta-tool: the supervisor builds the real
 // tool via `createTaskTool` (it needs the sibling tool set + apiKeys, which the
 // generic buildTool(ctx) path does not have). `execute` is never invoked through
@@ -28,8 +31,8 @@ export default defineTool({
   category: "agent",
   metaTool: true,
   parameters: z.object({
-    task: z.string().describe("Detailed description of the task to perform"),
-    label: z.string().nullable().describe("Short label to identify the task in logs. Pass null if not needed."),
+    task: z.string().describe(TASK_DESCRIBE),
+    label: z.string().nullable().describe(LABEL_DESCRIBE),
   }),
   execute: async () => {
     throw new Error("Meta-tool: built separately by supervisor");
@@ -45,18 +48,25 @@ export default defineTool({
  * parent turn's abort signal: it has real tools and up to ten steps, so a turn
  * the user cancelled must not keep it running.
  */
-export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string, provider?: ChatRequest["provider"], model?: ChatRequest["model"], abortSignal?: AbortSignal): Tool {
+export interface TaskToolOptions {
+  apiKeys?: ChatRequest["apiKeys"];
+  instanceId?: InstanceSlug;
+  conversationId?: string;
+  provider?: ChatRequest["provider"];
+  model?: ChatRequest["model"];
+  abortSignal?: AbortSignal;
+}
+
+export function createTaskTool(subAgentTools: Record<string, Tool>, options: TaskToolOptions = {}): Tool {
+  const { apiKeys, instanceId, conversationId, provider, model, abortSignal } = options;
   const audit = createAuditLogger("spawnTask", instanceId ?? asInstanceSlug("unknown"), conversationId);
   const { spawnTask: _drop, ...isolatedTools } = subAgentTools;
   void _drop;
   return tool({
-    description:
-      "Delegate a specific task to an isolated sub-agent with separate context. " +
-      "The sub-agent runs the task without knowledge of the current conversation and returns the result. " +
-      "Useful for deep research, complex analysis, or tasks that require multiple autonomous steps.",
+    description: SPAWN_TASK_DESCRIPTION,
     inputSchema: z.object({
-      task: z.string().describe("Detailed description of the task to perform"),
-      label: z.string().nullable().optional().describe("Short label to identify the task in logs. Pass null if not needed."),
+      task: z.string().describe(TASK_DESCRIBE),
+      label: z.string().nullable().optional().describe(LABEL_DESCRIBE),
     }),
     execute: async ({ task, label }) => {
       const taskLabel = label ?? task.slice(0, 50);

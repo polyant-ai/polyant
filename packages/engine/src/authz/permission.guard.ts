@@ -106,11 +106,10 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  * is what the flag was buying time for. So the flag is gone, not defaulted: a
  * switch that turns authorization off is not a thing to leave lying around.
  *
- * This is also what retired gateway-authenticated mode (`AUTH_MODE=alb-oidc`,
- * deleted): a gateway-forwarded principal had no local user row, so it resolved
- * no `orgId`, held no `role_bindings`, and was denied on every
- * `@RequirePermission` route — with no flag left to fall back to. Any future
- * gateway mode has to map the forwarded identity onto a local user first.
+ * Gateway-authenticated mode is gone for the same reason: a gateway-forwarded
+ * principal had no local user row, so it resolved no `orgId` and held no
+ * `role_bindings`. Any future gateway mode has to map the forwarded identity onto
+ * a local user first.
  * See ADR-0001.
  */
 @Injectable()
@@ -127,7 +126,7 @@ export class PermissionGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
 
-    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets)) {
+    if (this.flag(context, IS_PUBLIC_KEY)) {
       return true;
     }
 
@@ -145,10 +144,10 @@ export class PermissionGuard implements CanActivate {
       targets,
     );
     if (!permission) {
-      if (this.reflector.getAllAndOverride<boolean>(AUTHENTICATED_ONLY_KEY, targets)) {
+      if (this.flag(context, AUTHENTICATED_ONLY_KEY)) {
         return this.handleAuthenticatedOnly(context);
       }
-      if (this.reflector.getAllAndOverride<boolean>(PLATFORM_ADMIN_ONLY_KEY, targets)) {
+      if (this.flag(context, PLATFORM_ADMIN_ONLY_KEY)) {
         return this.handlePlatformAdminOnly(context);
       }
       return this.handleUndeclared(context);
@@ -189,6 +188,16 @@ export class PermissionGuard implements CanActivate {
   }
 
   // -- branches ---------------------------------------------------------------
+
+  /** Whether the handler or its controller carries the boolean decorator `key`. */
+  private flag(context: ExecutionContext, key: string): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(key, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    );
+  }
 
   /**
    * @AuthenticatedOnly lane: allow iff the principal is a human user. Service
@@ -410,6 +419,12 @@ export class PermissionGuard implements CanActivate {
   private decide(allowed: boolean, permission: PermissionKey, reason: string): boolean {
     if (allowed) return true;
     logger.warn(LOG_PREFIX, `deny ${permission} (${reason})`);
-    throw new ForbiddenException(`Missing permission: ${permission}`);
+    throw new ForbiddenException({
+      statusCode: 403,
+      message: `Missing permission: ${permission}`,
+      error: "Forbidden",
+      code: "missing_permission",
+      permission,
+    });
   }
 }

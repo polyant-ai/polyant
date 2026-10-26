@@ -4,9 +4,14 @@
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Activity } from "lucide-react";
+import { TableBody, TableHeader, TableRow } from "@/components/ui/table";
+import { ListBadgeCell, ListHead, ListMetaCell, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { ListEmpty, ListNoResults } from "@/components/list-states";
+import { ListDrawer } from "@/components/list-drawer";
+import { useListView } from "@/components/use-list-view";
 import { useI18n } from "@/lib/i18n/context";
-import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 
 export interface ActivityLog {
   id: string;
@@ -20,12 +25,6 @@ export interface ActivityLog {
 interface Props {
   activity: ActivityLog[];
 }
-
-const TYPE_STYLES: Record<string, string> = {
-  daily: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
-  weekly: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800",
-  monthly: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800",
-};
 
 /** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
 function formatLogDate(dateStr: string, logType: string, locale: string): string {
@@ -41,62 +40,67 @@ function formatLogDate(dateStr: string, logType: string, locale: string): string
   return date.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
-function ActivityLogEntry({ log }: { log: ActivityLog }) {
-  const { locale } = useI18n();
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="px-4 py-3 text-sm">
-      <div className="flex items-start gap-3">
-        <button
-          type="button"
-          onClick={() => setExpanded((p) => !p)}
-          className="mt-0.5 shrink-0"
-          aria-label={expanded ? "Collapse" : "Expand"}
-        >
-          {expanded
-            ? <ChevronDown className="size-4 text-muted-foreground" />
-            : <ChevronRight className="size-4 text-muted-foreground" />}
-        </button>
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className={`text-xs font-medium ${TYPE_STYLES[log.logType] ?? ""}`}>
-              {log.logType}
-            </Badge>
-            <span className="text-xs font-medium">{formatLogDate(log.logDate, log.logType, locale)}</span>
-            {log.eventCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Activity className="size-3" />
-                {log.eventCount}
-              </span>
-            )}
-          </div>
-          {expanded && (
-            <div className="mt-2 text-muted-foreground">
-              <MarkdownRenderer content={log.content} className="text-xs" />
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/**
+ * The Room's daily, weekly and monthly summaries. Records in time order: the
+ * engine's order (newest first) is kept. A row opens the summary's text.
+ */
 export function ActivityLogSection({ activity }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const [search, setSearch] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const visible = useListView(
+    activity,
+    search,
+    (log) => [formatLogDate(log.logDate, log.logType, locale), log.logType, log.content],
+    null,
+  );
+  const open = activity.find((log) => log.id === openId) ?? null;
 
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">{t("room.activity.title")}</h2>
       {activity.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("room.activity.empty")}</p>
+        <ListEmpty className="mt-8" title={t("room.activity.empty")} />
       ) : (
-        <div className="rounded-lg border divide-y">
-          {activity.map((log) => (
-            <ActivityLogEntry key={log.id} log={log} />
-          ))}
+        <div>
+          <ListToolbar value={search} onChange={setSearch} />
+          {visible.length === 0 ? (
+            <ListNoResults />
+          ) : (
+            <ListTable>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <ListHead>{t("room.activity.period")}</ListHead>
+                  <ListHead className="w-36">{t("room.activity.type")}</ListHead>
+                  <ListHead className="w-28">{t("room.activity.events")}</ListHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.map((log) => {
+                  const label = formatLogDate(log.logDate, log.logType, locale);
+                  return (
+                    <ListRow key={log.id} onOpen={() => setOpenId(log.id)} selected={openId === log.id}>
+                      <ListNameCell name={label} onOpen={() => setOpenId(log.id)} />
+                      <ListBadgeCell>{log.logType}</ListBadgeCell>
+                      <ListMetaCell>{log.eventCount}</ListMetaCell>
+                    </ListRow>
+                  );
+                })}
+              </TableBody>
+            </ListTable>
+          )}
         </div>
       )}
+
+      <ListDrawer
+        open={open !== null}
+        onOpenChange={(next) => !next && setOpenId(null)}
+        title={open ? formatLogDate(open.logDate, open.logType, locale) : ""}
+        description={open ? `${t("room.activity.events")}: ${open.eventCount}` : ""}
+        header={open && <Badge variant="secondary">{open.logType}</Badge>}
+      >
+        {open && <MarkdownRenderer content={open.content} className="text-sm" />}
+      </ListDrawer>
     </section>
   );
 }

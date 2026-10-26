@@ -3,36 +3,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { Plus, KeyRound, Trash2, Pencil } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { useListView } from "@/components/use-list-view";
+import { ListEmpty, ListLoading, ListNoResults } from "@/components/list-states";
 import { useI18n } from "@/lib/i18n/context";
-import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
-import { CreateUserDialog } from "./create-user-dialog";
-import { EditUserDialog } from "./edit-user-dialog";
-import { ResetPasswordDialog } from "./reset-password-dialog";
+import { api, type AdminUser } from "@/lib/api";
+import { CreateUserSheet } from "./create-user-sheet";
+import { UserSheet } from "./user-sheet";
 
 const PAGE_SIZE = 25;
 
@@ -48,11 +33,10 @@ export function UsersTab() {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
-  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [openUser, setOpenUser] = useState<AdminUser | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,12 +52,13 @@ export function UsersTab() {
       }
       setUsers(res.users);
       setTotal(res.total);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("users.create.failed")));
+      setFailed(false);
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [t, page]);
+  }, [page]);
 
   useEffect(() => {
     refresh();
@@ -86,126 +71,69 @@ export function UsersTab() {
   // actively wrong at a page boundary: `localeCompare` and the database collation
   // do not agree, so the last row of one page could sort after the first row of
   // the next.
-  const sorted = users;
-
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await api.users.delete(deleteTarget.id);
-      toast.success(t("users.delete.deleted"));
-      setDeleteTarget(null);
-      await refresh();
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("users.delete.failed")));
-    } finally {
-      setDeleting(false);
-    }
-  }
+  const roleLabel = (u: AdminUser) => (u.isPlatformAdmin ? t("users.role.platformAdmin") : t("users.role.user"));
+  const visible = useListView(users, search, (u) => [u.name, u.email, roleLabel(u)], null);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       <div className="flex items-end justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{t("users.subtitle")}</p>
+        <p className="mt-1 text-muted-foreground">{t("users.subtitle")}</p>
         <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-2 size-4" />
+          <Plus className="size-4" />
           {t("users.create")}
         </Button>
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("users.table.email")}</TableHead>
-              <TableHead>{t("users.table.name")}</TableHead>
-              <TableHead>{t("users.table.role")}</TableHead>
-              <TableHead>{t("users.table.password")}</TableHead>
-              <TableHead className="text-right">
-                {t("users.table.actions")}
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={5}>
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
+      {failed ? (
+        <LoadFailed onRetry={refresh} />
+      ) : loading && users.length === 0 ? (
+        <ListLoading />
+      ) : users.length === 0 ? (
+        <ListEmpty title={t("users.empty.title")} description={t("users.empty.description")} />
+      ) : (
+        <>
+          <ListToolbar value={search} onChange={setSearch} className="mt-6" />
+          {visible.length === 0 ? (
+            <ListNoResults />
+          ) : (
+            <ListTable>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <ListHead>{t("common.name")}</ListHead>
+                  <ListHead className="w-40">{t("common.role")}</ListHead>
+                  <ListHead className="w-40">{t("users.table.password")}</ListHead>
                 </TableRow>
-              ))
-            ) : sorted.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                  {t("users.empty.description")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              sorted.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.email}</TableCell>
-                  <TableCell>{u.name ?? "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={u.isPlatformAdmin ? "default" : "secondary"}>
-                      {u.isPlatformAdmin
-                        ? t("users.role.platformAdmin")
-                        : t("users.role.user")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {!u.hasPassword ? (
-                      <span className="text-muted-foreground text-sm">
-                        {t("users.password.notSet")}
-                      </span>
-                    ) : u.mustChangePassword ? (
-                      <Badge variant="outline">
-                        {t("users.password.mustChange")}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">
-                        {t("users.password.set")}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        title={t("users.action.edit")}
-                        onClick={() => setEditTarget(u)}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        title={t("users.action.resetPassword")}
-                        onClick={() => setResetTarget(u)}
-                      >
-                        <KeyRound className="size-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        title={t("users.action.delete")}
-                        disabled={u.id === currentUserId}
-                        onClick={() => setDeleteTarget(u)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              </TableHeader>
+              <TableBody>
+                {visible.map((u) => (
+                  <ListRow key={u.id} onOpen={() => setOpenUser(u)} selected={openUser?.id === u.id}>
+                    <ListNameCell
+                      name={u.name ?? u.email}
+                      onOpen={() => setOpenUser(u)}
+                      summary={u.name ? u.email : undefined}
+                    />
+                    <TableCell>
+                      <Badge variant={u.isPlatformAdmin ? "default" : "secondary"}>{roleLabel(u)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {!u.hasPassword ? (
+                        <span className="text-sm text-muted-foreground">{t("users.password.notSet")}</span>
+                      ) : u.mustChangePassword ? (
+                        <Badge variant="secondary">{t("users.password.mustChange")}</Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">{t("users.password.set")}</span>
+                      )}
+                    </TableCell>
+                  </ListRow>
+                ))}
+              </TableBody>
+            </ListTable>
+          )}
+        </>
+      )}
 
       {!loading && total > PAGE_SIZE && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
           <span>
             {t("users.pagination.range", {
               from: String(page * PAGE_SIZE + 1),
@@ -234,45 +162,14 @@ export function UsersTab() {
         </div>
       )}
 
-      <CreateUserDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={refresh}
+      <CreateUserSheet open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
+      <UserSheet
+        key={openUser?.id ?? "closed"}
+        user={openUser}
+        isSelf={openUser?.id === currentUserId}
+        onClose={() => setOpenUser(null)}
+        onChanged={refresh}
       />
-      <EditUserDialog
-        user={editTarget}
-        onClose={() => setEditTarget(null)}
-        onSaved={refresh}
-      />
-      <ResetPasswordDialog
-        user={resetTarget}
-        onClose={() => setResetTarget(null)}
-      />
-
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("users.delete.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("users.delete.description")}
-              {deleteTarget && (
-                <span className="mt-2 block font-medium">
-                  {deleteTarget.email}
-                </span>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annulla</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-              {t("users.delete.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

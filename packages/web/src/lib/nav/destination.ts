@@ -20,7 +20,6 @@ import { isNavActive } from "@/components/layout/nav-main";
 import {
   AGENT_MACROS,
   AGENT_SECTIONS,
-  agentSection,
   agentSectionsByMacro,
   resolveAgentTab,
 } from "./agent-sections";
@@ -77,39 +76,25 @@ export function agentFromPath(
 }
 
 /**
- * The agent's macro entries — not its leaves. Each links to the first section it
- * holds, and the page it opens carries the rest as a tab row.
- *
- * One group and no heading: the rows are few enough to read, and a heading over the
- * whole of them would name the agent twice — its slug is already the subject above.
+ * The agent's groups: each macro is a heading over its sections, one row per
+ * section, in registry order.
  */
 function agentGroups(orgSlug: string, workspaceSlug: string, agentSlug: string): DestinationGroup[] {
   const base = workspacePath(orgSlug, workspaceSlug, `/instances/${encodeURIComponent(agentSlug)}`);
   return AGENT_MACROS.flatMap(({ macro, titleKey }) => {
-    if (macro === "automation") return [];
     const sections = agentSectionsByMacro(macro);
     // A macro with no section would be a heading over nothing.
     if (sections.length === 0) return [];
-    const items = sections.map((section) => ({
-      key: section.tab,
-      titleKey: section.titleKey,
-      href: `${base}?tab=${section.tab}`,
-      icon: section.icon,
-    }));
-    if (macro === "behaviour") {
-      const automation = agentSectionsByMacro("automation")[0];
-      items.splice(items.findIndex((item) => item.key === "params"), 0, {
-        key: "automation",
-        titleKey: "instances.macro.automation",
-        href: `${base}?tab=${automation.tab}`,
-        icon: automation.icon,
-      });
-    }
     return [
       {
         key: macro,
         labelKey: titleKey,
-        items,
+        items: sections.map((section) => ({
+          key: section.tab,
+          titleKey: section.titleKey,
+          href: `${base}?tab=${section.tab}`,
+          icon: section.icon,
+        })),
       },
     ];
   });
@@ -135,8 +120,6 @@ export function resolveDestination(pathname: string): Destination | null {
  * path comparison every other nav surface uses would mark every one of them active
  * at once. When an item's href carries a tab, the tab decides.
  *
- * The Automazione row stays active across its three page tabs.
- *
  * @param currentTab the URL's `tab` parameter, or `null` when it carries none.
  */
 export function isDestinationItemActive(
@@ -148,8 +131,7 @@ export function isDestinationItemActive(
   const itemTab = query ? new URLSearchParams(query).get("tab") : null;
   if (!itemTab) return isNavActive(pathname, href);
   const activeTab = resolveAgentTab(currentTab);
-  return isNavActive(pathname, path, true) &&
-    (itemTab === "webhooks" ? agentSection(activeTab).macro === "automation" : activeTab === itemTab);
+  return isNavActive(pathname, path, true) && activeTab === itemTab;
 }
 
 /**

@@ -61,17 +61,7 @@ export async function getSecret(instanceSlug: InstanceSlug, key: string): Promis
 export async function getAllSecrets(instanceSlug: InstanceSlug): Promise<Record<string, string>> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return {};
-
-  const rows = await db
-    .select({ key: instanceSecrets.key, value: instanceSecrets.value })
-    .from(instanceSecrets)
-    .where(eq(instanceSecrets.instanceId, instanceId));
-
-  const result: Record<string, string> = {};
-  for (const row of rows) {
-    result[row.key] = decrypt(row.value);
-  }
-  return result;
+  return getAllSecretsById(instanceId);
 }
 
 /** Get all decrypted secrets for an instance (by UUID). */

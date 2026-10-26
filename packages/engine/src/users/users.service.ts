@@ -30,18 +30,13 @@ import {
 } from "./password.util.js";
 import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
 import { generateToken } from "../crypto/index.js";
+import { normalizeEmail } from "./email.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
 import {
   NEW_ONBOARDING,
   parseOnboardingPatch,
   type OnboardingState,
 } from "./onboarding.js";
-
-// RFC 5321 caps an email address at 254 chars. Enforce it before the regex
-// runs so the polynomial-ish backtracking cost of the [^\s@]+ groups can
-// never be triggered by an attacker-supplied long string (CodeQL js/polynomial-redos).
-const EMAIL_MAX_LEN = 254;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Read the platform-admin flag out of a request body.
@@ -114,10 +109,8 @@ export class UsersService {
     isPlatformAdmin?: boolean;
     password?: string;
   }): Promise<CreateUserResult> {
-    const email = (body.email ?? "").trim().toLowerCase();
-    if (email.length > EMAIL_MAX_LEN || !EMAIL_RE.test(email)) {
-      throw new BadRequestException("Invalid email");
-    }
+    const email = normalizeEmail(body.email);
+    if (!email) throw new BadRequestException("Invalid email");
     const isPlatformAdmin = readPlatformAdminFlag(body) ?? false;
 
     let plain = body.password?.trim();

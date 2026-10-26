@@ -104,7 +104,7 @@ describe("ConversationsController — debug + state endpoints", () => {
 
     it("parses ISO datetimes and passes Date objects to the store", async () => {
       await controller.list("acme", undefined, undefined, undefined, undefined,
-        "2026-07-01T00:00:00Z", "2026-07-14T00:00:00Z", undefined);
+        "2026-07-01T00:00:00Z", "2026-07-14T00:00:00Z", undefined, undefined);
 
       expect(mockStore.listConversations).toHaveBeenCalledTimes(1);
       const opts = mockStore.listConversations.mock.calls[0][0];
@@ -114,16 +114,25 @@ describe("ConversationsController — debug + state endpoints", () => {
     });
 
     it("leaves the window undefined when the params are absent", async () => {
-      await controller.list("acme", undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+      await controller.list("acme", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
 
       const opts = mockStore.listConversations.mock.calls[0][0];
       expect(opts.updatedSince).toBeUndefined();
       expect(opts.updatedUntil).toBeUndefined();
     });
 
+    it("passes the trimmed contact filter to the store, and nothing for a blank one", async () => {
+      await controller.list("acme", undefined, undefined, undefined, undefined, undefined, undefined, "  anna@  ", undefined);
+      await controller.list("acme", undefined, undefined, undefined, undefined, undefined, undefined, "   ", undefined);
+
+      // Catches the contact field being dropped before the store, or a blank box filtering on "%%".
+      expect(mockStore.listConversations.mock.calls[0][0].userIdentifier).toBe("anna@");
+      expect(mockStore.listConversations.mock.calls[1][0].userIdentifier).toBeUndefined();
+    });
+
     it("rejects a malformed updatedSince with 400 before touching the store", async () => {
       await expect(
-        controller.list("acme", undefined, undefined, undefined, undefined, "not-a-date", undefined, undefined),
+        controller.list("acme", undefined, undefined, undefined, undefined, "not-a-date", undefined, undefined, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(mockStore.listConversations).not.toHaveBeenCalled();
     });

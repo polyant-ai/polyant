@@ -8,12 +8,15 @@ import { computeNextRun } from "./schedule-utils.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { contactChannelId, contactConversationId } from "../channels/outbound-conversation.js";
 import { conversationStore } from "../conversations/index.js";
-import { scheduledTaskLog } from "./scheduled-task-logger.js";
 import { emitCron } from "../activity-stream/emitters/emit-cron.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const scheduledTaskLog = createLogger();
 
 function scheduleLabel(schedule: ScheduleConfig): string {
   switch (schedule.type) {
@@ -166,8 +169,7 @@ class SchedulerService {
     const channelId = task.keepHistory
       ? `scheduled-task:${task.id}`
       : `${task.id}:${timestamp}`;
-    // Must match preEnrich format: `${instanceId}:${channelType}:${channelId}`
-    const conversationId = `${task.instanceId}:scheduled:${channelId}`;
+    const conversationId = contactConversationId(task.instanceId, "scheduled", channelId);
 
     // Create run log entry
     let runId: string | undefined;
@@ -276,7 +278,7 @@ class SchedulerService {
         }
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errMsg(err);
       await store.markFailed(task.id, errorMsg, claim);
       scheduledTaskLog.error("SchedulerService", `task "${task.name}" failed:`, errorMsg);
 
@@ -326,14 +328,13 @@ class SchedulerService {
     // The dangling runs are read BEFORE the markers are cleared, and each marker is
     // cleared only on the claim read above: once a marker is cleared a new run may claim
     // the task, and neither its marker nor its run-log row is this recovery's to close.
-    const danglingByTask = new Map<string, string[]>();
-    for (const task of stuck) danglingByTask.set(task.id, await runLog.findDanglingRuns([task.id]));
+    const dangling = await runLog.findDanglingRuns(stuck.map((t) => t.id));
     const clearedIds = await store.clearRunningMarker(
       stuck.map((t) => ({ id: t.id, claim: t.lastRunAt })),
     );
     if (clearedIds.length === 0) return;
     const closed = await runLog.failDanglingRuns(
-      clearedIds.flatMap((id) => danglingByTask.get(id) ?? []),
+      dangling.filter((run) => clearedIds.includes(run.taskId)).map((run) => run.id),
       "orphaned: the process running this task did not survive to report an outcome",
     );
 
@@ -382,7 +383,7 @@ class SchedulerService {
       // execution, so a lost race leaves the row alone.
       // The run-log rows are read while the row is still held by this claim, so a run
       // claimed after `markFailed` frees the task is not closed with it.
-      const dangling = await runLog.findDanglingRuns([task.id]);
+      const dangling = (await runLog.findDanglingRuns([task.id])).map((run) => run.id);
       const reaped = await store.markFailed(
         task.id,
         `orphaned: run exceeded its deadline of ${deadline} ms (running for ${runningForMs} ms)`,
@@ -441,13 +442,12 @@ class SchedulerService {
     }
 
     // For remaining missed tasks, just advance their nextRunAt to the future
-    for (const task of dueTasks.slice(5)) {
-      const schedule = task.schedule as ScheduleConfig;
-      const nextRunAt = computeNextRun(schedule, now);
-      if (nextRunAt) {
-        await store.update(task.id, { schedule });
-      }
-    }
+    await Promise.all(
+      dueTasks.slice(5).map((task) => {
+        const schedule = task.schedule as ScheduleConfig;
+        return computeNextRun(schedule, now) ? store.update(task.id, { schedule }) : undefined;
+      }),
+    );
   }
 
   /** Execute a task immediately with "manual" trigger type (for Run Now API) */
@@ -456,12 +456,6 @@ class SchedulerService {
       throw new Error("SchedulerService: not initialized");
     }
     await this.executeTask(task, "manual");
-  }
-
-  /** Notify the scheduler that a task was added/updated/removed (for live updates from tool/API) */
-  notify(_taskId: string, _action: "added" | "updated" | "removed"): void {
-    // The scheduler is DB-driven (polls every tick), so no in-memory state to update.
-    // This method exists as a hook for future optimizations (e.g. re-arm timer sooner).
   }
 
   /** Graceful shutdown */

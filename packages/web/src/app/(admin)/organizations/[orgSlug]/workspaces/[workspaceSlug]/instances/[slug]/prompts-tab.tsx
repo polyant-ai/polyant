@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
 import { api, getUserErrorMessage, type PromptSection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import type { TranslationKey } from "@/lib/i18n/types";
 import { usePageSaveAction } from "./page-actions-context";
 
 const PROMPT_ICONS: Record<string, React.ElementType> = {
@@ -28,6 +29,22 @@ const PROMPT_ICONS: Record<string, React.ElementType> = {
   "05-skills": Sparkles,
   "06-memory": Brain,
   "07-user-identity": UserCircle,
+};
+
+/**
+ * The seven sections every agent is created with are DB rows titled in English
+ * (the engine seeds `Identity`, `Soul`, ...). The panel shows a translated label
+ * and a one-line description for those keys; a section the author added shows
+ * its own title.
+ */
+const DEFAULT_SECTION_COPY: Record<string, { label: TranslationKey; description: TranslationKey }> = {
+  "01-identity": { label: "prompts.section.identity", description: "prompts.section.identity.description" },
+  "02-soul": { label: "prompts.section.soul", description: "prompts.section.soul.description" },
+  "03-tooling": { label: "prompts.section.tooling", description: "prompts.section.tooling.description" },
+  "04-safety": { label: "prompts.section.safety", description: "prompts.section.safety.description" },
+  "05-skills": { label: "prompts.section.skills", description: "prompts.section.skills.description" },
+  "06-memory": { label: "prompts.section.memory", description: "prompts.section.memory.description" },
+  "07-user-identity": { label: "prompts.section.userIdentity", description: "prompts.section.userIdentity.description" },
 };
 
 interface Props {
@@ -43,6 +60,11 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
   const [activeKey, setActiveKey] = useState<string>(prompts[0]?.key ?? "");
 
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  const sectionLabel = (prompt: PromptSection) => {
+    const copy = DEFAULT_SECTION_COPY[prompt.key];
+    return copy ? t(copy.label) : prompt.title;
+  };
 
   const handleChange = (key: string, content: string) => {
     setEdited((prev) => ({ ...prev, [key]: content }));
@@ -146,7 +168,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
               aria-current={active ? "true" : undefined}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{prompt.title}</span>
+              <span className="truncate">{sectionLabel(prompt)}</span>
               {dirty && (
                 <span
                   aria-label={t("prompts.modified")}
@@ -180,13 +202,18 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
               >
                 <header className="mb-3 flex items-center gap-2">
                   <Icon className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-base font-semibold">{prompt.title}</h3>
+                  <h3 className="text-base font-semibold">{sectionLabel(prompt)}</h3>
                   {dirty && (
                     <Badge variant="secondary" className="ml-auto text-xs">
                       {t("prompts.modified")}
                     </Badge>
                   )}
                 </header>
+                {DEFAULT_SECTION_COPY[prompt.key] && (
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    {t(DEFAULT_SECTION_COPY[prompt.key].description)}
+                  </p>
+                )}
                 <Textarea
                   className="min-h-[240px] font-mono text-sm"
                   value={value}

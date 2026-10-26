@@ -14,7 +14,7 @@ import type { Response } from "express";
 import { exportInstance } from "../../instances/export.service.js";
 import { importNewInstance, importOverwriteInstance } from "../../instances/import.service.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
-import { errMsg } from "./instance-helpers.js";
+import { errMsg } from "../../utils/error.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";

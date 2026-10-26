@@ -12,6 +12,7 @@ import { IconUpload } from "@/components/icon-upload";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 interface Props {
   instance: Instance;
@@ -20,9 +21,12 @@ interface Props {
 
 export function GeneralTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
-  const [name, setName] = useState(instance.name);
-  const [description, setDescription] = useState(instance.description ?? "");
-  const [status, setStatus] = useState(instance.status);
+  const { draft, set, isDirty } = useDraft({
+    name: instance.name,
+    description: instance.description ?? "",
+    status: instance.status,
+  });
+  const { name, description, status } = draft;
   const [saving, setSaving] = useState(false);
   const [icon, setIcon] = useState(instance.icon);
 
@@ -47,11 +51,6 @@ export function GeneralTab({ instance, onUpdate }: Props) {
       toast.error(getUserErrorMessage(err, t("general.iconUploadFailed")));
     }
   }, [instance.slug, onUpdate, t]);
-
-  const isDirty =
-    name !== instance.name ||
-    description !== (instance.description ?? "") ||
-    status !== instance.status;
 
   const handleSave = async () => {
     setSaving(true);
@@ -85,7 +84,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         <Input
           id="gen-name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => set("name", e.target.value)}
         />
       </div>
 
@@ -102,7 +101,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         <Textarea
           id="gen-desc"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e) => set("description", e.target.value)}
           rows={3}
         />
       </div>
@@ -117,7 +116,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         <Switch
           id="agent-status"
           checked={status === "active"}
-          onCheckedChange={(checked) => setStatus(checked ? "active" : "inactive")}
+          onCheckedChange={(checked) => set("status", checked ? "active" : "inactive")}
         />
       </div>
 

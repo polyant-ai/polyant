@@ -4,7 +4,11 @@ import { describe, it, expect, vi } from "vitest";
 import { TaskState, Role, type Message, type Part, type TaskStatusUpdateEvent, type TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { RequestContext, ExecutionEventBus, AgentExecutionEvent } from "@a2a-js/sdk/server";
 import { createPolyantExecutor } from "./polyant-agent.executor.js";
-import { a2aLog } from "./a2a-logger.js";
+const a2aLog = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../utils/create-logger.js")>()),
+  createLogger: () => a2aLog,
+}));
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 

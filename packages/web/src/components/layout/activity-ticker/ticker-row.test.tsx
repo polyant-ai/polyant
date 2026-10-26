@@ -90,6 +90,14 @@ describe("TickerRow", () => {
     expect(screen.getByText(/hubspotNote/)).toBeInTheDocument();
   });
 
+  test("an agent without an icon shows the bot glyph, not an emoji", () => {
+    const { container } = renderWithI18n(
+      <TickerRow ev={ev({ id: "g", instance: inst("main") })} />,
+    );
+    expect(container).not.toHaveTextContent("🤖");
+    expect(container.querySelector('span[title="Sofia"] svg')).not.toBeNull();
+  });
+
   test("renders timestamp", () => {
     renderWithI18n(
       <TickerRow

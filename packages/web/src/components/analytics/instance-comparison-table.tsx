@@ -13,13 +13,10 @@ import {
 } from "@/components/ui/table";
 import type { InstanceComparisonRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { useFormat } from "@/lib/use-format";
 
 interface InstanceComparisonTableProps {
   data: InstanceComparisonRow[];
-}
-
-function formatCost(value: number) {
-  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
 }
 
 function formatTokens(value: number) {
@@ -30,6 +27,7 @@ function formatTokens(value: number) {
 
 export function InstanceComparisonTable({ data }: InstanceComparisonTableProps) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
   return (
     <Card>
@@ -68,7 +66,7 @@ export function InstanceComparisonTable({ data }: InstanceComparisonTableProps) 
                   {formatTokens(row.tokens)}
                 </TableCell>
                 <TableCell className="text-right">
-                  {formatCost(row.cost)}
+                  {fmt.currency(row.cost)}
                 </TableCell>
               </TableRow>
             ))}

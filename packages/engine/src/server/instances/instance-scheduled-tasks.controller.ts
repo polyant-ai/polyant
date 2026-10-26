@@ -20,6 +20,9 @@ import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-task
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 /** Floor for an API-provided run deadline. Below a second no run can complete. */
 const MIN_MAX_RUN_MS = 1_000;
@@ -224,8 +227,6 @@ export class InstanceScheduledTasksController {
       maxRunMs: assertMaxRunMs(body.maxRunMs),
     });
 
-    schedulerService.notify(task.id, "added");
-
     return {
       task: {
         id: task.id,
@@ -281,8 +282,6 @@ export class InstanceScheduledTasksController {
     });
     if (!updated) throw new NotFoundException(`Scheduled task "${id}" not found`);
 
-    schedulerService.notify(id, "updated");
-
     return {
       task: {
         id: updated.id,
@@ -312,7 +311,6 @@ export class InstanceScheduledTasksController {
     }
 
     await scheduledTaskStore.remove(id);
-    schedulerService.notify(id, "removed");
 
     return { deleted: true };
   }
@@ -329,7 +327,7 @@ export class InstanceScheduledTasksController {
 
     // Execute immediately with "manual" trigger type (fire-and-forget)
     schedulerService.runNow(task).catch((err) =>
-      console.error(`RunNow: task "${task.name}" failed:`, err),
+      log.error("scheduled-tasks", `RunNow: task "${task.name}" failed`, err),
     );
 
     return {

@@ -3,15 +3,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Info, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { useListView } from "@/components/use-list-view";
+import { ListNoResults } from "@/components/list-states";
 import type { ModelsResponse } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { useFormat } from "@/lib/use-format";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { BRAND_NAMES } from "@/lib/provider-secrets";
 import { cn } from "@/lib/utils";
@@ -54,6 +58,7 @@ interface Props {
  */
 export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider, selectedModel, onSelect }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
   // Model catalog dialog: search + provider filter + column sort over a single
   // flattened table (was one table per provider, which overflowed).
   const [pricingOpen, setPricingOpen] = useState(false);
@@ -64,29 +69,23 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
     dir: "asc",
   });
 
-  // Flatten → filter (search + provider) → sort for the catalog table.
-  const catalogRows = useMemo<CatalogRow[]>(() => {
+  // Flatten → filter (provider, then search) → sort by the column the reader chose.
+  const providerRows = useMemo<CatalogRow[]>(() => {
     if (!modelsData) return [];
-    const flat: CatalogRow[] = Object.entries(modelsData.providers).flatMap(
-      ([providerName, { models }]) => models.map((m) => ({ ...m, provider: providerName })),
-    );
-    const q = catalogSearch.trim().toLowerCase();
-    const filtered = flat.filter(
-      (m) =>
-        (catalogProvider === "all" || m.provider === catalogProvider) &&
-        (q === "" ||
-          m.id.toLowerCase().includes(q) ||
-          (m.tier ?? "").toLowerCase().includes(q) ||
-          (BRAND_NAMES[m.provider] ?? m.provider).toLowerCase().includes(q)),
-    );
+    return Object.entries(modelsData.providers)
+      .flatMap(([providerName, { models }]) => models.map((m) => ({ ...m, provider: providerName })))
+      .filter((m) => catalogProvider === "all" || m.provider === catalogProvider);
+  }, [modelsData, catalogProvider]);
+  const searched = useListView(providerRows, catalogSearch, (m) => [m.id, m.tier, BRAND_NAMES[m.provider] ?? m.provider], null);
+  const catalogRows = useMemo<CatalogRow[]>(() => {
     const dir = catalogSort.dir === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => {
+    return [...searched].sort((a, b) => {
       const av = catalogSortValue(a, catalogSort.key);
       const bv = catalogSortValue(b, catalogSort.key);
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [modelsData, catalogSearch, catalogProvider, catalogSort]);
+  }, [searched, catalogSort]);
 
   const toggleCatalogSort = (key: CatalogSortKey) =>
     setCatalogSort((prev) =>
@@ -107,7 +106,7 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
     // fixed column instead of overflowing into the next one; the button is w-full
     // so the flex constrains the label to the cell width.
     return (
-      <TableHead className={cn("align-bottom whitespace-normal", opts?.width, opts?.right && "text-right")}>
+      <ListHead className={cn("align-bottom whitespace-normal", opts?.width)} align={opts?.right ? "end" : undefined}>
         <button
           type="button"
           onClick={() => toggleCatalogSort(key)}
@@ -120,7 +119,7 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
           <span>{t(labelKey)}</span>
           <Arrow className={cn("h-3 w-3 shrink-0", !active && "opacity-40")} />
         </button>
-      </TableHead>
+      </ListHead>
     );
   };
 
@@ -143,16 +142,8 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
         </DialogHeader>
         <div className="space-y-4">
           {/* Toolbar: free-text search + provider filter */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={catalogSearch}
-                onChange={(e) => setCatalogSearch(e.target.value)}
-                placeholder={t("settings.tab.catalogSearchPlaceholder")}
-                className="pl-8"
-              />
-            </div>
+          <div>
+          <ListToolbar value={catalogSearch} onChange={setCatalogSearch} label={t("settings.tab.catalogSearchPlaceholder")}>
             <Select value={catalogProvider} onValueChange={setCatalogProvider}>
               <SelectTrigger className="sm:w-52">
                 <SelectValue />
@@ -166,89 +157,69 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </ListToolbar>
 
           {/* Single flattened table with a Provider column. table-fixed so the
               model-id column absorbs the leftover width and long IDs wrap
               (break-all) instead of overflowing into the price columns. */}
-          <Table className="table-fixed">
-            <TableHeader>
-              <TableRow>
-                {catalogSortHead("settings.tab.provider", "provider", { width: "w-28" })}
-                {catalogSortHead("settings.tab.model", "model")}
-                {catalogSortHead("settings.tab.pricingInput", "input", { width: "w-20", right: true })}
-                {catalogSortHead("settings.tab.pricingOutput", "output", { width: "w-20", right: true })}
-                {catalogSortHead("settings.tab.pricingCacheRead", "cacheRead", { width: "w-24", right: true })}
-                {catalogSortHead("settings.tab.pricingCacheWrite", "cacheWrite", { width: "w-24", right: true })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {catalogRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
-                    {t("settings.tab.catalogNoResults")}
-                  </TableCell>
+          {catalogRows.length === 0 ? (
+            <ListNoResults>{t("settings.tab.catalogNoResults")}</ListNoResults>
+          ) : (
+            <ListTable>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {catalogSortHead("settings.tab.model", "model")}
+                  {catalogSortHead("settings.tab.provider", "provider", { width: "w-28" })}
+                  {catalogSortHead("settings.tab.pricingInput", "input", { width: "w-20", right: true })}
+                  {catalogSortHead("settings.tab.pricingOutput", "output", { width: "w-20", right: true })}
+                  {catalogSortHead("settings.tab.pricingCacheRead", "cacheRead", { width: "w-24", right: true })}
+                  {catalogSortHead("settings.tab.pricingCacheWrite", "cacheWrite", { width: "w-24", right: true })}
                 </TableRow>
-              ) : (
-                catalogRows.map((m) => {
+              </TableHeader>
+              <TableBody>
+                {catalogRows.map((m) => {
                   const isSelected = selectedProvider === m.provider && selectedModel === m.id;
+                  const pick = () => {
+                    onSelect(m.provider, m.id);
+                    setPricingOpen(false);
+                  };
                   // A cache rate "doesn't count" when it's free (0) or billed at the
                   // full input rate (no discount — Nebius / non-cacheable models): show
                   // "—" instead of a figure that implies a saving.
                   const fmtCache = (v: number | undefined) => {
                     const val = v ?? m.costInput;
-                    return val === 0 || val === m.costInput ? "—" : `$${val.toFixed(2)}`;
+                    return val === 0 || val === m.costInput ? "—" : fmt.currency(val);
                   };
                   return (
-                    <TableRow
-                      key={`${m.provider}:${m.id}`}
-                      className={cn("cursor-pointer", isSelected ? "bg-primary/10" : "hover:bg-muted/50")}
-                      onClick={() => {
-                        onSelect(m.provider, m.id);
-                        setPricingOpen(false);
-                      }}
-                    >
-                      <TableCell className="align-top text-xs">
+                    <ListRow key={`${m.provider}:${m.id}`} onOpen={pick} selected={isSelected}>
+                      <ListNameCell
+                        name={m.id}
+                        onOpen={pick}
+                        badges={m.tier ? <Badge variant="secondary">{m.tier}</Badge> : undefined}
+                        summary={
+                          m.costLongPrompt
+                            ? t("settings.tab.catalogLongPrompt", {
+                                above: Math.round(m.costLongPrompt.above / 1000),
+                                input: fmt.currency(m.costLongPrompt.costInput),
+                                output: fmt.currency(m.costLongPrompt.costOutput),
+                              })
+                            : undefined
+                        }
+                      />
+                      <TableCell className="align-top">
                         {BRAND_NAMES[m.provider] ?? m.provider.charAt(0).toUpperCase() + m.provider.slice(1)}
                       </TableCell>
-                      {/* whitespace-normal overrides shadcn's cell default of
-                          whitespace-nowrap — without it break-all can't wrap and
-                          long model ids overflow into the price columns. */}
-                      <TableCell className="align-top whitespace-normal">
-                        <span className="block break-all font-mono text-xs">{m.id}</span>
-                        {m.tier && (
-                          <Badge variant="secondary" className="mt-1 text-[10px]">
-                            {m.tier}
-                          </Badge>
-                        )}
-                        {m.costLongPrompt && (
-                          <span className="mt-1 block text-[10px] text-muted-foreground">
-                            {t("settings.tab.catalogLongPrompt", {
-                              above: Math.round(m.costLongPrompt.above / 1000),
-                              input: m.costLongPrompt.costInput.toFixed(2),
-                              output: m.costLongPrompt.costOutput.toFixed(2),
-                            })}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        ${m.costInput.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        ${m.costOutput.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                        {fmtCache(m.costCacheRead)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                        {fmtCache(m.costCacheWrite)}
-                      </TableCell>
-                    </TableRow>
+                      <TableCell className="text-right tabular-nums">{fmt.currency(m.costInput)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmt.currency(m.costOutput)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">{fmtCache(m.costCacheRead)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">{fmtCache(m.costCacheWrite)}</TableCell>
+                    </ListRow>
                   );
-                })
-              )}
-            </TableBody>
-          </Table>
+                })}
+              </TableBody>
+            </ListTable>
+          )}
+          </div>
           <p className="text-xs text-muted-foreground">{t("settings.tab.pricingNote")}</p>
         </div>
       </DialogContent>

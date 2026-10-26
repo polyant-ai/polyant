@@ -169,6 +169,20 @@ describe("ModelTab", () => {
     expect(await row("settings.role.stt.title")).toHaveTextContent("OpenAI Whisper");
   });
 
+  it("filters the tasks by what is typed and keeps the conversation, embedder, transcription order otherwise", async () => {
+    render(<ModelTab instance={makeInstance()} onUpdate={onUpdate} />);
+    await row("settings.role.chat.title");
+    const titles = screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+    expect(titles[0]).toContain("settings.role.chat.title");
+    expect(titles[1]).toContain("settings.role.embed.title");
+    expect(titles[2]).toContain("settings.role.stt.title");
+
+    await userEvent.type(screen.getByRole("searchbox"), "settings.role.stt.title");
+
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.queryByText("settings.role.chat.title")).not.toBeInTheDocument();
+  });
+
   it("says a task's key is missing when its provider's key is not stored", async () => {
     render(<ModelTab instance={makeInstance({ provider: "anthropic", model: "claude-3-opus", effectiveProvider: "anthropic" })} onUpdate={onUpdate} />);
 

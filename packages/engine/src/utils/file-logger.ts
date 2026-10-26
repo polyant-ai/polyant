@@ -3,14 +3,14 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, unlinkSync, type WriteStream } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { sanitizeForLog } from "./create-logger.js";
+import { sanitizeForLog, setLogTee } from "./create-logger.js";
 import { serializeForLog } from "./serialize-for-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const LOG_DIR = resolve(__dirname, "../../../../logs");
 const MAX_LOG_FILES = 14; // keep 14 days
-const ROTATION_CHECK_INTERVAL_MS = 60 * 60 * 1000; // check every hour
+const PURGE_INTERVAL_MS = 60 * 60 * 1000; // purge old files every hour
 
 let currentStream: WriteStream | null = null;
 let currentDate = "";
@@ -22,10 +22,6 @@ function ensureLogDir(): void {
   }
 }
 
-function todayString(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
 function logFilePath(date: string): string {
   return join(LOG_DIR, `engine-${date}.log`);
 }
@@ -35,8 +31,8 @@ function openStream(date: string): WriteStream {
   return createWriteStream(logFilePath(date), { flags: "a" });
 }
 
-function getStream(): WriteStream {
-  const today = todayString();
+/** The stream for `today` (YYYY-MM-DD), rotating to a new file on the first line of a new day. */
+function getStream(today: string): WriteStream {
   if (today !== currentDate || !currentStream) {
     if (currentStream) currentStream.end();
     currentDate = today;
@@ -69,8 +65,12 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, "");
 }
 
-function formatLine(args: unknown[]): string {
-  const ts = new Date().toISOString();
+/**
+ * Write one `console.*` call to the day's file as a single line. The date of the
+ * line's own timestamp picks the file, so rotation needs no timer.
+ */
+function writeLine(prefix: string, args: unknown[]): void {
+  const timestamp = new Date().toISOString();
   // serializeForLog, not JSON.stringify: `message`/`stack` are non-enumerable, so
   // stringify would drop the diagnostic text and keep the custom fields — which on
   // a pg / AWS SDK / fetch error is where the connection string, the request config
@@ -79,7 +79,7 @@ function formatLine(args: unknown[]): string {
   // ANSI first, then control chars: sanitizeForLog would otherwise blank the escape
   // byte and leave the visible "[0;32m" tail in the file. The trailing newline is
   // ours and is appended after sanitizing, so one console call stays one log line.
-  return `[${ts}] ${sanitizeForLog(stripAnsi(msg))}\n`;
+  getStream(timestamp.slice(0, 10)).write(`[${timestamp}] ${prefix}${sanitizeForLog(stripAnsi(msg))}\n`);
 }
 
 /** Install file logging — intercepts console.log/warn/error and tees to daily log files. */
@@ -92,27 +92,24 @@ export function installFileLogger(): void {
 
   console.log = (...args: unknown[]) => {
     origLog(...args);
-    getStream().write(formatLine(args));
+    writeLine("", args);
   };
 
   console.warn = (...args: unknown[]) => {
     origWarn(...args);
-    getStream().write("[WARN] " + formatLine(args));
+    writeLine("[WARN] ", args);
   };
 
   console.error = (...args: unknown[]) => {
     origError(...args);
-    getStream().write("[ERROR] " + formatLine(args));
+    writeLine("[ERROR] ", args);
   };
 
-  // Periodic rotation check + purge
-  rotationTimer = setInterval(() => {
-    const today = todayString();
-    if (today !== currentDate) {
-      getStream(); // triggers rotation
-    }
-    purgeOldLogs();
-  }, ROTATION_CHECK_INTERVAL_MS);
+  // Module loggers (createLogger) write to stdout/stderr, not console.*: tee them too.
+  setLogTee((level, line) => writeLine(level === "warn" ? "[WARN] " : level === "error" ? "[ERROR] " : "", [line]));
+
+  // Rotation happens on the first line of a new day (`getStream`); the timer only purges.
+  rotationTimer = setInterval(purgeOldLogs, PURGE_INTERVAL_MS);
 
   // Initial purge
   purgeOldLogs();
@@ -122,6 +119,7 @@ export function installFileLogger(): void {
 
 /** Shutdown file logger cleanly. */
 export function shutdownFileLogger(): void {
+  setLogTee(null);
   if (rotationTimer) {
     clearInterval(rotationTimer);
     rotationTimer = null;

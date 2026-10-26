@@ -63,6 +63,8 @@ export function ChatArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
+  // The picked agent's name, reported by the selector.
+  const [pickedName, setPickedName] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useDetailedView();
 
   const timeline = useMemo(() => {
@@ -96,6 +98,7 @@ export function ChatArea({
         <InstanceSelector
           value={instanceSlug}
           onChange={onInstanceChange}
+          onNameChange={setPickedName}
           disabled={isStreaming}
         />
 
@@ -140,7 +143,9 @@ export function ChatArea({
               {t("playground.title")}
             </h2>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              {t("playground.emptyHint")}
+              {pickedName
+                ? t("playground.emptyHintAgent", { name: pickedName })
+                : t("playground.emptyHint")}
             </p>
           </div>
         ) : (

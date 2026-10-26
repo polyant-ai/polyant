@@ -5,10 +5,13 @@ import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
-import { transcribeAudio } from "../../audio-transcription.js";
+import { transcribeInbound } from "../../audio-transcription.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 import { createLogger, shouldLog } from "../../../utils/create-logger.js";
+import { contactConversationId } from "../../outbound-conversation.js";
+import { readLimitedBody, ResponseTooLargeError } from "../../../utils/read-limited-body.js";
+import { errMsg } from "../../../utils/error.js";
 
 // Webhook registration logs go through the structured logger, which sanitizes
 // the agent id and the Telegram error text (both reach the log line).
@@ -36,30 +39,12 @@ export const FILE_DOWNLOAD_TIMEOUT_MS = 30_000;
  * declared or actual size is over the cap. Exported for testing.
  */
 export async function readBodyCapped(res: Response, maxBytes: number): Promise<Buffer | undefined> {
-  const declared = Number(res.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await res.body?.cancel();
-    return undefined;
-  }
-  if (!res.body) return Buffer.alloc(0);
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  const reader = res.body.getReader();
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        return undefined;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
+    return await readLimitedBody(res, maxBytes);
+  } catch (err) {
+    if (err instanceof ResponseTooLargeError) return undefined;
+    throw err;
   }
-  return Buffer.concat(chunks);
 }
 
 /**
@@ -114,17 +99,17 @@ export class TelegramAdapter implements ChannelAdapter {
         const file = await bot.api.getFile(fileId);
         if (!file.file_path) return undefined;
         if (file.file_size !== undefined && file.file_size > FILE_DOWNLOAD_MAX_BYTES) {
-          console.warn("Telegram file %s is over the %d-byte download cap, skipping", fileId, FILE_DOWNLOAD_MAX_BYTES);
+          log.warn("telegram", `file ${fileId} is over the ${FILE_DOWNLOAD_MAX_BYTES}-byte download cap, skipping`);
           return undefined;
         }
         const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
         const res = await fetch(url, { signal: AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS) });
         if (!res.ok) return undefined;
         const data = await readBodyCapped(res, FILE_DOWNLOAD_MAX_BYTES);
-        if (!data) console.warn("Telegram file %s is over the %d-byte download cap, skipping", fileId, FILE_DOWNLOAD_MAX_BYTES);
+        if (!data) log.warn("telegram", `file ${fileId} is over the ${FILE_DOWNLOAD_MAX_BYTES}-byte download cap, skipping`);
         return data;
       } catch (err) {
-        console.error("Telegram file download failed (%s):", fileId, err);
+        log.error("telegram", `file download failed (${fileId})`, err);
         return undefined;
       }
     };
@@ -142,7 +127,7 @@ export class TelegramAdapter implements ChannelAdapter {
       const attachments: Attachment[] = [];
 
       // Audio (voice note or audio file)
-      const audioMetadataExtras: Record<string, unknown> = {};
+      let audioMetadata: Record<string, unknown> | undefined;
       const voiceOrAudio = ctx.message.voice ?? ctx.message.audio;
       if (voiceOrAudio) {
         const data = await downloadFile(voiceOrAudio.file_id);
@@ -150,28 +135,24 @@ export class TelegramAdapter implements ChannelAdapter {
           await ctx.reply("I couldn't download the audio. Please try again.");
           return;
         }
-        const mimeType: string =
-          voiceOrAudio.mime_type ?? (ctx.message.voice ? "audio/ogg" : "audio/mpeg");
-        const durationSec: number | undefined =
-          typeof voiceOrAudio.duration === "number" ? voiceOrAudio.duration : undefined;
-
-        const result = await transcribeAudio({
-          audio: data,
-          mimeType,
-          durationSec,
+        const transcribed = await transcribeInbound({
           instanceSlug: this.instanceId,
-          conversationId: `${this.instanceId}:telegram:${ctx.chat.id}`,
+          conversationId: contactConversationId(this.instanceId, "telegram", String(ctx.chat.id)),
+          text,
+          clips: [
+            {
+              audio: data,
+              mimeType: voiceOrAudio.mime_type ?? (ctx.message.voice ? "audio/ogg" : "audio/mpeg"),
+              durationSec: typeof voiceOrAudio.duration === "number" ? voiceOrAudio.duration : undefined,
+            },
+          ],
         });
-
-        if (!result.ok) {
-          await ctx.reply(result.userReply);
+        if (!transcribed.ok) {
+          await ctx.reply(transcribed.reply);
           return;
         }
-
-        text = text ? `${text}\n${result.text}` : result.text;
-        Object.assign(audioMetadataExtras, {
-          audio: { ...result.metadata, latencyMs: result.latencyMs },
-        });
+        text = transcribed.text;
+        audioMetadata = transcribed.metadata;
       }
 
       // Photo: array of sizes, pick the largest
@@ -211,9 +192,7 @@ export class TelegramAdapter implements ChannelAdapter {
         metadata: {
           messageId: ctx.message.message_id,
           chatType: ctx.chat.type,
-          ...(Object.keys(audioMetadataExtras).length > 0
-            ? { originalKind: "audio", ...audioMetadataExtras }
-            : {}),
+          ...audioMetadata,
         },
       });
 
@@ -234,7 +213,7 @@ export class TelegramAdapter implements ChannelAdapter {
     // fleet restart used to fail the start the same way, and the channel stayed
     // disabled in the database until someone switched it back on by hand.
     void this.registerWebhook(bot, 0);
-    console.log("Telegram bot started (webhook)");
+    log.info("telegram", "bot started (webhook)");
   }
 
   /**
@@ -305,7 +284,7 @@ export class TelegramAdapter implements ChannelAdapter {
     try {
       await this.bot.api.sendChatAction(channelId, "typing");
     } catch (err) {
-      console.error("[telegram] sendChatAction failed for %s:", channelId, err);
+      log.error("telegram", `sendChatAction failed for ${channelId}`, err);
     }
   }
 
@@ -322,7 +301,7 @@ export class TelegramAdapter implements ChannelAdapter {
       } catch (err) {
         // grammY's error carries the request payload, which holds the message text:
         // the full object is debug only.
-        console.warn("[telegram] MarkdownV2 send failed, falling back to plain text:", err instanceof Error ? err.message : String(err));
+        log.warn("telegram", `MarkdownV2 send failed, falling back to plain text: ${errMsg(err)}`);
         if (shouldLog("debug")) console.debug("[telegram] MarkdownV2 send error detail:", err);
         await bot.api.sendMessage(chatId, chunk);
       }

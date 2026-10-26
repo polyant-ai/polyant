@@ -11,7 +11,6 @@ import { resolvePlatformSettings } from "../../platform/platform-settings.store.
 import { asInstanceUuid } from "../../instances/identifiers.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { errMsg } from "../../utils/error.js";
-import { mcpLog } from "../../agents/tools/mcp/mcp-logger.js";
 import {
   McpSharedOAuthProvider,
   MCP_SHARED_STATE_PREFIX,
@@ -21,6 +20,9 @@ import {
   ManagementAuditAction,
   ManagementAuditTarget,
 } from "../../management-audit/management-audit-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const mcpLog = createLogger();
 
 /** Escape the 5 HTML-significant characters (mirrors oauth-callback.controller.ts). */
 function escapeHtml(s: string): string {

@@ -2,22 +2,28 @@
 
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { toast } from "sonner";
 import { Plus, Bot, List, LayoutGrid, Upload, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import {
   TableBody,
   TableCell,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ListBadgeCell, ListHead, ListMetaCell, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { useListView } from "@/components/use-list-view";
+import { ListEmpty, ListLoading, ListNoResults } from "@/components/list-states";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { PageHeader } from "@/components/layout/page-header";
+import { useResource } from "@/hooks/use-resource";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import {
   Dialog,
   DialogContent,
@@ -25,53 +31,27 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
-import { CreateInstanceDialog } from "./create-instance-dialog";
-import { formatRelativeTime } from "@/lib/format";
+import { CreateInstanceSheet } from "./create-instance-sheet";
+import { useFormat } from "@/lib/use-format";
 import { isSafeImageSrc } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
+import { instanceStatusLabel } from "@/lib/instance-status";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { useTenantPaths, type TenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 type ViewMode = "list" | "grid";
 const STORAGE_KEY = "instances-view-mode";
+const parseViewMode = (raw: string): ViewMode | undefined => (raw === "list" || raw === "grid" ? raw : undefined);
+
 const SHOW_INACTIVE_STORAGE_KEY = "instances-show-inactive";
 
-function useViewMode(): [ViewMode, (mode: ViewMode) => void] {
-  const [mode, setMode] = useState<ViewMode>("list");
+const parseBool = (raw: string): boolean | undefined => (raw === "true" ? true : raw === "false" ? false : undefined);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as ViewMode;
-    if (saved && (saved === "list" || saved === "grid")) setMode(saved);
-  }, []);
-
-  const setAndPersist = useCallback((next: ViewMode) => {
-    setMode(next);
-    localStorage.setItem(STORAGE_KEY, next);
-  }, []);
-
-  return [mode, setAndPersist];
-}
-
-/** Persist the "show inactive instances" toggle. Default: hidden. */
-function useShowInactive(): [boolean, (next: boolean) => void] {
-  const [show, setShow] = useState<boolean>(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(SHOW_INACTIVE_STORAGE_KEY);
-    if (saved === "true") setShow(true);
-  }, []);
-
-  const setAndPersist = useCallback((next: boolean) => {
-    setShow(next);
-    localStorage.setItem(SHOW_INACTIVE_STORAGE_KEY, String(next));
-  }, []);
-
-  return [show, setAndPersist];
-}
-
+/** The same agents as cards; each card is a real link to the agent's page. */
 function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: TenantPaths }) {
+  const { t } = useI18n();
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+    <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {instances.map((inst) => (
         <Link
           key={inst.id}
@@ -80,28 +60,23 @@ function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: Tena
         >
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
             {inst.icon && isSafeImageSrc(inst.icon) ? (
-              <Image
-                src={inst.icon}
-                alt=""
-                width={64}
-                height={64}
-                className="h-full w-full object-cover"
-                unoptimized
-              />
+              <Image src={inst.icon} alt="" width={64} height={64} className="h-full w-full object-cover" unoptimized />
             ) : (
               <Bot className="h-8 w-8 text-muted-foreground" />
             )}
           </div>
           <div className="w-full text-center">
-            <p className="truncate text-sm font-medium group-hover:underline">
-              {inst.name}
-            </p>
-            <Badge
-              variant={inst.status === "active" ? "default" : "secondary"}
-              className="mt-1 text-[10px]"
-            >
-              {inst.status}
-            </Badge>
+            <p className="truncate text-sm font-medium group-hover:underline">{inst.name}</p>
+            {inst.description && (
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground" title={inst.description}>
+                {inst.description}
+              </p>
+            )}
+            <div className="mt-1">
+              <StatusBadge tone={inst.status === "active" ? "positive" : "neutral"}>
+                {instanceStatusLabel(inst.status, t)}
+              </StatusBadge>
+            </div>
           </div>
         </Link>
       ))}
@@ -109,70 +84,60 @@ function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: Tena
   );
 }
 
+/**
+ * The agents of the workspace. An agent is a destination with a page of its own,
+ * so a row goes there instead of opening a drawer.
+ */
 function InstanceList({ instances, t, paths }: {
   instances: Instance[];
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   paths: TenantPaths;
 }) {
-  const router = useRouter();
+  const fmt = useFormat();
   return (
     <ListTable>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <ListHead>{t("instances.table.name")}</ListHead>
-          <ListHead>{t("instances.table.slug")}</ListHead>
-          <ListHead>{t("instances.table.status")}</ListHead>
-          <ListHead className="hidden md:table-cell">
-            {t("instances.table.description")}
-          </ListHead>
-          <ListHead align="end">
-            {t("instances.table.updated")}
-          </ListHead>
+          <ListHead className="w-48">{t("instances.table.slug")}</ListHead>
+          <ListHead className="w-32">{t("instances.table.status")}</ListHead>
+          <ListHead align="end" className="w-36">{t("instances.table.updated")}</ListHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {instances.map((inst) => (
-          <ListRow key={inst.id} onOpen={() => router.push(paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`))}>
-            <ListNameCell
-              name={inst.name}
-              onOpen={() => router.push(paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`))}
-              icon={
-                inst.icon && isSafeImageSrc(inst.icon) ? (
-                  <Image
-                    src={inst.icon}
-                    alt=""
-                    width={24}
-                    height={24}
-                    className="h-6 w-6 shrink-0 rounded object-cover"
-                    unoptimized
-                  />
-                ) : (
-                  <Bot className="h-6 w-6 shrink-0 text-muted-foreground" />
-                )
-              }
-            />
-            <TableCell>
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                {inst.slug}
-              </code>
-            </TableCell>
-            <TableCell>
-              <Badge
-                variant={
-                  inst.status === "active" ? "default" : "secondary"
+        {instances.map((inst) => {
+          const href = paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`);
+          return (
+            <ListRow key={inst.id} href={href}>
+              <ListNameCell
+                name={inst.name}
+                href={href}
+                summary={inst.description || undefined}
+                icon={
+                  inst.icon && isSafeImageSrc(inst.icon) ? (
+                    <Image
+                      src={inst.icon}
+                      alt=""
+                      width={24}
+                      height={24}
+                      className="h-6 w-6 shrink-0 rounded object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <Bot className="h-6 w-6 shrink-0 text-muted-foreground" />
+                  )
                 }
-              >
-                {inst.status}
-              </Badge>
-            </TableCell>
-            <TableCell className="hidden max-w-xs truncate md:table-cell text-muted-foreground">
-              {inst.description ?? "\u2014"}
-            </TableCell>
-            <TableCell className="text-right text-muted-foreground">
-              {formatRelativeTime(inst.updatedAt, t)}
-            </TableCell>
-          </ListRow>
-        ))}
+              />
+              <TableCell>
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{inst.slug}</code>
+              </TableCell>
+              <ListBadgeCell tone={inst.status === "active" ? "positive" : "neutral"}>
+                {instanceStatusLabel(inst.status, t)}
+              </ListBadgeCell>
+              <ListMetaCell align="end">{fmt.relative(inst.updatedAt)}</ListMetaCell>
+            </ListRow>
+          );
+        })}
       </TableBody>
     </ListTable>
   );
@@ -182,11 +147,13 @@ export default function InstancesPage() {
   const { t } = useI18n();
   const router = useRouter();
   const paths = useTenantPaths();
-  const [instances, setInstances] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload } = useResource(["instances", paths.workspace("")], () => api.instances.list());
+  const instances: Instance[] = data?.instances ?? [];
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [viewMode, setViewMode] = useViewMode();
-  const [showInactive, setShowInactive] = useShowInactive();
+  const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>(STORAGE_KEY, "list", parseViewMode);
+  // Hide inactive instances by default.
+  const [showInactive, setShowInactive] = usePersistedState(SHOW_INACTIVE_STORAGE_KEY, false, parseBool);
   const [importing, setImporting] = useState(false);
   const [importWarnings, setImportWarnings] = useState<{ type: string; message: string }[] | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -206,9 +173,8 @@ export default function InstancesPage() {
       }
 
       toast.success(t("exportImport.import.success"));
-      await fetchInstances();
 
-      // Navigate to the new instance
+      // The list page reloads itself when it is opened again.
       router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.import.failed")));
@@ -218,151 +184,124 @@ export default function InstancesPage() {
     }
   };
 
-  const fetchInstances = async () => {
-    try {
-      const { instances } = await api.instances.list();
-      setInstances(instances);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchInstances();
-    // Load once on mount. `fetchInstances` is a stable closure; adding it to
-    // deps without useCallback would re-run every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Hide inactive instances by default. The toggle is purely client-side —
-  // the API still returns every instance regardless of status.
-  const visibleInstances = showInactive
-    ? instances
-    : instances.filter((i) => i.status === "active");
-  const hiddenCount = instances.length - visibleInstances.length;
+  // The active/all toggle and the search are purely client-side: the API
+  // returns every agent regardless of status.
+  const visibleInstances = useListView(
+    instances.filter((i) => showInactive || i.status === "active"),
+    search,
+    (i) => [i.name, i.slug, i.description, instanceStatusLabel(i.status, t)],
+    (i) => i.name,
+  );
+  const hiddenCount = instances.filter((i) => i.status !== "active").length;
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {t("instances.title")}
-          </h1>
-          <p className="mt-2 text-muted-foreground">
-            {t("instances.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-md border">
-            <Button
-              variant={viewMode === "list" ? "default" : "ghost"}
-              size="icon"
-              className="h-9 w-9 rounded-r-none"
-              onClick={() => setViewMode("list")}
-              title={t("instances.viewList")}
-            >
-              <List className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === "grid" ? "default" : "ghost"}
-              size="icon"
-              className="h-9 w-9 rounded-l-none"
-              onClick={() => setViewMode("grid")}
-              title={t("instances.viewGrid")}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex items-center rounded-md border">
-            <Button
-              variant={!showInactive ? "default" : "ghost"}
-              size="sm"
-              className="h-9 rounded-r-none"
-              onClick={() => setShowInactive(false)}
-            >
-              {t("instances.filter.activeOnly")}
-            </Button>
-            <Button
-              variant={showInactive ? "default" : "ghost"}
-              size="sm"
-              className="h-9 rounded-l-none"
-              onClick={() => setShowInactive(true)}
-            >
-              {t("instances.filter.all")}
-              {!showInactive && hiddenCount > 0 ? (
-                <span className="ml-1 opacity-70">({hiddenCount})</span>
-              ) : null}
-            </Button>
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => importFileRef.current?.click()}
-            disabled={importing}
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            {importing ? t("exportImport.import.uploading") : t("exportImport.importNew.button")}
-          </Button>
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={handleImportFile}
-          />
-          <Button onClick={() => setDialogOpen(true)} data-tour="new-agent">
-            <Plus className="h-4 w-4" />
-            {t("instances.newInstance")}
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-8">
-        {loading ? (
-          viewMode === "list" ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-32 w-full rounded-lg" />
-              ))}
-            </div>
+      <PageHeader
+        title={t("instances.title")}
+        subtitle={t("instances.subtitle")}
+        actions={
+          data !== undefined && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => importFileRef.current?.click()}
+                disabled={importing}
+                className="gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                {importing ? t("exportImport.import.uploading") : t("exportImport.importNew.button")}
+              </Button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <Button onClick={() => setDialogOpen(true)} data-tour="new-agent">
+                <Plus className="h-4 w-4" />
+                {t("instances.newInstance")}
+              </Button>
+            </>
           )
-        ) : visibleInstances.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="rounded-full bg-muted p-4">
-              <Bot className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="mt-4 text-lg font-medium">
-              {t("instances.empty.title")}
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("instances.empty.description")}
-            </p>
-            <Button className="mt-4" onClick={() => setDialogOpen(true)}>
-              <Plus className="h-4 w-4" />
+        }
+      />
+
+      {error && data === undefined ? (
+        <LoadFailed onRetry={reload} />
+      ) : loading && data === undefined ? (
+        <ListLoading />
+      ) : instances.length === 0 ? (
+        <ListEmpty
+          title={t("instances.empty.title")}
+          description={t("instances.empty.description")}
+          action={
+            <Button variant="outline" onClick={() => setDialogOpen(true)}>
               {t("instances.empty.cta")}
             </Button>
-          </div>
-        ) : viewMode === "list" ? (
-          <InstanceList instances={visibleInstances} t={t} paths={paths} />
-        ) : (
-          <InstanceGrid instances={visibleInstances} paths={paths} />
-        )}
-      </div>
+          }
+        />
+      ) : (
+        <div>
+          <ListToolbar value={search} onChange={setSearch} className="mt-6">
+            <div className="flex items-center rounded-md border">
+              <Button
+                variant={viewMode === "list" ? "default" : "ghost"}
+                size="icon"
+                className="h-9 w-9 rounded-r-none"
+                onClick={() => setViewMode("list")}
+                title={t("instances.viewList")}
+                aria-label={t("instances.viewList")}
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "grid" ? "default" : "ghost"}
+                size="icon"
+                className="h-9 w-9 rounded-l-none"
+                onClick={() => setViewMode("grid")}
+                title={t("instances.viewGrid")}
+                aria-label={t("instances.viewGrid")}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex items-center rounded-md border">
+              <Button
+                variant={!showInactive ? "default" : "ghost"}
+                size="sm"
+                className="h-9 rounded-r-none"
+                onClick={() => setShowInactive(false)}
+              >
+                {t("instances.filter.activeOnly")}
+              </Button>
+              <Button
+                variant={showInactive ? "default" : "ghost"}
+                size="sm"
+                className="h-9 rounded-l-none"
+                onClick={() => setShowInactive(true)}
+              >
+                {t("instances.filter.all")}
+                {!showInactive && hiddenCount > 0 ? <span className="ml-1 opacity-70">({hiddenCount})</span> : null}
+              </Button>
+            </div>
+          </ListToolbar>
+          {visibleInstances.length === 0 ? (
+            <ListNoResults />
+          ) : viewMode === "list" ? (
+            <InstanceList instances={visibleInstances} t={t} paths={paths} />
+          ) : (
+            <InstanceGrid instances={visibleInstances} paths={paths} />
+          )}
+        </div>
+      )}
 
-      <CreateInstanceDialog
+      <CreateInstanceSheet
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onCreated={() => {
           setDialogOpen(false);
-          fetchInstances();
+          reload();
         }}
       />
 

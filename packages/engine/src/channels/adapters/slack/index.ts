@@ -7,6 +7,12 @@ import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { contactConversationId } from "../../outbound-conversation.js";
+import { TtlCache } from "../../../utils/ttl-cache.js";
+import { createLogger } from "../../../utils/create-logger.js";
+import { errMsg } from "../../../utils/error.js";
+
+const log = createLogger();
 
 export interface SlackConfig {
   botToken: string;
@@ -20,7 +26,7 @@ export class SlackAdapter implements ChannelAdapter {
   private app: App | null = null;
   private botUserId: string | null = null;
   private mentionRegex: RegExp | null = null;
-  private readonly userCache = new Map<string, { name: string; expiresAt: number }>();
+  private readonly userCache = new TtlCache<string, string>({ maxSize: 1000, ttlMs: USER_CACHE_TTL_MS });
 
   constructor(
     private readonly instanceId: InstanceSlug,
@@ -69,7 +75,7 @@ export class SlackAdapter implements ChannelAdapter {
           ts,
           threadTs,
           // DM = single ongoing 1:1 conversation, keyed on channel only.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.instanceId}:slack:${channel}`,
+          [METADATA_CONVERSATION_ID_OVERRIDE]: contactConversationId(this.instanceId, "slack", channel),
         },
       };
 
@@ -108,7 +114,7 @@ export class SlackAdapter implements ChannelAdapter {
           threadTs,
           // One conversation per thread, so different mentions in the same
           // channel don't collapse into a single mixed history.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.instanceId}:slack:${event.channel}:${threadTs}`,
+          [METADATA_CONVERSATION_ID_OVERRIDE]: contactConversationId(this.instanceId, "slack", `${event.channel}:${threadTs}`),
         },
       };
 
@@ -120,7 +126,7 @@ export class SlackAdapter implements ChannelAdapter {
       }
     });
 
-    console.log("Slack bot started (webhook)");
+    log.info("slack", "bot started (webhook)");
   }
 
   verifyRequest(rawBody: Buffer, signature: string, timestamp: string): boolean {
@@ -166,6 +172,7 @@ export class SlackAdapter implements ChannelAdapter {
   }
 
   async shutdown(): Promise<void> {
+    this.userCache.destroy();
     if (this.app) {
       await this.app.stop();
     }
@@ -196,8 +203,7 @@ export class SlackAdapter implements ChannelAdapter {
 
   private async resolveUserName(client: App["client"], userId: string): Promise<string> {
     const cached = this.userCache.get(userId);
-    const now = Date.now();
-    if (cached && cached.expiresAt > now) return cached.name;
+    if (cached !== undefined) return cached;
 
     try {
       const info = await client.users.info({ user: userId });
@@ -208,10 +214,10 @@ export class SlackAdapter implements ChannelAdapter {
         info.user?.real_name ||
         info.user?.name ||
         userId;
-      this.userCache.set(userId, { name, expiresAt: now + USER_CACHE_TTL_MS });
+      this.userCache.set(userId, name);
       return name;
     } catch (err) {
-      console.warn(`[slack] users.info failed for ${userId}:`, err instanceof Error ? err.message : err);
+      log.warn("slack", `users.info failed for ${userId}: ${errMsg(err)}`);
       return userId;
     }
   }

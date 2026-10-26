@@ -53,7 +53,7 @@ async function getLatencyOverview(
   instanceId?: string,
 ): Promise<LatencyOverview> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const tenant = buildOrgScopedAgentFilterFragment(scope);
 
   const [row] = asRows<{
     p50: number | null;
@@ -73,7 +73,7 @@ async function getLatencyOverview(
         COUNT(*)::int AS sample_count
       FROM pipeline_traces
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${tenant}
     `),
   );
 
@@ -87,49 +87,25 @@ async function getLatencyOverview(
   };
 }
 
-// ── Daily Percentiles ────────────────────────────────────────────────
+// ── Daily Percentiles and Phase Breakdown ───────────────────────────
 
-async function getDailyLatency(
+/**
+ * The daily percentiles and the daily phase averages, from ONE scan: both group
+ * the same `pipeline_traces` rows by day, so two queries would read the window twice.
+ */
+async function getDailyLatencyAndPhases(
   scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-): Promise<LatencyDailyRow[]> {
+): Promise<{ dailyLatency: LatencyDailyRow[]; phaseBreakdown: PhaseBreakdownRow[] }> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const tenant = buildOrgScopedAgentFilterFragment(scope);
 
-  return asRows<{ date: string; p50: number; p95: number; p99: number }>(
-    await analyticsDb.execute(sql`
-      SELECT
-        DATE(created_at) AS date,
-        percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms)::int AS p50,
-        percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)::int AS p95,
-        percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms)::int AS p99
-      FROM pipeline_traces
-      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
-      GROUP BY DATE(created_at)
-      ORDER BY date
-    `),
-  ).map((r) => ({
-    date: String(r.date),
-    p50: r.p50 ?? 0,
-    p95: r.p95 ?? 0,
-    p99: r.p99 ?? 0,
-  }));
-}
-
-// ── Phase Breakdown (daily averages) ─────────────────────────────────
-
-async function getPhaseBreakdown(
-  scope: TenantScope,
-  range: DateRange,
-  instanceId?: string,
-): Promise<PhaseBreakdownRow[]> {
-  const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
-
-  return asRows<{
+  const rows = asRows<{
     date: string;
+    p50: number;
+    p95: number;
+    p99: number;
     avg_context_prep: number;
     avg_tool_building: number;
     avg_llm_call: number;
@@ -137,21 +113,34 @@ async function getPhaseBreakdown(
     await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
+        percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms)::int AS p50,
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)::int AS p95,
+        percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms)::int AS p99,
         COALESCE(AVG(context_prep_ms), 0)::float AS avg_context_prep,
         COALESCE(AVG(tool_building_ms), 0)::float AS avg_tool_building,
         COALESCE(AVG(llm_call_ms), 0)::float AS avg_llm_call
       FROM pipeline_traces
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${tenant}
       GROUP BY DATE(created_at)
       ORDER BY date
     `),
-  ).map((r) => ({
-    date: String(r.date),
-    contextPrep: r.avg_context_prep ?? 0,
-    toolBuilding: r.avg_tool_building ?? 0,
-    llmCall: r.avg_llm_call ?? 0,
-  }));
+  );
+
+  return {
+    dailyLatency: rows.map((r) => ({
+      date: String(r.date),
+      p50: r.p50 ?? 0,
+      p95: r.p95 ?? 0,
+      p99: r.p99 ?? 0,
+    })),
+    phaseBreakdown: rows.map((r) => ({
+      date: String(r.date),
+      contextPrep: r.avg_context_prep ?? 0,
+      toolBuilding: r.avg_tool_building ?? 0,
+      llmCall: r.avg_llm_call ?? 0,
+    })),
+  };
 }
 
 // ── Slowest Tool Calls ───────────────────────────────────────────────
@@ -162,7 +151,7 @@ async function getSlowestTools(
   instanceId?: string,
 ): Promise<ToolLatencyRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const tenant = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{
     tool: string;
@@ -181,7 +170,7 @@ async function getSlowestTools(
       FROM pipeline_traces
       CROSS JOIN LATERAL jsonb_array_elements(tool_calls) AS tool_call
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${tenant}
         AND tool_calls IS NOT NULL
         AND jsonb_array_length(tool_calls) > 0
       GROUP BY tool_call->>'name'
@@ -204,10 +193,9 @@ export async function getLatencyAnalytics(
   range: DateRange,
   instanceId?: string,
 ): Promise<LatencyData> {
-  const [overview, dailyLatency, phaseBreakdown, slowestTools] = await Promise.all([
+  const [overview, { dailyLatency, phaseBreakdown }, slowestTools] = await Promise.all([
     getLatencyOverview(scope, range, instanceId),
-    getDailyLatency(scope, range, instanceId),
-    getPhaseBreakdown(scope, range, instanceId),
+    getDailyLatencyAndPhases(scope, range, instanceId),
     getSlowestTools(scope, range, instanceId),
   ]);
 

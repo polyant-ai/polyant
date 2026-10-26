@@ -3,6 +3,9 @@
 import type { TierMapping, CostBreakdown } from "./types.js";
 import { providerConfigs, getModelCapabilities } from "./model-catalog.js";
 import type { ModelCapabilities, ReasoningLevel, ReasoningToggle, WireDialect } from "./model-catalog.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 // The per-model catalog (data) lives in model-catalog.ts; re-exported here so
 // existing importers (`./config.js`) keep working. This file holds the LOGIC:
@@ -40,6 +43,15 @@ export function resolveModel(provider: string, tier: string): string {
  * gate exists to prevent, on the path where no catalog row can correct it.
  */
 const BEDROCK_NOVA = /nova/;
+
+/** Cross-region inference-profile prefix a Bedrock model id may carry. */
+const BEDROCK_REGION_PREFIX = "(?:(?:eu|us|apac|global)\\.)?";
+
+/** The adaptive-Claude releases (Opus 4.7/4.8, Opus 5, Sonnet 5, Haiku 5, Fable 5): adaptive thinking wire, no sampling params. */
+const ADAPTIVE_CLAUDE = "opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5";
+const ADAPTIVE_CLAUDE_ANTHROPIC = new RegExp(`^claude-(${ADAPTIVE_CLAUDE})`);
+const ADAPTIVE_CLAUDE_BEDROCK = new RegExp(`^${BEDROCK_REGION_PREFIX}anthropic\\.claude-(${ADAPTIVE_CLAUDE})`);
+const ADAPTIVE_CLAUDE_ANY = new RegExp(`claude-(?:${ADAPTIVE_CLAUDE})`);
 
 /** Bedrock families that support Converse prompt caching (`cachePoint`). */
 const BEDROCK_CACHE_CAPABLE = new RegExp(`anthropic|${BEDROCK_NOVA.source}`);
@@ -110,9 +122,9 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
       // top-level `|`, so without the group `my-gpt-5.6-tune` would match too.
       return /^(?:o[134]\b|gpt-5\.6|gpt-6)/.test(modelId);
     case "anthropic":
-      return /^claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
+      return ADAPTIVE_CLAUDE_ANTHROPIC.test(modelId);
     case "bedrock":
-      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
+      return ADAPTIVE_CLAUDE_BEDROCK.test(modelId);
     default:
       return false;
   }
@@ -137,7 +149,7 @@ export function reasoningControlFallback(
   if (!reasoningCapableFallback(provider, modelId)) return undefined;
   const claudeAdaptive =
     (provider === "anthropic" || provider === "bedrock") &&
-    /claude-(?:opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
+    ADAPTIVE_CLAUDE_ANY.test(modelId);
   if (claudeAdaptive) return "adaptive";
   switch (provider) {
     case "openai":
@@ -180,8 +192,9 @@ export function warnCatalogFallback(gate: string, provider: string, modelId: str
   const key = `${gate}:${provider}:${modelId}`;
   if (catalogFallbackWarned.has(key)) return;
   catalogFallbackWarned.add(key);
-  console.warn(
-    `[ai-gateway] ${gate}: no catalog entry for ${provider || "?"}/${modelId || "?"} — using regex fallback`,
+  log.warn(
+    "ai-gateway",
+    `${gate}: no catalog entry for ${provider || "?"}/${modelId || "?"} — using regex fallback`,
   );
 }
 
@@ -393,6 +406,26 @@ export function estimateSttCost(
 /*  Capability gates (catalog lookup, regex fallback)                  */
 /* ------------------------------------------------------------------ */
 
+type CatalogEntry = NonNullable<ReturnType<typeof getModelCapabilities>>;
+
+/**
+ * The catalog-or-fallback read every capability accessor shares: the catalog
+ * row answers when there is one; otherwise the fallback does, and the miss is
+ * logged under the accessor's name.
+ */
+function fromCatalog<T>(
+  gate: string,
+  provider: string,
+  modelId: string,
+  pick: (entry: CatalogEntry) => T,
+  fallback: () => T,
+): T {
+  const entry = getModelCapabilities(provider, modelId);
+  if (entry) return pick(entry);
+  warnCatalogFallback(gate, provider, modelId);
+  return fallback();
+}
+
 /**
  * Returns true when the (provider, model) pair supports extended thinking /
  * reasoning. Reads the catalog `reasoning` field; falls back to the historical
@@ -404,10 +437,7 @@ export function estimateSttCost(
  */
 export function isThinkingCapable(provider: string, modelId: string): boolean {
   if (!provider || !modelId) return false;
-  const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.reasoning;
-  warnCatalogFallback("isThinkingCapable", provider, modelId);
-  return reasoningCapableFallback(provider, modelId);
+  return fromCatalog("isThinkingCapable", provider, modelId, (e) => e.reasoning, () => reasoningCapableFallback(provider, modelId));
 }
 
 /**
@@ -431,10 +461,7 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
  */
 export function isReasoningAlwaysOn(provider: string, modelId: string): boolean {
   if (!provider || !modelId) return false;
-  const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.reasoningAlwaysOn ?? false;
-  warnCatalogFallback("isReasoningAlwaysOn", provider, modelId);
-  return reasoningAlwaysOnFallback(modelId);
+  return fromCatalog("isReasoningAlwaysOn", provider, modelId, (e) => e.reasoningAlwaysOn ?? false, () => reasoningAlwaysOnFallback(modelId));
 }
 
 /**
@@ -449,10 +476,7 @@ export function reasoningControlFor(
   modelId: string,
 ): "effort" | "budget" | "adaptive" | undefined {
   if (!provider || !modelId) return undefined;
-  const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.reasoningControl;
-  warnCatalogFallback("reasoningControlFor", provider, modelId);
-  return reasoningControlFallback(provider, modelId);
+  return fromCatalog("reasoningControlFor", provider, modelId, (e) => e.reasoningControl, () => reasoningControlFallback(provider, modelId));
 }
 
 /**
@@ -483,10 +507,7 @@ export function reasoningLevelsFallback(provider: string, modelId: string): read
  */
 export function reasoningLevelsFor(provider: string, modelId: string): readonly ReasoningLevel[] {
   if (!provider || !modelId) return [];
-  const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.reasoningLevels ?? [];
-  warnCatalogFallback("reasoningLevelsFor", provider, modelId);
-  return reasoningLevelsFallback(provider, modelId);
+  return fromCatalog("reasoningLevelsFor", provider, modelId, (e) => e.reasoningLevels ?? [], () => reasoningLevelsFallback(provider, modelId));
 }
 
 /**
@@ -561,10 +582,7 @@ export function temperatureSupported(provider: string, modelId: string, thinking
  * runtime marker gate (providers/bedrock.ts) — ONE source of truth.
  */
 export function cacheSupported(provider: string, model: string): boolean {
-  const entry = getModelCapabilities(provider, model);
-  if (entry) return entry.cache;
-  warnCatalogFallback("cacheSupported", provider, model);
-  return cacheCapableFallback(provider, model);
+  return fromCatalog("cacheSupported", provider, model, (e) => e.cache, () => cacheCapableFallback(provider, model));
 }
 
 /**
@@ -575,10 +593,7 @@ export function cacheSupported(provider: string, model: string): boolean {
  * turn. Absent field → true (the Anthropic behaviour every other row has).
  */
 export function cacheOnToolMessagesSupported(provider: string, model: string): boolean {
-  const entry = getModelCapabilities(provider, model);
-  if (entry) return entry.cacheOnToolMessages ?? true;
-  warnCatalogFallback("cacheOnToolMessagesSupported", provider, model);
-  return cacheOnToolMessagesFallback(provider, model);
+  return fromCatalog("cacheOnToolMessagesSupported", provider, model, (e) => e.cacheOnToolMessages ?? true, () => cacheOnToolMessagesFallback(provider, model));
 }
 
 /**

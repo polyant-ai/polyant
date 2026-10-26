@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { writeFile, mkdir } from "fs/promises";
 import { dirname } from "path";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import {
   ensureWorkspaceDir,
   resolveWorkspacePath,
@@ -117,13 +117,7 @@ export default defineTool({
 
         return { path, sizeBytes, created: true };
       } catch (err) {
-        const message = errMsg(err);
-        ctx.audit.log({
-          action: "workspace.writeFile",
-          details: { path },
-          success: false,
-          error: message,
-        });
+        const message = auditFailure(ctx, "workspace.writeFile", { path }, err);
         return { error: message };
       }
     },

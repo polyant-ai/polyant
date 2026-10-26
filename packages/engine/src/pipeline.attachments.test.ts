@@ -61,7 +61,7 @@ const rolesWritten = () => mockAppendMessages.mock.calls.flatMap(([, rows]) => (
 describe("afterResponse — attachment storage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   });
 
   it("persists the turn without the attachment when its upload fails", async () => {
@@ -95,8 +95,8 @@ describe("afterResponse — attachment storage", () => {
 
     respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
 
-    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
-    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("+39");
+    await vi.waitFor(() => expect(process.stderr.write).toHaveBeenCalled());
+    expect(JSON.stringify(vi.mocked(process.stderr.write).mock.calls)).not.toContain("+39");
   });
 });
 

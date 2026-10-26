@@ -17,13 +17,16 @@ import { assertSafeUrl, pinnedLookup, type ResolvedAddress } from "./url-safety.
  * dependency upgrade gets to change on its own.
  */
 export async function createSafeDispatcher(url: URL): Promise<{ dispatcher: unknown }> {
-  const resolved = await assertSafeUrl(url);
+  return { dispatcher: await pinnedAgent(await assertSafeUrl(url)) };
+}
+
+/** The one place the pinning policy is written: an undici Agent that connects only to `resolved`. */
+async function pinnedAgent(resolved: ResolvedAddress) {
   const { Agent } = await import("undici");
-  const dispatcher = new Agent({
+  return new Agent({
     allowH2: false,
     connect: { lookup: pinnedLookup(resolved) as never },
   });
-  return { dispatcher };
 }
 
 /** Seam for tests: which SSRF policy decides whether the URL may be fetched. */
@@ -50,12 +53,7 @@ export async function safeFetch(
   deps: SafeFetchDeps = {},
 ): Promise<Response> {
   const resolve = deps.resolve ?? assertSafeUrl;
-  const resolved = await resolve(url);
-  const { Agent } = await import("undici");
-  const dispatcher = new Agent({
-    allowH2: false,
-    connect: { lookup: pinnedLookup(resolved) as never },
-  });
+  const dispatcher = await pinnedAgent(await resolve(url));
   try {
     const res = await pairedFetch(url, { ...init, dispatcher });
     // Graceful: the body still streaming finishes first, then the sockets close.

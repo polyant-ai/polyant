@@ -22,6 +22,12 @@ import {
   type TenantScope,
 } from "../authz/scope-filter.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { UPDATABLE_INSTANCE_KEYS, type UpdatableInstanceFields } from "./instance-fields.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
+
+export { UPDATABLE_INSTANCE_KEYS, type UpdatableInstanceFields };
 
 // Every agent belongs to exactly one workspace, and a workspace to exactly one
 // organization. Which workspace a NEW agent lands in is decided by the caller's
@@ -106,79 +112,29 @@ export async function resolveWorkspaceIdForPrincipal(
   return row.id;
 }
 
-export interface Instance {
+type InstanceRow = typeof instances.$inferSelect;
+
+/**
+ * An agent as the rest of the engine sees it: every column of `instances`, with
+ * the branded identifiers and the closed vocabularies narrowed. Derived from the
+ * table so a new column is declared once; the field documentation lives on the
+ * schema columns.
+ */
+export type Instance = Omit<InstanceRow, "id" | "slug" | "embeddingProvider"> & {
   id: InstanceUuid;
   slug: InstanceSlug;
-  name: string;
-  description: string | null;
-  status: string;
-  provider: string | null;
-  model: string | null;
-  memoryEnabled: boolean;
-  knowledgeEnabled: boolean;
-  langsmithEnabled: boolean;
-  langsmithProject: string | null;
-  authEnabled: boolean;
-  /**
-   * Persisted user preference: enable extended thinking on the model.
-   *
-   * The field is stored as-is across model changes; the runtime config-resolver
-   * gates it behind `isThinkingCapable(provider, model)` so a stale `true`
-   * after switching to a non-capable model has no effect.
-   */
-  thinkingEnabled: boolean;
-  /** Reasoning intensity when thinkingEnabled (low|medium|high). Consumed only by Nebius so far. */
-  thinkingLevel: string;
-  /** Sampling temperature [0, 2]; null = provider default. Gated at runtime by temperatureSupported. */
-  temperature: number | null;
-  /** When true, the conversation state store is rendered read-only into the system prompt. */
-  stateInPromptEnabled: boolean;
-  /** When true, inject the current date/time into every turn (volatile tail). */
-  datetimeInjectionEnabled: boolean;
-  /**
-   * The six behaviours that used to be deployment configuration. NULL on any of
-   * them means "not set here" and falls back to the environment default;
-   * `instances/agent-settings.ts` is the only place that fallback is applied.
-   */
-  datetimeTimezone: string | null;
-  datetimeLocale: string | null;
-  dedupSimilarityThreshold: number | null;
-  messageSoftDebounceMs: number | null;
-  messageTypingDelayMs: number | null;
-  messageMaxRestarts: number | null;
-  /** Per-instance prompt-cache switch (off = skip all cache markers, no cache write). */
-  cacheEnabled: boolean;
-  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
-  cacheTtl: string;
-  /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
-  a2aEnabled: boolean;
-  /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
-  toolResultsInHistoryEnabled: boolean;
-  /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
-  debugEnabled: boolean;
-  /** When true, inbound attachments are copied to the agent's bucket. */
-  attachmentStorageEnabled: boolean;
-  /** GDPR opt-out feature toggle. */
-  optoutEnabled: boolean;
-  optoutStopKeywords: string[];
-  optoutResumeKeywords: string[];
-  optoutClosingMessage: string | null;
-  optoutResumeMessage: string | null;
-  optoutInjectPromptHint: boolean;
-  webContextFieldMapping: Record<string, string>;
-  icon: string | null;
-  sttProvider: string;
-  embeddingDim: number;
   /** Embedding provider, independent of the chat `provider`. */
   embeddingProvider: EmbeddingProvider;
-  /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
-  workspaceId: string;
-  createdAt: Date | null;
-  updatedAt: Date | null;
-}
+};
 
 function toInstance(row: typeof instances.$inferSelect): Instance {
-  return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
+  return {
+    ...row,
+    id: asInstanceUuid(row.id),
+    slug: asInstanceSlug(row.slug),
+    // text column whose values the engine restricts to a closed vocabulary
+    embeddingProvider: row.embeddingProvider as EmbeddingProvider,
+  };
 }
 
 /**
@@ -276,7 +232,7 @@ export async function seedInstances(): Promise<void> {
     name: "Creative Assistant",
     description: "Example alternative instance — informal and playful",
   });
-  console.log("Instances seeded (default, creative)");
+  log.info("instances", "Instances seeded (default, creative)");
 }
 
 /**
@@ -404,118 +360,6 @@ export async function createInstanceWithDefaults(
     return instance;
   });
 }
-
-/** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
- * it is owned by the embedding-reset pipeline (set when the controller accepts a
- * provider or dimension change, together with the wipe) and must never be set
- * directly, or it desyncs from the actual populated vector column. */
-type UpdatableInstanceFields = {
-  name?: string;
-  description?: string | null;
-  status?: string;
-  provider?: string | null;
-  model?: string | null;
-  memoryEnabled?: boolean;
-  knowledgeEnabled?: boolean;
-  langsmithEnabled?: boolean;
-  langsmithProject?: string | null;
-  authEnabled?: boolean;
-  thinkingEnabled?: boolean;
-  thinkingLevel?: string;
-  temperature?: number | null;
-  stateInPromptEnabled?: boolean;
-  datetimeInjectionEnabled?: boolean;
-  cacheEnabled?: boolean;
-  cacheTtl?: string;
-  a2aEnabled?: boolean;
-  toolResultsInHistoryEnabled?: boolean;
-  debugEnabled?: boolean;
-  attachmentStorageEnabled?: boolean;
-  icon?: string | null;
-  sttProvider?: string;
-  /** Embedder choice. Changing it triggers a destructive wipe in the controller. */
-  embeddingProvider?: EmbeddingProvider;
-  optoutEnabled?: boolean;
-  optoutStopKeywords?: string[];
-  optoutResumeKeywords?: string[];
-  optoutClosingMessage?: string | null;
-  optoutResumeMessage?: string | null;
-  optoutInjectPromptHint?: boolean;
-  webContextFieldMapping?: Record<string, string>;
-  /**
-   * The six per-agent settings that replaced `DATETIME_*`, `MESSAGE_*` and
-   * `DEDUP_SIMILARITY_THRESHOLD`. `null` is a real value here — it clears the
-   * column and hands the agent back to the deployment default, which is what
-   * `resolveDatetimeSettings` and friends read.
-   */
-  datetimeTimezone?: string | null;
-  datetimeLocale?: string | null;
-  dedupSimilarityThreshold?: number | null;
-  messageSoftDebounceMs?: number | null;
-  messageTypingDelayMs?: number | null;
-  messageMaxRestarts?: number | null;
-};
-
-// `as const satisfies` rather than a `keyof` annotation: the annotation widened
-// every element to `keyof UpdatableInstanceFields`, which would make the
-// exhaustiveness check below compare a type against itself and always pass.
-const UPDATABLE_INSTANCE_KEYS = [
-  "name",
-  "description",
-  "status",
-  "provider",
-  "model",
-  "memoryEnabled",
-  "knowledgeEnabled",
-  "langsmithEnabled",
-  "langsmithProject",
-  "authEnabled",
-  "thinkingEnabled",
-  "thinkingLevel",
-  "temperature",
-  "stateInPromptEnabled",
-  "datetimeInjectionEnabled",
-  "cacheEnabled",
-  "cacheTtl",
-  "a2aEnabled",
-  "toolResultsInHistoryEnabled",
-  "debugEnabled",
-  "attachmentStorageEnabled",
-  "icon",
-  "sttProvider",
-  "embeddingProvider",
-  "optoutEnabled",
-  "optoutStopKeywords",
-  "optoutResumeKeywords",
-  "optoutClosingMessage",
-  "optoutResumeMessage",
-  "optoutInjectPromptHint",
-  "webContextFieldMapping",
-  "datetimeTimezone",
-  "datetimeLocale",
-  "dedupSimilarityThreshold",
-  "messageSoftDebounceMs",
-  "messageTypingDelayMs",
-  "messageMaxRestarts",
-] as const satisfies readonly (keyof UpdatableInstanceFields)[];
-
-/**
- * The type and the runtime list must name the same fields, and nothing used to
- * make them: the six per-agent settings above were added to the controller, to
- * the DTO and to the schema, and to NEITHER of these — so every PATCH of them
- * wrote `updatedAt` and nothing else, and the panel reported a save that never
- * happened.
- *
- * A key present in the type but absent from the list now fails the build; a name
- * in the list that is not a field fails on the `satisfies`. Both directions are
- * checked, and neither needs a test to run.
- */
-type MissingFromUpdatableKeys = Exclude<
-  keyof UpdatableInstanceFields,
-  (typeof UPDATABLE_INSTANCE_KEYS)[number]
->;
-const _everyUpdatableFieldIsListed: MissingFromUpdatableKeys extends never ? true : never = true;
-void _everyUpdatableFieldIsListed;
 
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(

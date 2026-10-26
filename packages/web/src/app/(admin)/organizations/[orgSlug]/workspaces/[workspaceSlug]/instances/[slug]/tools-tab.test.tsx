@@ -111,7 +111,7 @@ function renderTab(overrides: Partial<React.ComponentProps<typeof ToolsTab>> = {
 const rowOf = (text: string) => screen.getByText(text).closest("tr") as HTMLElement;
 
 async function disable(user: ReturnType<typeof userEvent.setup>, text: string) {
-  await user.click(within(rowOf(text)).getByRole("button", { name: "tools.disableTool" }));
+  await user.click(within(rowOf(text)).getByRole("switch"));
   await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "tools.disable" }));
 }
 
@@ -141,14 +141,74 @@ describe("ToolsTab", () => {
     expect(screen.queryByText("deal")).not.toBeInTheDocument();
   });
 
-  it("lists an always-enabled tool last, without a disable action", () => {
+  it("lists an always-enabled tool last, with its switch on and locked", () => {
     renderTab();
 
     const row = rowOf("readSkill");
-    expect(within(row).getByText("tools.alwaysEnabled")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: "tools.disableTool" })).not.toBeInTheDocument();
+    const lock = within(row).getByRole("switch");
+    expect(lock).toBeChecked();
+    expect(lock).toBeDisabled();
     const rows = screen.getAllByRole("row");
     expect(rows[rows.length - 1]).toBe(row);
+  });
+
+  it("has one Active switch per row in the last column, and no action buttons on the rows", () => {
+    renderTab();
+
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "tools.columnName",
+      "tools.columnDescription",
+      "tools.columnOrigin",
+      "common.active",
+    ]);
+    const row = rowOf("readFile");
+    const cells = within(row).getAllByRole("cell");
+    const last = within(cells[cells.length - 1]);
+    expect(last.getByRole("switch")).toBeChecked();
+    // The row's only button is its name, which opens the drawer.
+    expect(within(row).getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("flicking a switch does not open the tool's panel", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(within(rowOf("readFile")).getByRole("switch"));
+    await screen.findByRole("alertdialog");
+    expect(screen.queryByText("tools.params")).not.toBeInTheDocument();
+  });
+
+  it("filters the table on name, summary and category as typed", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const search = screen.getByRole("searchbox", { name: "tools.searchEnabled" });
+
+    await user.type(search, "contacts");
+    expect(screen.getByText("contact")).toBeInTheDocument();
+    expect(screen.queryByText("readFile")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "network");
+    // `curl` is not enabled, so its category matches nothing in the table.
+    expect(screen.getByText("common.noResults")).toBeInTheDocument();
+  });
+
+  it("says no tool is enabled, and offers no search, when there is nothing to list", () => {
+    renderTab({ tools: makeTools().map((tool) => ({ ...tool, enabled: false })).filter((tool) => tool.source !== "global") });
+
+    expect(screen.getByText("tools.noneEnabled")).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+
+  it("lists the tools alphabetically by the name shown", () => {
+    renderTab();
+    const names = screen
+      .getAllByRole("row")
+      .slice(1)
+      .flatMap((row) => within(row).queryAllByRole("button").slice(0, 1))
+      .map((b) => b.textContent);
+    // `crm:contact` is shown as `contact`; the always-on tool, which has no panel, stays last.
+    expect(names).toEqual(["contact", "readFile", "saveMemory"]);
   });
 
   it("starts clean: nothing to save", () => {
@@ -165,7 +225,7 @@ describe("ToolsTab", () => {
     await user.click(within(dialog).getByRole("tab", { name: "tools.pickerByPlugin" }));
     await user.click(within(dialog).getByRole("button", { name: /^Crm/ }));
     await user.click(within(dialog).getByRole("checkbox", { name: /deal/ }));
-    await user.click(within(dialog).getByRole("button", { name: "tools.pickerConfirm" }));
+    await user.click(within(dialog).getByRole("button", { name: "common.add" }));
 
     await waitFor(() => expect(screen.queryByText("tools.pickerTitle")).not.toBeInTheDocument());
     // `deal` cannot run without the CRM key, so its panel opens on the field.
@@ -190,7 +250,7 @@ describe("ToolsTab", () => {
     const user = userEvent.setup();
     renderTab();
 
-    await user.click(within(rowOf("readFile")).getByRole("button", { name: "tools.disableTool" }));
+    await user.click(within(rowOf("readFile")).getByRole("switch"));
     const confirm = await screen.findByRole("alertdialog");
     expect(within(confirm).getByText("tools.disableConfirmBody")).toBeInTheDocument();
     await user.click(within(confirm).getByRole("button", { name: "common.cancel" }));
@@ -209,7 +269,9 @@ describe("ToolsTab", () => {
     renderTab();
 
     await disable(user, "readFile");
-    await user.click(screen.getByRole("button", { name: "tools.restore" }));
+    // The row stays, switched off; switching it on again takes the removal back.
+    expect(within(rowOf("readFile")).getByRole("switch")).not.toBeChecked();
+    await user.click(within(rowOf("readFile")).getByRole("switch"));
 
     expect(lastSaveAction.current?.isDirty).toBe(false);
     expect(screen.queryByText("tools.pendingDisable")).not.toBeInTheDocument();
@@ -221,7 +283,7 @@ describe("ToolsTab", () => {
     renderTab({ skills });
     mockSkillsUpdate.mockResolvedValue({ skills: [] });
 
-    await user.click(within(rowOf("readFile")).getByRole("button", { name: "tools.disableTool" }));
+    await user.click(within(rowOf("readFile")).getByRole("switch"));
     const confirm = await screen.findByRole("alertdialog");
     expect(within(confirm).getByText("tools.disableConfirmCascade")).toBeInTheDocument();
     await user.click(within(confirm).getByRole("button", { name: "capabilities.confirm" }));
@@ -251,6 +313,51 @@ describe("ToolsTab", () => {
     renderTab({ memoryEnabled: false });
 
     expect(within(rowOf("saveMemory")).getByRole("img", { name: "tools.memoryDisabledHint" })).toBeInTheDocument();
+  });
+
+  /**
+   * The supervisor drops a memory tool silently while memory is off, so the row
+   * says so in words and carries the way to the memory card (Avanzate).
+   */
+  it("offers to turn memory on beside a memory tool, linking to the Advanced section", () => {
+    renderTab({ memoryEnabled: false });
+
+    expect(within(rowOf("saveMemory")).getByRole("link", { name: "tools.memoryOffEnable" })).toHaveAttribute("href", "?tab=params");
+    expect(within(rowOf("readFile")).queryByRole("link", { name: "tools.memoryOffEnable" })).not.toBeInTheDocument();
+  });
+
+  it("does not let the picker add a memory tool while memory is off", async () => {
+    const user = userEvent.setup();
+    renderTab({
+      memoryEnabled: false,
+      tools: [...makeTools(), { name: "recallMemory", description: "Recall facts", category: "memory", enabled: false }],
+    });
+
+    await user.click(screen.getByRole("button", { name: "tools.enable" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("searchbox"), "recall");
+
+    expect(within(dialog).getByRole("checkbox", { name: /recallMemory/ })).toBeDisabled();
+    expect(within(dialog).getByText(/tools\.memoryOffPicker/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "tools.memoryOffEnable" })).toHaveAttribute("href", "?tab=params");
+  });
+
+  it("keeps Disable with the right-hand actions, not in the footer's destructive corner", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(within(rowOf("contact")).getByRole("button", { name: "tools.open" }));
+    const sheet = await screen.findByRole("dialog");
+
+    const disable = within(sheet).getByRole("button", { name: "tools.disable" });
+    expect(within(disable.parentElement!).getByRole("button", { name: /common\.(close|cancel)/ })).toBeInTheDocument();
+  });
+
+  it("titles the tool's drawer in the ordinary title font", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(within(rowOf("contact")).getByRole("button", { name: "tools.open" }));
+    const heading = within(await screen.findByRole("dialog")).getAllByRole("heading")[0];
+    expect(heading.className).not.toMatch(/font-mono/);
   });
 
   it("opens a tool's panel: cleartext prefilled, secrets masked, provider keys pointed to the Model section", async () => {
@@ -298,7 +405,7 @@ describe("ToolsTab", () => {
     await user.click(within(rowOf("contact")).getByRole("button", { name: "tools.open" }));
     const sheet = await screen.findByRole("dialog");
     await user.type(within(sheet).getByPlaceholderText("settings.tab.keyPlaceholder"), "sk-crm");
-    await user.click(within(sheet).getByRole("button", { name: "common.close" }));
+    await user.click(within(sheet).getAllByRole("button", { name: "common.close" })[0]);
 
     const confirm = await screen.findByRole("alertdialog");
     expect(within(confirm).getByText("unsavedChanges.title")).toBeInTheDocument();

@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,12 +17,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import { ChannelEnabledToggle } from "./channel-enabled-toggle";
 import { SecretField } from "@/components/instance-secret/secret-field";
 import { useInstanceSecret } from "@/components/instance-secret/use-instance-secret";
 import { SECRET_KEYS } from "@/lib/provider-secrets";
-import { api, getUserErrorMessage, type Instance } from "@/lib/api";
+import { api, getUserErrorMessage, type ChannelConfig, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
+import { WebEndpointCard } from "./web-endpoint-card";
 import { FieldMappingEditor, mappingFromRows, type MappingRow, rowsFromMapping } from "./field-mapping-editor";
 
 /** Same mapping regardless of key order: the engine stores an object, the editor a list. */
@@ -40,8 +43,10 @@ function generateApiKey(): string {
 interface Props {
   instance: Instance;
   onUpdate: (instance: Instance) => void;
-  /** Called with the Web channel's state once it is known or has been saved, so the channel picker's dot follows it. */
-  onWebEnabledChange?: (enabled: boolean) => void;
+  /** The agent's channel list, read by the section above; `undefined` until it arrives. */
+  channels: ChannelConfig[] | undefined;
+  /** After the Web channel is saved: the section reads the list again, so the picker's dot follows it. */
+  onChannelsChanged: () => void;
 }
 
 /**
@@ -68,11 +73,13 @@ interface Props {
  * when the switch is off (later turns read the state context wrote), so the key
  * field shows as soon as a field is mapped.
  */
-export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props) {
+export function ChannelWebTab({ instance, onUpdate, channels, onChannelsChanged }: Props) {
   const { t } = useI18n();
-  const [webEnabled, setWebEnabled] = useState(false);
-  const [savedWebEnabled, setSavedWebEnabled] = useState(false);
-  const [webLoaded, setWebLoaded] = useState(false);
+  // No row means off.
+  const webLoaded = channels !== undefined;
+  const savedWebEnabled = channels?.find((c) => c.channelType === "web")?.enabled ?? false;
+  const { draft: webDraft, set: setWebDraft } = useDraft({ enabled: savedWebEnabled });
+  const webEnabled = webDraft.enabled;
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -81,26 +88,6 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
   const [mappingRows, setMappingRows] = useState<MappingRow[]>(() => rowsFromMapping(savedMapping));
   const mapping = mappingFromRows(mappingRows);
   const mapsContext = Object.keys(mapping).length > 0;
-
-  useEffect(() => {
-    let active = true;
-    api.channels
-      .list(instance.slug)
-      .then((res) => {
-        if (!active) return;
-        // No row means off.
-        const on = res.channels.find((c) => c.channelType === "web")?.enabled ?? false;
-        setWebEnabled(on);
-        setSavedWebEnabled(on);
-        setWebLoaded(true);
-        onWebEnabledChange?.(on);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.slug]);
 
   const isDirty =
     (webLoaded && webEnabled !== savedWebEnabled) ||
@@ -145,8 +132,7 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
       // engine accepts the switch, and a failure here leaves Web as it was.
       if (webLoaded && webEnabled !== savedWebEnabled) {
         await api.channels.set(instance.slug, "web", {}, webEnabled);
-        setSavedWebEnabled(webEnabled);
-        onWebEnabledChange?.(webEnabled);
+        onChannelsChanged();
       }
       toast.success(t("settings.tab.saved"));
     } catch (err) {
@@ -161,22 +147,9 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
   return (
     <div className="space-y-8">
       <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("channels.tab.web")}</Label>
+        <div className="flex items-start justify-between gap-4">
           <p className="text-sm text-muted-foreground">{t("channels.tab.webHelp")}</p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label htmlFor="web-channel-enabled">{t("channels.tab.webEnabled")}</Label>
-            <p className="text-sm text-muted-foreground">{t("channels.tab.webEnabledHelp")}</p>
-          </div>
-          <Switch
-            id="web-channel-enabled"
-            checked={webEnabled}
-            disabled={!webLoaded}
-            onCheckedChange={setWebEnabled}
-          />
+          <ChannelEnabledToggle enabled={webEnabled} disabled={!webLoaded} onChange={(v) => setWebDraft("enabled", v)} />
         </div>
 
         <div className="flex items-center justify-between" data-tour="web-auth">
@@ -230,6 +203,14 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
         )}
       </section>
 
+      {savedWebEnabled && (
+        <WebEndpointCard
+          slug={instance.slug}
+          keyRequired={instance.authEnabled || Object.keys(savedMapping).length > 0}
+          authOff={!instance.authEnabled}
+        />
+      )}
+
       <section className="space-y-2 rounded-lg border p-4">
         <Label className="text-base font-medium">{t("channels.tab.webContextMapping")}</Label>
         <p className="text-sm text-muted-foreground">{t("channels.tab.webContextMappingHelp")}</p>
@@ -253,7 +234,7 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
                 setConfirmOpen(false);
                 void handleSave(true);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               {t("channels.tab.webAuthOffAccept")}
             </AlertDialogAction>

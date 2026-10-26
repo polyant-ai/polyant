@@ -23,6 +23,8 @@ export interface ActiveTour {
   agentSlug?: string;
 }
 
+/** Where "Not now" on the agent-tour offer is remembered: this browser session. */
+
 export interface OnboardingContextValue {
   /** The caller's record; null while loading or when the engine offers none. */
   onboarding: OnboardingState | null;
@@ -41,10 +43,6 @@ export interface OnboardingContextValue {
   setTourIndex: (index: number) => void;
   /** `exit` leaves the record as it is, `done` finishes it, `never` dismisses it. */
   endTour: (outcome: "exit" | "done" | "never") => void;
-  /** True while the person said "not now" to the agent-tour prompt on this visit. */
-  agentPromptSnoozed: boolean;
-  snoozeAgentPrompt: () => void;
-  resetAgentPromptSnooze: () => void;
 }
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -69,7 +67,6 @@ export function OnboardingProvider({
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [wizard, setWizard] = useState({ open: false, step: 0 });
   const [tour, setTour] = useState<ActiveTour | null>(null);
-  const [agentPromptSnoozed, setAgentPromptSnoozed] = useState(false);
   // The latest record, for callbacks that must not be recreated on every write.
   const latest = useRef<OnboardingState | null>(null);
   const tourRef = useRef<ActiveTour | null>(null);
@@ -156,11 +153,8 @@ export function OnboardingProvider({
       startTour,
       setTourIndex: (index) => setTour((t) => (t ? { ...t, index } : t)),
       endTour,
-      agentPromptSnoozed,
-      snoozeAgentPrompt: () => setAgentPromptSnoozed(true),
-      resetAgentPromptSnooze: () => setAgentPromptSnoozed(false),
     }),
-    [onboarding, isPlatformAdmin, update, wizard, openWizard, closeWizard, finishWizard, tour, startTour, endTour, agentPromptSnoozed],
+    [onboarding, isPlatformAdmin, update, wizard, openWizard, closeWizard, finishWizard, tour, startTour, endTour],
   );
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;

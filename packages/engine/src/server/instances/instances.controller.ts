@@ -56,7 +56,6 @@ import { channelManager } from "../../channels/channel-manager.js";
 import { prepareAttachmentCleanup } from "../../attachments/attachment-cleanup.js";
 import { invalidateAgentS3 } from "../../attachments/agent-storage.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
-import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -67,6 +66,9 @@ import {
   ManagementAuditTarget,
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -521,9 +523,7 @@ export class InstancesController {
       await channelManager.stopAllForInstance(slug, { deregister: true });
     } catch (err) {
       // Best-effort: a stuck adapter must not block the delete.
-      // Pass the user-controlled slug as a separate argument so it is never
-      // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
+      log.error("instances", `failed to stop channels for instance: ${slug}`, err);
     }
     // Before the delete: the bucket credentials are agent secrets and the keys
     // live on the messages, and both go with the agent.

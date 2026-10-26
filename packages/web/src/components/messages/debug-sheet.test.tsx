@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The copy action of the Debug sheet (#179): what reaches the clipboard, and
- * what happens on the turns where part of it is missing.
+ * The Debug sheet: its tabs, and the copy action that puts only the open tab's
+ * part of the turn on the clipboard.
  *
  * The expected JSON is written out by hand rather than built from the
  * component's own export helper: a test that calls the same function the
@@ -47,8 +47,14 @@ function renderSheet(data: MessageDebug) {
 }
 
 function copyButton() {
-  return screen.findByRole("button", { name: /message\.debug\.copy(All|Empty)/ });
+  return screen.findByRole("button", { name: /common\.copy|message\.debug\.copied/ });
 }
+
+const payload = {
+  system: "You are a test.",
+  messages: [{ role: "user", content: "hi" }],
+  tools: [{ name: "lookup", description: "Finds things", parameters: { type: "object" } }],
+};
 
 describe("DebugSheet copy action", () => {
   beforeEach(() => {
@@ -57,54 +63,129 @@ describe("DebugSheet copy action", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   });
 
-  it("copies the captured payload and the steps as one JSON object", async () => {
-    renderSheet({
-      debugPayload: {
-        system: "You are a test.",
-        messages: [{ role: "user", content: "hi" }],
-        tools: [{ name: "lookup", description: "Finds things", parameters: { type: "object" } }],
-      },
-      steps: [step],
-    });
-
+  async function copyTab(name: RegExp) {
+    await userEvent.click(screen.getByRole("tab", { name }));
+    // The tab has something to copy only once the turn has loaded.
+    await waitFor(async () => expect(await copyButton()).toBeEnabled());
     await userEvent.click(await copyButton());
+    return writeText.mock.calls.at(-1)?.[0] as string;
+  }
 
-    expect(writeText).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(writeText.mock.calls[0][0] as string)).toEqual({
-      system: "You are a test.",
-      messages: [{ role: "user", content: "hi" }],
-      tools: [{ name: "lookup", description: "Finds things", parameters: { type: "object" } }],
-      steps: [step],
-    });
+  it("copies the messages sent as the raw JSON array", async () => {
+    renderSheet({ debugPayload: payload, steps: [step] });
+    expect(JSON.parse(await copyTab(/message\.debug\.messages/))).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  it("copies the system prompt as its text", async () => {
+    renderSheet({ debugPayload: payload, steps: [step] });
+    expect(await copyTab(/message\.debug\.prompt/)).toBe("You are a test.");
+  });
+
+  it("copies the conversation state as raw JSON", async () => {
+    const withState = {
+      ...payload,
+      messages: [{ role: "user", content: `hi\n<context>\n<conversation_state>{"booking":{"day":"monday"}}</conversation_state>\n</context>` }],
+    };
+    renderSheet({ debugPayload: withState, steps: [step] });
+    expect(JSON.parse(await copyTab(/message\.debug\.context/))).toEqual({ booking: { day: "monday" } });
+  });
+
+  it("offers no copy on Model, Tools and Steps", async () => {
+    renderSheet({ debugPayload: payload, steps: [step] });
+    for (const name of [/message\.debug\.usage/, /message\.debug\.tools/, /message\.debug\.steps/]) {
+      await userEvent.click(screen.getByRole("tab", { name }));
+      expect(screen.queryByRole("button", { name: /common\.copy/ })).not.toBeInTheDocument();
+    }
   });
 
   it("confirms the copy on the button itself", async () => {
-    renderSheet({ debugPayload: null, steps: [step] });
-    await userEvent.click(await copyButton());
+    renderSheet({ debugPayload: payload, steps: [step] });
+    await copyTab(/message\.debug\.messages/);
     expect(await screen.findByText("message.debug.copied")).toBeInTheDocument();
   });
 
-  it("copies the steps alone when the turn was generated with DEBUG off", async () => {
+  it("disables the action when the payload was not captured", async () => {
     renderSheet({ debugPayload: null, steps: [step] });
-    await userEvent.click(await copyButton());
-    // The three payload fields are ABSENT, not empty: a reader must not mistake
-    // "not captured" for "the model was sent nothing".
-    expect(JSON.parse(writeText.mock.calls[0][0] as string)).toEqual({ steps: [step] });
-  });
-
-  it("disables the action when there is neither a payload nor a step", async () => {
-    renderSheet({ debugPayload: null, steps: [] });
-    await waitFor(async () => expect(await copyButton()).toBeDisabled());
-    expect(writeText).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("tab", { name: /message\.debug\.messages/ }));
+    expect(await screen.findByText("message.debug.noPayload")).toBeInTheDocument();
+    expect(await copyButton()).toBeDisabled();
   });
 
   it("says so when the clipboard refuses, instead of looking like it worked", async () => {
     writeText.mockRejectedValueOnce(new Error("denied"));
-    renderSheet({ debugPayload: null, steps: [step] });
+    renderSheet({ debugPayload: payload, steps: [step] });
 
-    await userEvent.click(await copyButton());
+    await copyTab(/message\.debug\.messages/);
 
     expect(toast.error).toHaveBeenCalledWith("message.debug.copyFailed");
     expect(screen.queryByText("message.debug.copied")).not.toBeInTheDocument();
+  });
+});
+
+describe("DebugSheet tabs", () => {
+  const stateMessage = {
+    role: "user",
+    content: `hi\n<context>\n<conversation_state>{"booking":{"day":"monday"}}</conversation_state>\n</context>`,
+  };
+
+  it("opens on Usage and shows the turn's state as a closed tree in Context", async () => {
+    renderSheet({
+      debugPayload: { system: "You are a test.", messages: [stateMessage], tools: [] },
+      steps: [step],
+    });
+
+    expect(screen.getByRole("tab", { name: "message.debug.usage" })).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.click(screen.getByRole("tab", { name: "message.debug.context" }));
+    const branch = await screen.findByRole("button", { name: "booking" });
+    expect(branch).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(branch);
+    expect(screen.getByText('"monday"')).toBeInTheDocument();
+  });
+
+  it("shows how the turn arrived and its model calls in Model", async () => {
+    renderSheet({
+      debugPayload: null,
+      steps: [],
+      turn: { channel: "whatsapp", streaming: false, speechToText: { provider: "deepgram", durationMs: 320, audioDurationSec: 4.5 } },
+      modelCalls: [
+        { callType: "conversation", provider: "openai", model: "gpt-4o", durationMs: 900,
+          promptTokens: 10, completionTokens: 5, costUsd: 0.001, outcome: "ok", errorKind: null, createdAt: null },
+        { callType: "service", provider: "openai", model: "gpt-4o-mini", durationMs: 50,
+          promptTokens: 3, completionTokens: 0, costUsd: 0, outcome: "error", errorKind: "rate_limit", createdAt: null },
+      ],
+    });
+
+    expect(await screen.findByText("whatsapp")).toBeInTheDocument();
+    expect(screen.getByText("deepgram")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.modelCalls")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.callConversation")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "message.debug.outcomeOk" })).toHaveTextContent("✅");
+    expect(screen.getByRole("img", { name: "message.debug.outcomeError" })).toHaveTextContent("❌");
+    expect(screen.getByText("rate_limit")).toBeInTheDocument();
+  });
+
+  it("keeps the system prompt in Prompt and the messages sent in Messages", async () => {
+    renderSheet({
+      debugPayload: { system: "You are a test.", messages: [stateMessage], tools: [] },
+      steps: [step],
+    });
+
+    await userEvent.click(screen.getByRole("tab", { name: "message.debug.prompt" }));
+    expect(await screen.findByText("You are a test.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "0" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /message\.debug\.messages/ }));
+    expect(await screen.findByRole("button", { name: "0" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("says the payload was not captured in the payload tabs, and keeps the steps", async () => {
+    renderSheet({ debugPayload: null, steps: [step] });
+
+    await userEvent.click(screen.getByRole("tab", { name: "message.debug.prompt" }));
+    expect(await screen.findByText("message.debug.noPayload")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /message\.debug\.steps/ }));
+    expect(await screen.findByText("lookup")).toBeInTheDocument();
   });
 });

@@ -39,7 +39,10 @@ vi.mock("../../webhooks/webhook-engine.js", () => ({
 vi.mock("../../instances/resolve-instance-id.js", () => ({
   resolveInstanceSlug: mockResolveInstanceSlug,
 }));
-vi.mock("../../webhooks/webhook-logger.js", () => ({ webhookLog: mockWebhookLog }));
+vi.mock("../../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../utils/create-logger.js")>()),
+  createLogger: () => mockWebhookLog,
+}));
 
 /* ── import under test ─────────────────────────────────────────── */
 

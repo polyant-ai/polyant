@@ -4,10 +4,14 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Check } from "lucide-react";
 import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
-import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { EMPTY_CELL, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { ListToolbar } from "@/components/list-search";
+import { StatusBadge } from "@/components/status-badge";
+import { ListLoading, ListNoResults } from "@/components/list-states";
+import { useListView } from "@/components/use-list-view";
 import { api, isForbidden, type Instance, type ModelsResponse, type SecretStatus } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 import { useI18n } from "@/lib/i18n/context";
 import { providerName } from "@/lib/provider-secrets";
 import { ModelTaskSheet } from "./model-task-sheet";
@@ -15,6 +19,7 @@ import {
   MODEL_TASKS,
   REQUIRED_KEYS,
   STT_LABELS,
+  TASK_HELP,
   TASK_TITLE,
   savedChoices,
   taskCredential,
@@ -35,47 +40,41 @@ interface Props {
  * the model and whether its key is in place. A row opens the task in a side
  * panel, where the choice, its options and the key are saved together.
  */
+const NO_SECRETS: SecretStatus[] = [];
+
 export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) {
   const { t } = useI18n();
-  const [modelsData, setModelsData] = useState<ModelsResponse | null>(null);
-  const [secrets, setSecrets] = useState<SecretStatus[]>([]);
+  // Independent reads: a refused keys read must not blank the model choices.
+  const models = useResource(["models"], () => api.models.list());
+  const secretsRead = useResource(["secrets", instance.slug], () => api.secrets.list(instance.slug));
+  const modelsData: ModelsResponse | null = models.data ?? null;
+  // The keys list the panel hands back after it writes one is newer than the read above.
+  const [savedSecrets, setSavedSecrets] = useState<SecretStatus[] | null>(null);
+  const secrets: SecretStatus[] = savedSecrets ?? secretsRead.data?.secrets ?? NO_SECRETS;
   // `agent.secret:read` is not everyone's: a reader without it is shown the
   // choices and no keys, and never told a key is missing that it cannot see.
-  const [canReadSecrets, setCanReadSecrets] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const canReadSecrets = !isForbidden(secretsRead.error);
+  const loading = models.loading || secretsRead.loading;
   const [openTask, setOpenTask] = useState<ModelTask | null>(null);
+  const [search, setSearch] = useState("");
 
+  // A failed read other than a refusal is said once, when it arrives.
+  const failed = models.error !== undefined || (secretsRead.error !== undefined && canReadSecrets);
   useEffect(() => {
-    let cancelled = false;
-    // Independent reads: a refused keys read must not blank the model choices.
-    Promise.allSettled([api.secrets.list(instance.slug), api.models.list()])
-      .then(([secretsRes, modelsRes]) => {
-        if (cancelled) return;
-        if (modelsRes.status === "fulfilled") setModelsData(modelsRes.value);
-        else toast.error(t("settings.tab.loadFailed"));
-        if (secretsRes.status === "fulfilled") setSecrets(secretsRes.value.secrets);
-        else if (isForbidden(secretsRes.reason)) setCanReadSecrets(false);
-        else toast.error(t("settings.tab.loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `t` is read for a toast only: reading everything again because a
-    // translation function changed identity would reset the page.
+    if (failed) toast.error(t("settings.tab.loadFailed"));
+    // The failure is the trigger; `t` is read for the message only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.slug]);
+  }, [failed]);
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-10 rounded-lg bg-muted" />
-        <div className="h-32 rounded-lg bg-muted" />
-      </div>
-    );
-  }
+  // The tasks are a fixed set in a fixed order (conversation, embedder, transcription).
+  const visibleTasks = useListView(
+    MODEL_TASKS,
+    search,
+    (task) => [t(TASK_TITLE[task]), t(TASK_HELP[task])],
+    null,
+  );
+
+  if (loading) return <ListLoading className="" />;
 
   const choices = savedChoices(instance);
   const isConfigured = (key: string) => secrets.some((s) => s.key === key && s.configured);
@@ -103,29 +102,24 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
   /** Whether a task can run: only what can be known, never a guess. */
   const status = (task: ModelTask) => {
     if (!taskInUse(task, instance, choices.sttProvider)) {
-      return <span className="text-xs text-muted-foreground">{t("modelTasks.notInUse")}</span>;
+      return <StatusBadge tone="neutral">{t("modelTasks.notInUse")}</StatusBadge>;
     }
     const group = taskCredential(task, choices);
-    if (!canReadSecrets || !group) return <span className="text-xs text-muted-foreground">—</span>;
+    if (!canReadSecrets || !group) return <span className="text-muted-foreground">{EMPTY_CELL}</span>;
     if (REQUIRED_KEYS[group].some((key) => !isConfigured(key))) {
-      return (
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
-          <AlertTriangle className="size-3.5" aria-hidden />
-          {t("settings.role.missing")}
-        </span>
-      );
+      return <StatusBadge tone="negative">{t("settings.role.missing")}</StatusBadge>;
     }
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-        <Check className="size-3.5" aria-hidden />
-        {t("settings.role.ready")}
-      </span>
-    );
+    return <StatusBadge tone="positive">{t("settings.role.ready")}</StatusBadge>;
   };
 
   return (
     <>
-      <ListTable className="mt-0">
+      <div>
+      <ListToolbar value={search} onChange={setSearch} />
+      {visibleTasks.length === 0 ? (
+        <ListNoResults />
+      ) : (
+      <ListTable>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <ListHead className="w-[30%]">{t("modelTasks.columnTask")}</ListHead>
@@ -135,12 +129,12 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
           </TableRow>
         </TableHeader>
         <TableBody>
-          {MODEL_TASKS.map((task) => {
+          {visibleTasks.map((task) => {
             const { provider, model } = describe(task);
             const title = t(TASK_TITLE[task]);
             return (
               <ListRow key={task} selected={openTask === task} onOpen={() => setOpenTask(task)}>
-                <ListNameCell name={title} openLabel={t("modelTasks.open", { task: title })} onOpen={() => setOpenTask(task)} />
+                <ListNameCell name={title} summary={t(TASK_HELP[task])} openLabel={t("modelTasks.open", { task: title })} onOpen={() => setOpenTask(task)} />
                 <TableCell className="hidden truncate text-sm sm:table-cell">{provider}</TableCell>
                 <TableCell className="hidden truncate font-mono text-xs md:table-cell" title={model}>
                   {model}
@@ -151,6 +145,8 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
           })}
         </TableBody>
       </ListTable>
+      )}
+      </div>
 
       <ModelTaskSheet
         task={openTask}
@@ -159,7 +155,7 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
         secrets={secrets}
         canReadSecrets={canReadSecrets}
         onSecretsChanged={(next) => {
-          setSecrets(next);
+          setSavedSecrets(next);
           onConfigurationChanged?.();
         }}
         onSaved={async (updated) => {

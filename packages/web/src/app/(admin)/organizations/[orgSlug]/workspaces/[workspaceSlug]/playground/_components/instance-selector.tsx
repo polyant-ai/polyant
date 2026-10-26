@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Select,
   SelectContent,
@@ -16,12 +16,15 @@ import { useI18n } from "@/lib/i18n/context";
 interface InstanceSelectorProps {
   value: string;
   onChange: (slug: string) => void;
+  /** The display name of the selected agent, or null while none is. */
+  onNameChange?: (name: string | null) => void;
   disabled?: boolean;
 }
 
 export function InstanceSelector({
   value,
   onChange,
+  onNameChange,
   disabled,
 }: InstanceSelectorProps) {
   const { t } = useI18n();
@@ -38,12 +41,24 @@ export function InstanceSelector({
       .catch(() => {});
   }, []);
 
-  // Auto-select first instance if none selected
+  // The parent's handlers change identity on every render; the effects below
+  // depend on what the list and the selection ARE, not on which closure holds them.
+  const onChangeRef = useRef(onChange);
+  const onNameChangeRef = useRef(onNameChange);
   useEffect(() => {
-    if (!value && instances.length > 0) {
-      onChange(instances[0].slug);
-    }
-  }, [value, instances, onChange]);
+    onChangeRef.current = onChange;
+    onNameChangeRef.current = onNameChange;
+  });
+
+  // Auto-select the first agent once, when none is selected.
+  useEffect(() => {
+    if (!value && instances.length > 0) onChangeRef.current(instances[0].slug);
+  }, [value, instances]);
+
+  const selectedName = instances.find((inst) => inst.slug === value)?.name ?? null;
+  useEffect(() => {
+    onNameChangeRef.current?.(selectedName);
+  }, [selectedName]);
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
