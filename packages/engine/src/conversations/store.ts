@@ -24,6 +24,15 @@ export function rowsToModelMessages(rows: readonly MessageRow[]): ModelMessage[]
   return rows.map((r) => ({ role: r.role as "user" | "assistant" | "system", content: r.content }));
 }
 
+/** Recent rows and the summary state from one snapshot (`getHistorySnapshot`). */
+export interface HistorySnapshot {
+  rows: MessageRow[];
+  /** Null when no rows were read or the conversation row is missing. */
+  summary: string | null;
+  summaryThrough: number | null;
+  userMessageCount: number | null;
+}
+
 export interface MessageRow {
   role: string;
   content: string;
@@ -239,7 +248,6 @@ class BoundedMap<K, V> {
 const CACHE_MAX_SIZE = 1000;
 
 export class ConversationStore {
-  private summaryCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
   private titleCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
 
   /** Get conversation title. Checks in-memory cache first, falls back to DB. */
@@ -279,33 +287,54 @@ export class ConversationStore {
     this.titleCache.set(conversationId, safe);
   }
 
-  /** Get conversation summary. Checks in-memory cache first, falls back to DB. */
-  async getSummary(conversationId: string): Promise<string | null> {
-    const cached = this.summaryCache.get(conversationId);
-    if (cached !== undefined) return cached;
-
+  /**
+   * The stored `summary_through`, read fresh: a summary refresh checks that the
+   * marker it was planned on still stands before paying for its call. Undefined
+   * when the conversation row does not exist.
+   */
+  async getSummaryThrough(conversationId: string): Promise<number | null | undefined> {
     const rows = await db
-      .select({ summary: conversations.summary })
+      .select({ summaryThrough: conversations.summaryThrough })
       .from(conversations)
       .where(eq(conversations.conversationId, conversationId))
       .limit(1);
-
-    const summary = rows[0]?.summary ?? null;
-    if (summary) {
-      this.summaryCache.set(conversationId, summary);
-    }
-    return summary;
+    return rows.length === 0 ? undefined : (rows[0].summaryThrough ?? null);
   }
 
-  /** Update conversation summary in DB and in-memory cache. */
-  async updateSummary(conversationId: string, summary: string): Promise<void> {
+  /**
+   * Update conversation summary in DB.
+   *
+   * With `cover`, the write also moves `summary_through` and lands only while the
+   * stored marker still equals `cover.expected`: a refresh that lost the race to
+   * another one is dropped instead of folding the same exchanges twice. Returns
+   * whether the row was written.
+   */
+  async updateSummary(
+    conversationId: string,
+    summary: string,
+    cover?: { expected: number | null; through: number },
+  ): Promise<boolean> {
     const safe = stripNulString(summary);
-    await db
-      .update(conversations)
-      .set({ summary: safe, updatedAt: new Date() })
-      .where(eq(conversations.conversationId, conversationId));
-
-    this.summaryCache.set(conversationId, safe);
+    if (!cover) {
+      await db
+        .update(conversations)
+        .set({ summary: safe, updatedAt: new Date() })
+        .where(eq(conversations.conversationId, conversationId));
+    } else {
+      const written = await db
+        .update(conversations)
+        .set({ summary: safe, summaryThrough: cover.through, updatedAt: new Date() })
+        .where(
+          and(
+            eq(conversations.conversationId, conversationId),
+            sql`${conversations.summaryThrough} IS NOT DISTINCT FROM ${cover.expected}`,
+          ),
+        )
+        .returning({ id: conversations.id });
+      // Another refresh moved the marker: this one is dropped.
+      if (written.length === 0) return false;
+    }
+    return true;
   }
 
   /** Get context prompt for a webhook-triggered conversation. Returns null if not set. */
@@ -448,7 +477,7 @@ export class ConversationStore {
    *
    * Returns ModelMessage shape for direct use by the AI gateway. Reasoning is
    * NOT included here — Anthropic signed-block re-injection is handled by a
-   * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
+   * dedicated helper that consumes raw rows via `getHistorySnapshot()`.
    */
   async getRecentMessages(conversationId: string, limit = 15): Promise<ModelMessage[]> {
     const rows = await db
@@ -492,33 +521,80 @@ export class ConversationStore {
   }
 
   /**
-   * Get the most recent N messages with full reasoning + steps detail.
+   * The most recent `limit` rows of a conversation, oldest first, with the summary,
+   * its `summary_through` marker and the persisted user-message count read in the
+   * same statement, hence the same snapshot: `appendMessages` moves the rows and the
+   * count in one transaction, so the count always lines up with the rows read and
+   * the window can place the marker on them (history-window.ts).
    *
-   * Used by the AI gateway's reasoning-injector to rebuild Anthropic
-   * multi-turn payloads that include the previous turn's signed thinking
-   * blocks. Returns chronologically ordered rows.
+   * With `steps`, the replay columns (`steps`, `reasoning`) come back only for the
+   * rows the window can hold, the exchanges after the marker (every row read when
+   * the marker is 0, missing or past the count); older rows carry them as null. The
+   * exchange count is the one `planHistoryWindow` uses: the stored count, or the
+   * user rows read when more. Ordered like `getRecentMessages`, ties included.
    */
-  async getRecentMessageRows(conversationId: string, limit = 15): Promise<MessageRow[]> {
-    const rows = await db
-      .select({
-        role: conversationMessages.role,
-        content: conversationMessages.content,
-        steps: conversationMessages.steps,
-        reasoning: conversationMessages.reasoning,
-        createdAt: conversationMessages.createdAt,
-      })
-      .from(conversationMessages)
-      .where(eq(conversationMessages.conversationId, conversationId))
-      .orderBy(desc(conversationMessages.createdAt))
-      .limit(limit);
-
-    return rows.reverse().map((r) => ({
-      role: r.role,
-      content: r.content,
-      steps: (r.steps as StepDetail[] | null) ?? null,
-      reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
-      createdAt: r.createdAt ?? null,
-    }));
+  async getHistorySnapshot(
+    conversationId: string,
+    limit: number,
+    options: { steps?: boolean } = {},
+  ): Promise<HistorySnapshot> {
+    // In the window: fewer user rows after the row than the exchanges the marker leaves uncovered.
+    const exchanges = sql`GREATEST(s.user_message_count, m.users_read)`;
+    const inWindow = sql`m.users_after < CASE
+        WHEN s.summary_through IS NULL OR s.summary_through <= 0 OR s.summary_through > ${exchanges} THEN ${limit}
+        ELSE ${exchanges} - s.summary_through END`;
+    const replayColumns = options.steps
+      ? sql`CASE WHEN ${inWindow} THEN m.steps END AS steps, CASE WHEN ${inWindow} THEN m.reasoning END AS reasoning,`
+      : sql``;
+    const result = await db.execute(sql`
+      SELECT m.role, m.content, m.created_at, ${replayColumns}
+             -- The summary text rides on the newest row only: once, not once per row read.
+             CASE WHEN m.rn = 1 THEN s.summary END AS summary, s.summary_through, s.user_message_count
+      FROM (
+        -- User rows among the rows read, counted after the LIMIT.
+        SELECT r.*, count(*) FILTER (WHERE r.role = 'user') OVER () AS users_read
+        FROM (
+          SELECT role, content, created_at, ${options.steps ? sql`steps, reasoning,` : sql``}
+                 row_number() OVER (ORDER BY created_at DESC) AS rn,
+                 count(*) FILTER (WHERE role = 'user')
+                   OVER (ORDER BY created_at DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS users_after
+          FROM conversation_messages
+          WHERE conversation_id = ${conversationId}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        ) r
+      ) m
+      LEFT JOIN conversations s ON s.conversation_id = ${conversationId}
+      ORDER BY m.rn DESC
+    `);
+    const raw = result as unknown as Array<Record<string, unknown>>;
+    // As drizzle's jsonb mapper, a string cell (a legacy double-encoded value) is
+    // parsed. One that is not JSON reads as null instead of failing the read or
+    // passing a string as the declared type: that row replays its text only.
+    const json = <T>(v: unknown): T | null => {
+      if (v == null) return null;
+      if (typeof v !== "string") return v as T;
+      try {
+        return JSON.parse(v) as T;
+      } catch {
+        return null;
+      }
+    };
+    // Rows come oldest first; the newest carries the summary text (see the CASE above).
+    const newest = raw[raw.length - 1];
+    return {
+      rows: raw.map((r) => ({
+        role: r.role as string,
+        content: r.content as string,
+        ...(options.steps
+          ? { steps: json<StepDetail[]>(r.steps), reasoning: json<ReasoningDetail[]>(r.reasoning) }
+          : {}),
+        createdAt: r.created_at ? new Date(r.created_at as string) : null,
+      })),
+      summary: (newest?.summary as string | null | undefined) ?? null,
+      summaryThrough: newest?.summary_through == null ? null : Number(newest.summary_through),
+      userMessageCount: newest?.user_message_count == null ? null : Number(newest.user_message_count),
+    };
   }
 
   /**
@@ -1165,6 +1241,8 @@ export class ConversationStore {
         .set({
           messageCount: sql`${conversations.messageCount} - ${idsToDelete.length} + 1`,
           userMessageCount: sql`${conversations.userMessageCount} - ${deletedUser}`,
+          // The summary marker counts user rows too: keep it on the same exchanges.
+          summaryThrough: sql`CASE WHEN ${conversations.summaryThrough} IS NULL THEN NULL ELSE GREATEST(${conversations.summaryThrough} - ${deletedUser}, 0) END`,
           ...(summaryRow?.createdAt
             ? { lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${summaryRow.createdAt.toISOString()}::timestamptz)` }
             : {}),
@@ -1271,10 +1349,8 @@ export class ConversationStore {
         .where(eq(conversations.conversationId, conversationId))
         .returning();
 
-      // Caches are keyed by the id — drop stale entries for both old and new.
-      this.summaryCache.delete(conversationId);
+      // The cache is keyed by the id — drop stale entries for both old and new.
       this.titleCache.delete(conversationId);
-      this.summaryCache.delete(newConversationId);
       this.titleCache.delete(newConversationId);
 
       return result.length > 0;
@@ -1335,7 +1411,6 @@ export class ConversationStore {
         .where(eq(conversations.conversationId, conversationId))
         .returning();
 
-      this.summaryCache.delete(conversationId);
       this.titleCache.delete(conversationId);
       return result.length > 0;
     });

@@ -14,12 +14,12 @@ import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
-import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
+import { rowsToModelMessages, type HistorySnapshot, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { contactConversationId } from "./channels/outbound-conversation.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
-import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
+import { resolveEffectiveModelSelection, resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { uploadAttachment } from "./attachments/agent-storage.js";
 import type { AttachmentMeta, StepDetail, ReasoningDetail, LlmDebugPayload } from "./conversations/schema.js";
@@ -33,6 +33,8 @@ import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./h
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
 import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
+import { HISTORY_READ_LIMIT, historyBlockExchanges, planHistoryWindow } from "./history-window.js";
+import { cacheSupported } from "./ai-gateway/config.js";
 import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS } from "./instances/agent-settings.js";
 import { createLogger } from "./utils/create-logger.js";
 
@@ -112,6 +114,8 @@ export interface PipelineContext {
   instanceId: InstanceSlug;
   conversationId: string;
   conversationSummary: string | undefined;
+  /** The stored summary the refresh builds on, shown to the model or not. */
+  storedSummary?: string;
   contextPrompt: string | undefined;
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
   /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
@@ -121,6 +125,8 @@ export interface PipelineContext {
   isFirstTurn: boolean;
   hasOverflow: boolean;
   droppedMessages: ModelMessage[] | undefined;
+  /** The `summary_through` move that goes with folding `droppedMessages` into the summary. */
+  summaryCover?: { expected: number | null; through: number };
   instanceConfig: InstanceConfig;
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
@@ -141,6 +147,20 @@ export interface PipelineContext {
 function buildLangsmithConfig(cfg: InstanceConfig): { apiKey: string; project: string } | undefined {
   if (!cfg.langsmith.enabled || !cfg.langsmith.apiKey) return undefined;
   return { apiKey: cfg.langsmith.apiKey, project: cfg.langsmith.project ?? "default" };
+}
+
+/**
+ * Whether the catalog prices a prompt cache for the model the gateway calls for
+ * this agent. An empty provider or model counts as unset. A selection the gateway
+ * cannot resolve fails its call anyway; the window then slides as if uncached.
+ */
+function effectiveModelCached(cfg: InstanceConfig): boolean {
+  try {
+    const { provider, model } = resolveEffectiveModelSelection(cfg.provider || undefined, cfg.model || undefined);
+    return cacheSupported(provider, model);
+  } catch {
+    return false;
+  }
 }
 
 export async function preparePipeline(
@@ -212,24 +232,29 @@ export async function preparePipeline(
 
   // Fetch history, instance config, and context prompt in parallel — all independent
   // except that the history query depends on the config's tool-result replay flag.
-  // Replay agents read the raw rows ONCE and derive the text history from them,
-  // instead of running the same ordered query twice. The config is the 30s-cached one.
+  // One statement reads the rows with the summary, its marker and the user-message
+  // count, so they come from the same snapshot (history-window.ts). Replay agents
+  // read the raw rows ONCE and derive the text history from them, instead of
+  // running the same ordered query twice. The config is the 30s-cached one.
   const instanceConfigPromise = resolveInstanceConfig(instanceId);
-  const textHistory = () =>
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]);
-  const historyPromise: Promise<{ messages: ModelMessage[]; rows?: MessageRow[] }> =
-    instanceConfigPromise.then(async (config) => {
-      if (config.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
-        try {
-          const rows = await conversationStore.getRecentMessageRows(conversationId, 16);
-          return { messages: rowsToModelMessages(rows), rows };
-        } catch {
-          // Same degradation as before: the text read stands in for the rows.
-        }
+  type HistoryRead = { messages: ModelMessage[]; rows?: MessageRow[]; snapshot?: HistorySnapshot };
+  const historyPromise: Promise<HistoryRead> = instanceConfigPromise.then(async (config) => {
+    if (config.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
+      try {
+        const snapshot = await conversationStore.getHistorySnapshot(conversationId, HISTORY_READ_LIMIT, { steps: true });
+        return { messages: rowsToModelMessages(snapshot.rows), rows: snapshot.rows, snapshot };
+      } catch {
+        // Same degradation as before: the text read stands in for the rows.
       }
-      return { messages: await textHistory() };
-    });
-  const [{ messages: conversationHistory, rows: replayRows }, instanceConfig, contextPrompt, stateBuffer] =
+    }
+    try {
+      const snapshot = await conversationStore.getHistorySnapshot(conversationId, HISTORY_READ_LIMIT);
+      return { messages: rowsToModelMessages(snapshot.rows), snapshot };
+    } catch {
+      return { messages: [] };
+    }
+  });
+  const [{ messages: conversationHistory, rows: replayRows, snapshot }, instanceConfig, contextPrompt, stateBuffer] =
     await Promise.all([
       historyPromise,
       instanceConfigPromise,
@@ -253,30 +278,65 @@ export async function preparePipeline(
   // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
   const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
 
-  // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
-  const hasOverflow = conversationHistory.length > 15;
-  let history: ModelMessage[] | undefined;
-  let conversationSummary: string | undefined;
-  let droppedMessages: ModelMessage[] | undefined;
-
-  if (hasOverflow) {
-    conversationSummary =
-      (await conversationStore.getSummary(conversationId).catch(() => null)) ?? undefined;
-    history = conversationHistory.slice(-10);
-    droppedMessages = conversationHistory.slice(0, -10);
-  } else {
-    conversationSummary = undefined;
-    history = conversationHistory.length > 0
+  // Block window (history-window.ts): the start is where the stored summary ends
+  // and advances 5 exchanges at a time where the prompt is cached (1 otherwise, or
+  // for tool-replay agents), so the history stays append-only for the prompt cache. The summary, its marker and the count come from the rows' own
+  // statement, so they line up with the rows read.
+  const windowRows = conversationHistory.map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : "",
+  }));
+  // Without a prompt cache (turned off for the agent, or a model the catalog marks
+  // as uncached) the window slides one exchange at a time, as short as a fixed one.
+  // The model is the one the gateway calls: an unset model means the provider's
+  // standard tier, the one the supervisor asks for. Agents that replay tool results
+  // slide one exchange at a time as well (history-window.ts).
+  const blockExchanges = historyBlockExchanges(
+    instanceConfig.cacheConfig.enabled && effectiveModelCached(instanceConfig),
+    instanceConfig.toolResultsInHistoryEnabled,
+  );
+  // No rows read (a new conversation, or the read failed): the snapshot carries no
+  // summary state, so there is no window and no summary; the client-side history
+  // in the metadata stands in, as before.
+  const windowPlan = planHistoryWindow(windowRows, {
+    blockExchanges,
+    userMessageCount: snapshot?.userMessageCount ?? undefined,
+    summaryThrough: snapshot?.summaryThrough ?? null,
+  });
+  if (windowPlan.unreadExchanges > 0) {
+    log.warn(
+      "pipeline",
+      `History window: ${windowPlan.unreadExchanges} exchanges of conversation ${conversationId} are older than the rows read and leave the window unsummarized`,
+    );
+  }
+  const hasOverflow = windowPlan.hasOverflow;
+  const droppedMessages: ModelMessage[] | undefined = windowPlan.summarize
+    ? conversationHistory.slice(windowPlan.summarize.from, windowPlan.summarize.to)
+    : undefined;
+  const summaryCover = windowPlan.summarize
+    ? { expected: windowPlan.summarize.expected, through: windowPlan.summarize.through }
+    : undefined;
+  // The refresh always builds on the stored summary. The model sees it when the
+  // window starts after the conversation's first row, or when the summary is
+  // trusted for no exchange (marker 0 after room compaction removed the rows it
+  // covered, null, or past the count): it then covers rows no longer read, or of
+  // unknown extent, and can at worst repeat what the window holds. On auto-task
+  // turns only past the window, as the 15-row threshold did.
+  const storedSummary: string | undefined = snapshot?.summary ?? undefined;
+  const showSummary = hasOverflow || (!isAutoTaskTurn && windowPlan.covered === 0);
+  const conversationSummary: string | undefined = showSummary ? storedSummary : undefined;
+  let history: ModelMessage[] | undefined = hasOverflow
+    ? conversationHistory.slice(windowPlan.start)
+    : conversationHistory.length > 0
       ? conversationHistory
       : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
-  }
 
   // Tool-result replay (opt-in per instance): rebuild the in-window history from
   // the raw rows read above, reconstructing tool_use/tool_result blocks from the
   // persisted `steps` so the model retains tool outputs across turns. The dropped
   // messages / summary stay text-only.
   if (replayRows && replayRows.length > 0) {
-    history = buildHistoryWithToolResults(hasOverflow ? replayRows.slice(-10) : replayRows);
+    history = buildHistoryWithToolResults(replayRows.slice(windowPlan.start));
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);
@@ -302,6 +362,7 @@ export async function preparePipeline(
     instanceId,
     conversationId,
     conversationSummary,
+    storedSummary,
     contextPrompt,
     channelIdentity,
     stateBuffer,
@@ -309,6 +370,7 @@ export async function preparePipeline(
     isFirstTurn,
     hasOverflow,
     droppedMessages,
+    summaryCover,
     instanceConfig,
     langsmith,
     userAttachments: msg.attachments,
@@ -427,6 +489,8 @@ export interface AfterResponseOptions {
   needsSummaryUpdate?: boolean;
   /** Messages that fell outside the retained window (to be summarized). */
   droppedMessages?: ModelMessage[];
+  /** Moves `summary_through` with the summary write, only from the marker the window was planned on. */
+  summaryCover?: { expected: number | null; through: number };
   memoryEnabled?: boolean;
   /** The agent's resolved datetime formatting, for the summary's "as of" stamp. */
   datetime?: InstanceConfig["datetime"];
@@ -547,11 +611,26 @@ export function afterResponse(opts: AfterResponseOptions): void {
     });
 
     // 2. Update conversation summary (only when sliding window overflows)
-    if (opts.needsSummaryUpdate && opts.droppedMessages?.length) {
+    // A turn that starts before the previous turn's refresh lands plans the same
+    // one. The marker is read again before the paid summary call: once that
+    // refresh has landed, the marker moved and this one is skipped. Two refreshes
+    // still in flight together both pay, and the compare-and-set drops the second
+    // write. A failed read skips too: the window keeps those exchanges verbatim
+    // and the next turn plans the refresh again.
+    let dropped = opts.needsSummaryUpdate ? opts.droppedMessages : undefined;
+    if (dropped?.length && opts.summaryCover) {
+      const current = await conversationStore.getSummaryThrough(opts.conversationId).catch((err: unknown) => {
+        log.warn("pipeline", `Summary marker read failed for conversation ${opts.conversationId}; refresh skipped`, err);
+        return undefined;
+      });
+      // Undefined (the read failed, or the conversation row is gone) never matches.
+      if (current !== opts.summaryCover.expected) dropped = undefined;
+    }
+    if (dropped?.length) {
       const existing = opts.existingSummary
         ? `Previous summary: ${opts.existingSummary}\n\n`
         : "";
-      const droppedText = opts.droppedMessages
+      const droppedText = dropped
         .map(m => {
           const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
           return `${label}: ${m.content}`;
@@ -578,7 +657,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
 
         const summary = summaryResponse.text.trim();
         if (summary) {
-          await conversationStore.updateSummary(opts.conversationId, summary);
+          await conversationStore.updateSummary(opts.conversationId, summary, opts.summaryCover);
         }
       } catch (err) {
         log.error("pipeline", "Summary generation failed", err);
@@ -824,9 +903,10 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       reasoning: opts.reasoning,
       debugPayload: opts.debugPayload,
       assistantMessageId: opts.assistantMessageId,
-      existingSummary: ctx.conversationSummary,
-      needsSummaryUpdate: ctx.hasOverflow,
+      existingSummary: ctx.storedSummary,
+      needsSummaryUpdate: (ctx.droppedMessages?.length ?? 0) > 0,
       droppedMessages: ctx.droppedMessages,
+      summaryCover: ctx.summaryCover,
       memoryEnabled: ctx.instanceConfig.memoryEnabled,
       datetime: ctx.instanceConfig.datetime,
       provider: ctx.instanceConfig.provider,

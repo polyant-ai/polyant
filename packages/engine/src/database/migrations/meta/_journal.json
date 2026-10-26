@@ -631,6 +631,13 @@
       "when": 1792200000000,
       "tag": "0096_knowledge_document_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792300000000,
+      "tag": "0097_conversation_summary_through",
+      "breakpoints": true
     }
   ]
 }

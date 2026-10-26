@@ -12,7 +12,7 @@
  * For other providers (OpenAI, Bedrock) this is a no-op: their reasoning
  * content is summary-only and not part of the conversation context.
  *
- * Inputs are persisted message rows from `getRecentMessageRows()`; output is
+ * Inputs are persisted message rows from `getHistorySnapshot()`; output is
  * a `ModelMessage[]` ready to pass to the AI SDK. Rows for `user` and
  * `system` are returned unchanged. Assistant rows without reasoning are
  * returned as plain-text ModelMessages.
@@ -48,7 +48,7 @@ function pickSignedThinking(reasoning: unknown[] | null | undefined): AnthropicT
 /**
  * Convert persisted message rows into `ModelMessage[]` ready for the AI gateway.
  *
- * @param rows Chronologically ordered message rows (from `getRecentMessageRows`).
+ * @param rows Chronologically ordered message rows (from `getHistorySnapshot`).
  * @param provider Provider name ("anthropic" enables thinking-block re-injection).
  * @param thinking Whether the current request has `thinking: true`.
  *                 Re-injection only happens when this is true AND provider==="anthropic".
