@@ -388,6 +388,7 @@ export const api = {
         thinkingEnabled?: boolean;
         thinkingLevel?: string;
         temperature?: number | null;
+        fastMode?: boolean;
         stateInPromptEnabled?: boolean;
         datetimeInjectionEnabled?: boolean;
         // Nullable, not merely optional: null CLEARS the override back to the

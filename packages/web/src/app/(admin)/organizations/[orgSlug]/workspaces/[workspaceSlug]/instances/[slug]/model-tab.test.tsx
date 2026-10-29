@@ -109,7 +109,7 @@ const MODELS = {
     openai: {
       models: [
         { id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
-        { id: "o3", tier: "heavy", costInput: 0.01, costOutput: 0.03, supportsThinking: true, supportsTemperature: false },
+        { id: "o3", tier: "heavy", costInput: 0.01, costOutput: 0.03, fastMultiplier: 2, supportsThinking: true, supportsTemperature: false },
       ],
     },
     anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075, supportsThinking: false, supportsTemperature: true }] },
@@ -211,6 +211,33 @@ describe("ModelTab", () => {
     );
     expect(mocks.secretsSet).not.toHaveBeenCalled();
     expect(onUpdate).toHaveBeenCalled();
+  });
+
+  it("offers a model's fast variant as a choice of its own and saves it as the model with fast mode", async () => {
+    render(<ModelTab instance={makeInstance()} onUpdate={onUpdate} />);
+
+    const panel = await openTask("settings.role.chat.title");
+    // Only a model with a fast multiplier has the variant.
+    await pick(panel, "settings.tab.model", "settings.tab.fastVariant:o3");
+    expect(within(panel).getByText("settings.tab.fastHint:2")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ model: "o3", fastMode: true })),
+    );
+  });
+
+  it("drops fast mode when the model changes to one without it", async () => {
+    render(<ModelTab instance={makeInstance({ model: "o3", fastMode: true })} onUpdate={onUpdate} />);
+
+    expect(within(await row("settings.role.chat.title")).getByText("settings.tab.fastVariant:o3")).toBeInTheDocument();
+    const panel = await openTask("settings.role.chat.title");
+    await pick(panel, "settings.tab.model", "gpt-4o");
+    await userEvent.click(within(panel).getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ model: "gpt-4o", fastMode: false })),
+    );
   });
 
   it("blocks a provider without its key, and saves the key before the choice that needs it", async () => {

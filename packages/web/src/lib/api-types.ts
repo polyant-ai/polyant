@@ -106,6 +106,8 @@ export interface Instance {
    * instances that pre-date this field.
    */
   temperature?: number | null;
+  /** Ask the provider for fast mode; applied only on a model whose catalog entry has `fastMultiplier`. */
+  fastMode?: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */
@@ -250,6 +252,8 @@ export interface ModelInfo {
     costCacheWrite: number;
     costCacheWrite5m?: number;
   };
+  /** Only on models that run in the provider's fast mode: the multiple of every rate a fast call costs. */
+  fastMultiplier?: number;
   /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
   supportsCache: boolean;
   /**
