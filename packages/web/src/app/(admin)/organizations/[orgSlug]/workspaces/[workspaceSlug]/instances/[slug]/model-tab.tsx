@@ -85,7 +85,10 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
       case "chat":
         return {
           provider: providerName(choices.chatProvider) || t("settings.tab.systemDefault"),
-          model: instance.model || instance.effectiveModel || t("settings.tab.systemDefault"),
+          model:
+            instance.model && instance.fastMode
+              ? t("settings.tab.fastVariant", { model: instance.model })
+              : instance.model || instance.effectiveModel || t("settings.tab.systemDefault"),
         };
       case "embed":
         return {

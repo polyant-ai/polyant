@@ -8,6 +8,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Trash2, Loader2, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil, ArrowLeft, Copy, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConversationSummary } from "@/components/conversations/conversation-summary";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -470,11 +471,7 @@ export default function ConversationDetailPage() {
               </span>
             )}
           </div>
-          {conversation.title && conversation.summary && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {conversation.summary}
-            </p>
-          )}
+          {conversation.title && conversation.summary && <ConversationSummary summary={conversation.summary} />}
           <TooltipProvider>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
               {[

@@ -77,6 +77,8 @@ export interface SupervisorInput {
   thinkingLevel?: string;
   /** Sampling temperature [0, 2]. Already gated by config-resolver; forwarded verbatim. Omitted when undefined. */
   temperature?: number | null;
+  /** Ask the provider for fast mode; the gateway sends it only to a model priced in it. */
+  fastMode?: boolean;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
   /** When true, inject the current date/time into every turn (resolved from instance config). */
@@ -648,6 +650,7 @@ function buildChatArgs(
       thinking: input.thinkingEnabled ?? false,
       ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.temperature != null ? { temperature: input.temperature } : {}),
+      ...(input.fastMode ? { fast: true } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,

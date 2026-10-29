@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Models: OpenAI's `gpt-6.1-terra` ($1 / $5 per million tokens, reasoning can
+  be switched off) and `gpt-6.1-sol` ($2 / $10, always reasons).
+- Fast mode. An agent can run the fast variant of a model whose provider offers
+  one: Claude Opus 5.5 on Anthropic, and OpenAI GPT-5.6, GPT-6 and GPT-6.1. The
+  model select and the model catalog list each such model a second time as
+  "· Fast", with its prices; the provider bills those calls at 2× every rate.
+  Choosing the variant sets the agent's `fastMode`, which
+  `PATCH /api/instances/:slug` accepts and export and import carry (migration
+  `0097`). `GET /api/instances/models` returns the price multiple as
+  `fastMultiplier`. A call is billed at the fast rate only when the provider
+  reports that it ran fast.
+- The generated description under a conversation's title stops at two lines,
+  with Show more / Hide when it is longer.
+
+### Changed
+
+- The OpenAI `standard` tier resolves to `gpt-6.1-terra` instead of
+  `gpt-6-sol`, at half the price. Agents with no model of their own, and the
+  `spawnTask` sub-agents of those agents, change model.
+- The AI SDK packages are updated together (`ai` 7.0.156,
+  `@ai-sdk/openai` 4.0.104). The previous `@ai-sdk/openai` dropped
+  `reasoning_effort: "none"` on `gpt-6.1-terra`, so it kept reasoning with
+  thinking off.
+
 ## [1.3.4] - 2026-10-26
 
 ### Added

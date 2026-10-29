@@ -97,11 +97,11 @@ export function reasoningAlwaysOnFallback(modelId: string): boolean {
   // The alternatives that name a POINT release are anchored and terminated on
   // purpose: `claude-opus-5-5` cannot be switched off and `claude-opus-5` can,
   // and one is a prefix of the other (on Bedrock too, behind a profile prefix).
-  // Same for `gpt-6-astra` against the rest of its family. Both Fable releases
-  // are always-on.
+  // Same for `gpt-6-astra` and `gpt-6.1-sol` against the rest of their family.
+  // Both Fable releases are always-on.
   return (
     /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k[23]|-thinking/i.test(modelId) ||
-    /^gpt-6-astra$|^(?:(?:eu|us|apac|global)\.anthropic\.)?claude-opus-5-5$|^claude-fable-5(?:-1)?$/i.test(modelId)
+    /^gpt-6-astra$|^gpt-6\.1-sol$|^(?:(?:eu|us|apac|global)\.anthropic\.)?claude-opus-5-5$|^claude-fable-5(?:-1)?$/i.test(modelId)
   );
 }
 
@@ -280,9 +280,14 @@ export function estimateCostBreakdown(
   promptTokens: number,
   completionTokens: number,
   cache?: CacheTokenUsage,
+  fast = false,
 ): CostBreakdown {
   const pricing = getModelCapabilities(provider, model);
   if (!pricing) return { input: 0, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
+  // A call the provider reports as fast costs a multiple of every rate. One
+  // reported fast on a model without a catalogued multiplier stays at list
+  // price rather than guessing one.
+  const scale = fast ? pricing.fastMultiplier ?? 1 : 1;
 
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
@@ -293,11 +298,11 @@ export function estimateCostBreakdown(
   const callRates = ratesForPrompt(pricing, promptTokens);
   const rates = resolveCacheRates(callRates);
 
-  const input = (regularInput * callRates.input) / 1_000_000;
-  const cacheReadCost = (cacheRead * rates.read) / 1_000_000;
-  const cacheWriteCost = ((cacheWrite - cacheWrite5m) * rates.write + cacheWrite5m * rates.write5m) / 1_000_000;
+  const input = (regularInput * callRates.input * scale) / 1_000_000;
+  const cacheReadCost = (cacheRead * rates.read * scale) / 1_000_000;
+  const cacheWriteCost = (((cacheWrite - cacheWrite5m) * rates.write + cacheWrite5m * rates.write5m) * scale) / 1_000_000;
   const cacheCost = cacheReadCost + cacheWriteCost;
-  const output = (completionTokens * callRates.output) / 1_000_000;
+  const output = (completionTokens * callRates.output * scale) / 1_000_000;
 
   return {
     input,
@@ -313,6 +318,8 @@ export function estimateCostBreakdown(
 export interface CallUsage extends CacheTokenUsage {
   promptTokens: number;
   completionTokens: number;
+  /** The provider reported that this call ran in fast mode. */
+  fast?: boolean;
 }
 
 /**
@@ -322,7 +329,9 @@ export interface CallUsage extends CacheTokenUsage {
  * calls under a 100K threshold, while their 120K sum is over it. Every other
  * model costs the same per token at any length, so it is priced on `total`,
  * exactly as before; so is a priced-by-length turn whose calls were not
- * reported, which is then billed at the rates its total falls in.
+ * reported, which is then billed at the rates its total falls in. A turn with
+ * a fast call is priced call by call too, because a provider can serve some
+ * calls of a fast turn at standard speed.
  */
 export function estimateTurnCostBreakdown(
   provider: string,
@@ -335,8 +344,9 @@ export function estimateTurnCostBreakdown(
       cachedInputTokens: u.cachedInputTokens,
       cacheCreationInputTokens: u.cacheCreationInputTokens,
       cacheCreation5mInputTokens: u.cacheCreation5mInputTokens,
-    });
-  if (!getModelCapabilities(provider, model)?.longPrompt || !calls?.length) return ofCall(total);
+    }, u.fast);
+  const perCall = !!getModelCapabilities(provider, model)?.longPrompt || !!calls?.some((c) => c.fast);
+  if (!perCall || !calls?.length) return ofCall(total);
   const sum: CostBreakdown = { input: 0, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
   for (const call of calls) {
     const c = ofCall(call);
@@ -583,6 +593,14 @@ export function temperatureSupported(provider: string, modelId: string, thinking
  */
 export function cacheSupported(provider: string, model: string): boolean {
   return fromCatalog("cacheSupported", provider, model, (e) => e.cache, () => cacheCapableFallback(provider, model));
+}
+
+/**
+ * Whether a provider+model runs in fast mode. Catalog only, with no fallback:
+ * an uncatalogued model has no fast price to bill, so it never asks for fast.
+ */
+export function fastSupported(provider: string, model: string): boolean {
+  return getModelCapabilities(provider, model)?.fastMultiplier !== undefined;
 }
 
 /**

@@ -97,6 +97,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     thinkingEnabled: instance.thinkingEnabled,
     thinkingLevel: instance.thinkingLevel,
     temperature: instance.temperature,
+    fastMode: instance.fastMode,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     datetimeTimezone: instance.datetimeTimezone,

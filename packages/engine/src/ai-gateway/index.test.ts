@@ -160,7 +160,7 @@ describe("AI Gateway", () => {
 
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({ tier: "standard" }),
-        "gpt-6-sol",
+        "gpt-6.1-terra",
       );
       expect(result.text).toBe("Response text");
     });
@@ -210,7 +210,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -228,7 +228,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -294,7 +294,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6.1-terra" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -320,6 +320,36 @@ describe("AI Gateway", () => {
         }),
         expect.any(String),
       );
+    });
+
+    describe("fast mode", () => {
+      it("asks OpenAI for the fast service tier on a model priced in it", async () => {
+        mockProviderChat.mockResolvedValue(makeChatResponse());
+
+        await chat(makeRequest({ provider: "openai", model: "gpt-6.1-terra", fast: true }));
+
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).toMatchObject({ serviceTier: "fast" });
+      });
+
+      it("asks Anthropic for speed fast on Claude Opus 5.5", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-opus-5-5", fast: true }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({ speed: "fast" });
+      });
+
+      it("sends nothing to a model without fast mode, which would reject it", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-sonnet-5-5", fast: true }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions?.anthropic ?? {}).not.toHaveProperty("speed");
+      });
     });
 
     describe("switching thinking OFF on a model that reasons by default", () => {
@@ -584,7 +614,7 @@ describe("AI Gateway", () => {
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -610,7 +640,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6.1-terra" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({

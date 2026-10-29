@@ -391,8 +391,8 @@ describe("createProvider – usage of the model calls answered before a failure"
       cacheCreation5mInputTokens: 0,
       // Each model call stays a call of its own, for a model priced by prompt length.
       calls: [
-        { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
-        { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
+        { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0, fast: false },
+        { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0, fast: false },
       ],
     });
   });
@@ -495,6 +495,30 @@ describe("createProvider – cumulative usage across SDK majors", () => {
       cachedInputTokens: 700,
       cacheCreationInputTokens: 50,
     });
+  });
+
+  it("chat: marks the steps the provider reports as fast, and the turn only when every step was", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    const step = (providerMetadata: unknown) => ({ text: "", toolCalls: [], usage: { inputTokens: 10, outputTokens: 1 }, providerMetadata });
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [step({ openai: { serviceTier: "fast" } }), step({ openai: { serviceTier: "default" } })],
+      usage: V7_CUMULATIVE,
+    } as any);
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [step({ anthropic: { usage: { speed: "fast" } } })],
+      usage: V7_CUMULATIVE,
+    } as any);
+
+    const adapter = createProvider("openai", (_modelId) => ({}) as any);
+    const mixed = await adapter.chat({ ...baseRequest }, "gpt-6.1-terra");
+    expect(mixed.steps.map((s) => s.fast)).toEqual([true, undefined]);
+    expect(mixed.usage.fast).toBeUndefined();
+
+    const allFast = await adapter.chat({ ...baseRequest }, "claude-opus-5-5");
+    expect(allFast.usage.fast).toBe(true);
   });
 
   it("chat: falls back to `totalUsage` when `usage` is absent", async () => {
