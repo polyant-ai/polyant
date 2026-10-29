@@ -227,9 +227,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // its costs priced — but nothing defaults onto them: the tiers are where an
     // agent lands when nobody chose a model, including the service jobs (titles,
     // memory extraction, summaries) of every agent on this provider.
+    // `standard` is gpt-6.1-terra since 2026-10-29: half the price of gpt-6-sol,
+    // and live-verified to run a tool turn and to switch reasoning off with `none`.
     tiers: {
       fast: "gpt-6-luna",
-      standard: "gpt-6-sol",
+      standard: "gpt-6.1-terra",
       heavy: "gpt-6-astra",
     },
     models: {

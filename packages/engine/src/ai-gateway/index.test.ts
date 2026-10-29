@@ -160,7 +160,7 @@ describe("AI Gateway", () => {
 
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({ tier: "standard" }),
-        "gpt-6-sol",
+        "gpt-6.1-terra",
       );
       expect(result.text).toBe("Response text");
     });
@@ -210,7 +210,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -228,7 +228,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -294,7 +294,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6.1-terra" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -614,7 +614,7 @@ describe("AI Gateway", () => {
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-6-sol", "standard", false,
+        "openai", "gpt-6.1-terra", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -640,7 +640,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6.1-terra" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({

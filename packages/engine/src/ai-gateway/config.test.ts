@@ -11,7 +11,7 @@ describe("resolveModel", () => {
   });
 
   it("resolves openai standard tier", () => {
-    expect(resolveModel("openai", "standard")).toBe("gpt-6-sol");
+    expect(resolveModel("openai", "standard")).toBe("gpt-6.1-terra");
   });
 
   it("resolves openai heavy tier", () => {
