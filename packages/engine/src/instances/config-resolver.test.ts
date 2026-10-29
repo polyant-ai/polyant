@@ -135,6 +135,7 @@ describe("instances/config-resolver", () => {
         thinkingEnabled: false,
         thinkingLevel: "medium",
         temperature: null,
+        fastMode: false,
         stateInPromptEnabled: false,
         webContextFieldMapping: {},
         datetimeInjectionEnabled: true,

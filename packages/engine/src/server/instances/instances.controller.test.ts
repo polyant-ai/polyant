@@ -221,7 +221,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled",
+        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "stateInPromptEnabled", "datetimeInjectionEnabled",
         // The six that moved off the environment. On the allow-list because the
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",

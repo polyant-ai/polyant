@@ -85,6 +85,8 @@ export interface StepDetail {
   cachedInputTokens?: number;
   cacheCreationInputTokens?: number;
   cacheCreation5mInputTokens?: number;
+  /** The provider reported that this step's model call ran in fast mode. */
+  fast?: boolean;
   durationMs: number;
   legacy?: boolean;
 }

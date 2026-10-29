@@ -55,6 +55,8 @@ export interface InstanceConfig {
    * provider default".
    */
   temperature: number | null;
+  /** Ask the provider for fast mode. The gateway sends it only to a model priced in it. */
+  fastMode: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** Web channel: state key → dot-path into a `chat/stream` request's `context` (empty = no context accepted). */
@@ -162,6 +164,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       thinkingEnabled: false,
       thinkingLevel: "medium",
       temperature: null,
+      fastMode: false,
       stateInPromptEnabled: false,
       webContextFieldMapping: {},
       datetimeInjectionEnabled: true,
@@ -251,6 +254,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     )
       ? clampTemperature(instance.temperature)
       : null,
+    fastMode: instance.fastMode,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     webContextFieldMapping: instance.webContextFieldMapping ?? {},
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,

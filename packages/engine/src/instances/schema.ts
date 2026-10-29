@@ -21,6 +21,8 @@ export const instances = pgTable("instances", {
   // Nebius provider (maps to reasoning_effort). Portable set: low|medium|high.
   thinkingLevel: text("thinking_level").notNull().default("medium"),
   temperature: real("temperature"), // nullable; null = use the provider default
+  // Ask the provider for fast mode; honoured only on a model the catalog prices in it.
+  fastMode: boolean("fast_mode").notNull().default(false),
   /**
    * When true, the current conversation state store is rendered (read-only) into
    * the supervisor system prompt so the model can see known facts. Default false

@@ -756,3 +756,30 @@ describe("temperatureSupported", () => {
     expect(temperatureSupported("bedrock", "eu.anthropic.claude-sonnet-4-6", false)).toBe(true);
   });
 });
+
+describe("estimateTurnCostBreakdown – fast mode", () => {
+  // gpt-6.1-terra, published $/1M: input 1, cache read 0.05, output 5; fast is 2×.
+  const call = { promptTokens: 10_000, completionTokens: 1_000, cachedInputTokens: 4_000 };
+  const standard = (6_000 * 1 + 4_000 * 0.05 + 1_000 * 5) / 1_000_000;
+
+  it("bills a call the provider reports as fast at the catalogued multiple of every rate", () => {
+    const cost = estimateCostBreakdown("openai", "gpt-6.1-terra", call.promptTokens, call.completionTokens, call, true);
+    expect(cost.total).toBeCloseTo(standard * 2, 12);
+    expect(cost.cacheRead).toBeCloseTo((4_000 * 0.05 * 2) / 1_000_000, 12);
+  });
+
+  it("prices a fast turn call by call, so a call served at standard speed stays at list price", () => {
+    const turn = { promptTokens: 20_000, completionTokens: 2_000, cachedInputTokens: 8_000 };
+    const cost = estimateTurnCostBreakdown("anthropic", "claude-opus-5-5", turn, [
+      { ...call, fast: true },
+      { ...call, fast: false },
+    ]);
+    const opus = (6_000 * 4 + 4_000 * 0.2 + 1_000 * 20) / 1_000_000;
+    expect(cost.total).toBeCloseTo(opus * 2 + opus, 12);
+  });
+
+  it("keeps list price for a fast report on a model with no fast multiplier", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", 1_000, 100, undefined, true);
+    expect(cost.total).toBeCloseTo((1_000 * 2 + 100 * 10) / 1_000_000, 12);
+  });
+});

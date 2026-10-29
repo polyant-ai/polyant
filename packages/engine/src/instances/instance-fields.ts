@@ -31,6 +31,7 @@ export const UPDATABLE_INSTANCE_KEYS = [
   "thinkingEnabled",
   "thinkingLevel",
   "temperature",
+  "fastMode",
   "stateInPromptEnabled",
   "datetimeInjectionEnabled",
   "cacheEnabled",

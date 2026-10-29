@@ -104,7 +104,14 @@ export interface ModelCapabilities {
     cacheWrite?: number;
     cacheWrite5m?: number;
   };
-
+  /**
+   * The model also runs in the provider's fast mode, and this is what a fast call
+   * costs as a multiple of every rate above, cache and long-prompt rates included
+   * (both providers price it that way). Absent = no fast mode. A call is billed
+   * at it only when the provider reports that it ran fast: OpenAI can serve a
+   * fast request at standard speed and says so in `service_tier`.
+   */
+  fastMultiplier?: number;
   // — capabilities —
   /** Extended thinking / reasoning capable (drives `isThinkingCapable`). */
   reasoning: boolean;
@@ -238,6 +245,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // more than 272K input tokens pays the long-context rates for the whole
       // request, about 2× input and cache, 1.5× output (pricing page, 2026-10-08).
       // gpt-5.4-mini and -nano cap input at 272K, so they never reach it.
+      // Fast mode (`service_tier: "fast"`, called priority processing until
+      // 2026-07-30) is 2× every rate on GPT-5.6, 6 and 6.1 (pricing page,
+      // 2026-10-29); the 6× Ultrafast tier is not offered.
       // GPT-4o family (cached 0.5× input)
       "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
@@ -265,9 +275,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // 2026-10-08): the catalog carries no promotional or transitional rates, so
       // a spend cap never trips late because a promotion ended. Cache and the
       // long-context rates follow from it by the family's multipliers.
-      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, longPrompt: { above: 272_000, input: 10.00, output: 45.00, cacheRead: 1.00, cacheWrite: 12.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 18.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, longPrompt: { above: 272_000, input: 0.40, output: 1.80, cacheRead: 0.04, cacheWrite: 0.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, longPrompt: { above: 272_000, input: 10.00, output: 45.00, cacheRead: 1.00, cacheWrite: 12.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 18.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, longPrompt: { above: 272_000, input: 0.40, output: 1.80, cacheRead: 0.04, cacheWrite: 0.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
       // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
       // and capabilities read from the published pricing and model pages
       // (2026-09-23); cache write is the published 1.25× input column, like
@@ -283,16 +293,16 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       //
       // Astra is the exception inside its own family: its published effort set has
       // no `none`, so it cannot be switched off and is `reasoningAlwaysOn`.
-      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, longPrompt: { above: 272_000, input: 20.00, output: 75.00, cacheRead: 2.00, cacheWrite: 25.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
-      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 272_000, input: 0.20, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, longPrompt: { above: 272_000, input: 20.00, output: 75.00, cacheRead: 2.00, cacheWrite: 25.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
+      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, fastMultiplier: 2, vision: true, temperature: false, cache: true },
+      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 272_000, input: 0.20, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, fastMultiplier: 2, vision: true, temperature: false, cache: true },
       // GPT-6.1 (Sol/Terra), released 2026-10-26. Prices and effort sets read from
       // the pricing and model pages on 2026-10-29; neither lists a promotional
       // rate. Cache write is the default-retention column (1.25× input), as for
       // GPT-6. Terra lists `none` and switches off like gpt-6-sol; Sol 6.1 does
       // not, so it is `reasoningAlwaysOn` like Astra.
-      "gpt-6.1-sol": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.20, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "gpt-6.1-terra": { input: 1.00, output: 5.00, cacheRead: 0.05, cacheWrite: 1.25, longPrompt: { above: 272_000, input: 2.00, output: 7.50, cacheRead: 0.10, cacheWrite: 2.50 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6.1-sol": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.20, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
+      "gpt-6.1-terra": { input: 1.00, output: 5.00, cacheRead: 0.05, cacheWrite: 1.25, longPrompt: { above: 272_000, input: 2.00, output: 7.50, cacheRead: 0.10, cacheWrite: 2.50 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, fastMultiplier: 2, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
       "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
@@ -360,8 +370,12 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // reasoning unless the disable is sent. Opus 5.5 and Fable 5.1 cannot be
       // switched off at all (`disabled` is a 400), so they are reasoningAlwaysOn
       // and the panel locks their toggle.
+      //
+      // Fast mode is generally available on Opus 5.5 alone, at $8/$40 (2×), with
+      // no beta header (fast-mode page, 2026-10-29). Opus 5 and 4.8 have it only
+      // as a waitlisted research preview, and Bedrock does not offer it.
       "claude-opus-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, cacheWrite5m: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
-      "claude-opus-5-5": { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 8.00, cacheWrite5m: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-opus-5-5": { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 8.00, cacheWrite5m: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], fastMultiplier: 2, vision: true, temperature: false, cache: true },
       "claude-fable-5-1": { input: 10.00, output: 50.00, cacheRead: 0.25, cacheWrite: 20.00, cacheWrite5m: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "claude-fable-5": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 20.00, cacheWrite5m: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
     },

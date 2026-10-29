@@ -322,6 +322,36 @@ describe("AI Gateway", () => {
       );
     });
 
+    describe("fast mode", () => {
+      it("asks OpenAI for the fast service tier on a model priced in it", async () => {
+        mockProviderChat.mockResolvedValue(makeChatResponse());
+
+        await chat(makeRequest({ provider: "openai", model: "gpt-6.1-terra", fast: true }));
+
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).toMatchObject({ serviceTier: "fast" });
+      });
+
+      it("asks Anthropic for speed fast on Claude Opus 5.5", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-opus-5-5", fast: true }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({ speed: "fast" });
+      });
+
+      it("sends nothing to a model without fast mode, which would reject it", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-sonnet-5-5", fast: true }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions?.anthropic ?? {}).not.toHaveProperty("speed");
+      });
+    });
+
     describe("switching thinking OFF on a model that reasons by default", () => {
       // Sending nothing is "off" only for a model whose default is off. That was
       // every 1P model until gpt-6 (default effort `medium`) and Claude Opus 5 /

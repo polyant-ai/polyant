@@ -135,6 +135,7 @@ export const exportInstanceDataSchema = z.object({
   // agent that thinks at a different depth, with nothing to see.
   thinkingLevel: z.string().default("medium"),
   temperature: z.number().nullable().default(null),
+  fastMode: z.boolean().default(false),
   stateInPromptEnabled: z.boolean().default(false),
   datetimeInjectionEnabled: z.boolean().default(true),
   /**
