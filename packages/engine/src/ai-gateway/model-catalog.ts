@@ -286,6 +286,13 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, longPrompt: { above: 272_000, input: 20.00, output: 75.00, cacheRead: 2.00, cacheWrite: 25.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 272_000, input: 0.20, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      // GPT-6.1 (Sol/Terra), released 2026-10-26. Prices and effort sets read from
+      // the pricing and model pages on 2026-10-29; neither lists a promotional
+      // rate. Cache write is the default-retention column (1.25× input), as for
+      // GPT-6. Terra lists `none` and switches off like gpt-6-sol; Sol 6.1 does
+      // not, so it is `reasoningAlwaysOn` like Astra.
+      "gpt-6.1-sol": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.20, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "gpt-6.1-terra": { input: 1.00, output: 5.00, cacheRead: 0.05, cacheWrite: 1.25, longPrompt: { above: 272_000, input: 2.00, output: 7.50, cacheRead: 0.10, cacheWrite: 2.50 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
       "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },

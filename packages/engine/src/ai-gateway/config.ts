@@ -97,11 +97,11 @@ export function reasoningAlwaysOnFallback(modelId: string): boolean {
   // The alternatives that name a POINT release are anchored and terminated on
   // purpose: `claude-opus-5-5` cannot be switched off and `claude-opus-5` can,
   // and one is a prefix of the other (on Bedrock too, behind a profile prefix).
-  // Same for `gpt-6-astra` against the rest of its family. Both Fable releases
-  // are always-on.
+  // Same for `gpt-6-astra` and `gpt-6.1-sol` against the rest of their family.
+  // Both Fable releases are always-on.
   return (
     /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k[23]|-thinking/i.test(modelId) ||
-    /^gpt-6-astra$|^(?:(?:eu|us|apac|global)\.anthropic\.)?claude-opus-5-5$|^claude-fable-5(?:-1)?$/i.test(modelId)
+    /^gpt-6-astra$|^gpt-6\.1-sol$|^(?:(?:eu|us|apac|global)\.anthropic\.)?claude-opus-5-5$|^claude-fable-5(?:-1)?$/i.test(modelId)
   );
 }
 
