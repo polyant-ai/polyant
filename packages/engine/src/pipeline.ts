@@ -35,6 +35,7 @@ import { getHookRegistry } from "./hooks/hook-registry.js";
 import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
 import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS } from "./instances/agent-settings.js";
 import { createLogger } from "./utils/create-logger.js";
+import { isServerRejection } from "./utils/db-errors.js";
 
 const log = createLogger();
 
@@ -442,8 +443,9 @@ export interface AfterResponseOptions {
   /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
   provenance?: HookProvenance;
   /** Message arrival time (pipeline start). Used as the user row's created_at so the
-   * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant). */
-  receivedAt?: Date;
+   * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant:
+   * the two rows share one transaction, so the database's now() alone would tie them). */
+  receivedAt: Date;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -509,32 +511,39 @@ export function afterResponse(opts: AfterResponseOptions): void {
       // and none of them are here".
       attachmentMetas = stored.length > 0 ? stored : undefined;
     }
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        role: "user",
-        content: opts.userMessage,
-        attachments: attachmentMetas,
-        metadata: opts.inboundMetadata,
-        // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
-        // and it always precedes the assistant row persisted just below.
-        ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
-      },
-    ]);
-
-    // 1. Save assistant message to PostgreSQL. The id is pre-generated on the
-    // streaming path so the client can correlate it with the per-message debug
-    // payload; the debug payload itself is present only when DEBUG was on.
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
-        role: "assistant",
-        content: opts.assistantResponse,
-        steps: opts.steps,
-        reasoning: opts.reasoning,
-        debugPayload: opts.debugPayload,
-        metadata: opts.provenance,
-      },
-    ]);
+    const userRow = {
+      role: "user",
+      content: opts.userMessage,
+      attachments: attachmentMetas,
+      metadata: opts.inboundMetadata,
+      // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
+      // and it always precedes the assistant row, which takes the database's now().
+      createdAt: opts.receivedAt,
+    };
+    // The id is pre-generated on the streaming path so the client can correlate it
+    // with the per-message debug payload; the debug payload itself is present only
+    // when DEBUG was on.
+    const assistantRow = {
+      ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
+      role: "assistant",
+      content: opts.assistantResponse,
+      steps: opts.steps,
+      reasoning: opts.reasoning,
+      debugPayload: opts.debugPayload,
+      metadata: opts.provenance,
+    };
+    // 1. Save the user message and the assistant message to PostgreSQL in one call:
+    // one transaction and one update of the conversation row for the pair. When
+    // Postgres rejects the pair (so it rolled back), write the rows one at a time,
+    // so the user message and the keys of its uploaded attachments stay recorded
+    // when only the assistant message cannot be saved.
+    try {
+      await conversationStore.appendMessages(opts.conversationId, [userRow, assistantRow]);
+    } catch (err) {
+      if (!isServerRejection(err)) throw err;
+      await conversationStore.appendMessages(opts.conversationId, [userRow]);
+      await conversationStore.appendMessages(opts.conversationId, [assistantRow]);
+    }
 
     // 1.5 Generate title (only once, after first exchange)
     await generateConversationTitle({
