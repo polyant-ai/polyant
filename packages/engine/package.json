@@ -61,7 +61,7 @@
     "grammy": "^1.46.0",
     "helmet": "^8.3.0",
     "jose": "^6.2.13",
-    "langsmith": "^0.10.7",
+    "langsmith": "^0.11.1",
     "markdown-it": "^15.0.3",
     "postgres": "^3.4.0",
     "reflect-metadata": "^0.2.2",
