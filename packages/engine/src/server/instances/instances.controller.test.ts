@@ -226,7 +226,7 @@ describe("InstancesController", () => {
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
-        "cacheEnabled", "cacheTtl", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "cacheEnabled", "cacheTtl", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
@@ -504,6 +504,23 @@ describe("InstancesController", () => {
         controller.update("test-one", { embeddingProvider: "bedrock", embeddingDim: 1536, confirmWipe: true }),
       ).rejects.toThrow(BadRequestException);
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("rejects an intermediateText value outside the three policies, writing nothing", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+
+      await expect(controller.update("test-one", { intermediateText: "hide" as never })).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts null for intermediateText, clearing the policy", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, intermediateText: null });
+
+      await controller.update("test-one", { intermediateText: null });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ intermediateText: null }));
     });
 
     it("rejects a dimension that is not one of the supported values", async () => {

@@ -957,3 +957,88 @@ describe("normalizeStrictConversation", () => {
     expect(JSON.stringify(input)).toBe(snapshot);
   });
 });
+
+describe("createProvider – text written alongside a tool call (intermediateText)", () => {
+  // A model that greets while calling a tool, then answers in a final step.
+  const STEPS = [
+    { text: "Hello, I am the assistant.", toolCalls: [{ toolCallId: "t1", toolName: "lookup", input: {} }] },
+    { text: "It is open until six.", toolCalls: [] },
+  ];
+  const PARTS = [
+    { type: "start-step" },
+    { type: "text-delta", id: "a", text: "Hello, I am the assistant." },
+    { type: "tool-call", toolCallId: "t1", toolName: "lookup", input: {} },
+    { type: "finish-step", finishReason: "tool-calls" },
+    { type: "start-step" },
+    { type: "text-delta", id: "b", text: "It is open until six." },
+    { type: "finish-step", finishReason: "stop" },
+  ];
+
+  function mockGenerate() {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({
+      text: "It is open until six.",
+      steps: STEPS,
+      usage: { inputTokens: 1, outputTokens: 1 },
+    } as any);
+  }
+
+  function mockStream() {
+    // Like the SDK, every read of `stream` hands out its own copy.
+    vi.mocked(tracedStreamText).mockResolvedValueOnce({
+      textStream: (async function* () {
+        yield "Hello, I am the assistant.";
+        yield "It is open until six.";
+      })(),
+      get stream() {
+        return (async function* () {
+          yield* PARTS;
+        })();
+      },
+      text: Promise.resolve("It is open until six."),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+      steps: Promise.resolve(STEPS),
+    } as any);
+  }
+
+  async function read(stream: AsyncIterable<string>): Promise<string> {
+    let out = "";
+    for await (const chunk of stream) out += chunk;
+    return out;
+  }
+
+  const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+
+  it("chat: the reply is the last step's text when no policy is set", async () => {
+    mockGenerate();
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-5");
+    expect(res.text).toBe("It is open until six.");
+  });
+
+  it("chat: the reply carries every step's text under reply", async () => {
+    mockGenerate();
+    const res = await adapter.chat({ ...baseRequest, intermediateText: "reply" }, "claude-sonnet-5");
+    expect(res.text).toBe("Hello, I am the assistant.\n\nIt is open until six.");
+  });
+
+  it("chatStream: a stream still shows the greeting when no policy is set", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-5");
+    expect(await read(stream.textStream)).toBe("Hello, I am the assistant.It is open until six.");
+    expect((await stream.response).text).toBe("It is open until six.");
+  });
+
+  it("chatStream: under discard the stream shows what the stored reply holds, nothing more", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest, intermediateText: "discard" }, "claude-sonnet-5");
+    expect(await read(stream.textStream)).toBe("It is open until six.");
+    expect((await stream.response).text).toBe("It is open until six.");
+  });
+
+  it("chatStream: under reply the stream and the stored reply carry the same text", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest, intermediateText: "reply" }, "claude-sonnet-5");
+    const streamed = await read(stream.textStream);
+    expect(streamed).toBe("Hello, I am the assistant.\n\nIt is open until six.");
+    expect((await stream.response).text).toBe(streamed);
+  });
+});

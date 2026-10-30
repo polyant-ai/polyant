@@ -148,6 +148,7 @@ describe("instances/config-resolver", () => {
         dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
         messageTimings: DEFAULT_MESSAGE_TIMINGS,
         cacheConfig: { enabled: true, ttl: "1h" },
+        intermediateText: null,
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
@@ -215,6 +216,7 @@ describe("instances/config-resolver", () => {
         dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
         messageTimings: DEFAULT_MESSAGE_TIMINGS,
         cacheConfig: { enabled: true, ttl: "1h" },
+        intermediateText: null,
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
@@ -278,6 +280,24 @@ describe("instances/config-resolver", () => {
       const cfg = await resolveInstanceConfig(asInstanceSlug("default"));
 
       expect(cfg.a2aEnabled).toBe(true);
+    });
+
+    it("surfaces the agent's intermediateText policy", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fakeInstance, intermediateText: "discard" });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(cfg.intermediateText).toBe("discard");
+    });
+
+    it("treats an unknown stored intermediateText as unset rather than passing it on", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fakeInstance, intermediateText: "hide" });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(cfg.intermediateText).toBeNull();
     });
   });
 
