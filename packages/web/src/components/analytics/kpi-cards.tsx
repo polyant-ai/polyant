@@ -46,7 +46,7 @@ function TrendBadge({ value, lowerIsBetter = false }: { value: number | null; lo
   return (
     <span
       title={t(capped ? "analytics.kpi.trendCappedHint" : "analytics.kpi.trendHint")}
-      className={`inline-flex items-center gap-0.5 text-xs font-medium ${
+      className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs font-medium ${
         isGood ? "text-success" : "text-destructive"
       }`}
     >
@@ -97,18 +97,19 @@ export function KpiCards({ data }: KpiCardsProps) {
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-tour="dash-tiles">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dash-tiles">
       {cards.map((card) => (
         <Card key={card.label}>
           <CardContent >
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-muted-foreground">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 text-sm font-medium text-muted-foreground">
                 {card.label}
               </p>
-              <card.icon className="h-4 w-4 text-muted-foreground" />
+              <card.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <p className="text-2xl font-semibold tracking-tight">
+            {/* Wraps so a long value and its trend stack in a narrow tile instead of spilling out of it. */}
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <p className="min-w-0 break-all text-2xl font-semibold tracking-tight">
                 {card.value}
               </p>
               <TrendBadge value={card.trend} lowerIsBetter={card.lowerIsBetter} />
