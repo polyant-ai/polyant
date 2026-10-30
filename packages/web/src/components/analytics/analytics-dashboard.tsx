@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { subDays, format } from "date-fns";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,12 +14,11 @@ import { CostTrendChart } from "./cost-trend-chart";
 import { ConversationTrendChart } from "./conversation-trend-chart";
 import { HourlyHeatmap } from "./hourly-heatmap";
 import { ModelDistributionChart } from "./model-distribution-chart";
-import { TierDistributionChart } from "./tier-distribution-chart";
-import { ToolUsageChart } from "./tool-usage-chart";
 import { ChannelDistributionChart } from "./channel-distribution-chart";
 import { InstanceComparisonTable } from "./instance-comparison-table";
 import { LatencyTrendChart } from "./latency-trend-chart";
-import { ToolLatencyTable } from "./tool-latency-table";
+import { ToolTable } from "./tool-table";
+import { eachDay } from "./daily-series";
 
 interface AnalyticsDashboardProps {
   fetchData: (from: string, to: string) => Promise<AnalyticsResponse>;
@@ -31,15 +30,14 @@ const toISO = (d: Date) => format(d, "yyyy-MM-dd");
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[100px] rounded-lg" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-[140px] rounded-xl" />
         ))}
       </div>
-      <Skeleton className="h-[340px] rounded-lg" />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-[290px] rounded-lg" />
-        <Skeleton className="h-[290px] rounded-lg" />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Skeleton className="h-[340px] rounded-xl lg:col-span-2" />
+        <Skeleton className="h-[340px] rounded-xl" />
       </div>
     </div>
   );
@@ -73,6 +71,8 @@ export function AnalyticsDashboard({
     load();
   }, [load]);
 
+  const days = useMemo(() => eachDay(range.from, range.to), [range]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -84,27 +84,29 @@ export function AnalyticsDashboard({
         <DashboardSkeleton />
       ) : (
         <>
-          <KpiCards data={data.overview} />
+          {/* Summary first, then one row per question: what it cost, how much it was used, how well it answered, when. */}
+          <KpiCards data={data} days={days} />
 
-          <CostTrendChart data={data.dailyTrend} />
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ConversationTrendChart data={data.dailyTrend} />
-            <HourlyHeatmap data={data.hourlyDistribution} />
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2 *:h-full">
+              <CostTrendChart data={data.dailyTrend} previous={data.previousDailyCost} days={days} />
+            </div>
+            <ModelDistributionChart data={data.modelDistribution} tiers={data.tierDistribution} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2 *:h-full">
+              <ConversationTrendChart data={data.dailyTrend} days={days} />
+            </div>
             <ChannelDistributionChart data={data.channelDistribution} />
-            <ModelDistributionChart data={data.modelDistribution} />
-            <TierDistributionChart data={data.tierDistribution} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <ToolUsageChart data={data.toolUsage} />
-            <ToolLatencyTable data={data.latency?.slowestTools ?? []} />
+            <LatencyTrendChart data={data.latency?.dailyLatency ?? []} days={days} />
+            <ToolTable usage={data.toolUsage} latency={data.latency?.slowestTools ?? []} />
           </div>
 
-          <LatencyTrendChart data={data.latency?.dailyLatency ?? []} />
+          <HourlyHeatmap data={data.hourlyDistribution} />
 
           {showInstanceComparison && (
             <InstanceComparisonTable data={data.instanceComparison ?? []} />

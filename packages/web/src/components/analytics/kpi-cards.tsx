@@ -2,96 +2,102 @@
 
 "use client";
 
-import { DollarSign, MessageSquare, Mail, Zap, Database, TrendingUp, TrendingDown } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import type { AnalyticsOverview } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { DollarSign, MessageSquare, Mail, Zap, Database } from "lucide-react";
+import type { AnalyticsResponse } from "@/lib/api";
+import { formatLatency } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
+import { dailyValues } from "./daily-series";
+import { KpiTile, type KpiTileProps } from "./kpi-tile";
 
 interface KpiCardsProps {
-  data: AnalyticsOverview;
+  data: AnalyticsResponse;
+  /** Every day of the period, so each sparkline has one point per day. */
+  days: readonly string[];
 }
 
-function formatNumber(value: number) {
-  return value >= 1000
-    ? `${(value / 1000).toFixed(1)}k`
-    : String(Math.round(value));
+function formatCount(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
 }
 
-function formatPercent(value: number) {
-  return `${(value * 100).toFixed(0)}%`;
+function pctChange(current: number, previous: number): number | null {
+  return previous === 0 ? null : ((current - previous) / previous) * 100;
 }
 
-/** Above this the previous period was close to empty, and the exact figure says nothing. */
-const TREND_CAP = 999;
+const rate = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
 
 /**
- * The period-over-period change, or nothing at all when it is exactly zero (a
- * "+0.0%" badge is noise where an absent one reads as "unchanged") or `null`
- * (the previous period was zero, so there is nothing to compare against).
- *
- * The sign and the arrow always show which way the number moved; the colour
- * alone says whether that is good. A metric where less is better passes
- * `lowerIsBetter` instead of a negated value, which used to print a response
- * time that had grown 436% as "-435.8%".
+ * The response time a person waits for a turn: the median of the pipeline
+ * traces, the same measure the response-time chart draws, so the tile and the
+ * chart below it can be read together. Without traces in the period it falls
+ * back to the average model call, with no line to draw.
  */
-function TrendBadge({ value, lowerIsBetter = false }: { value: number | null; lowerIsBetter?: boolean }) {
-  const { t } = useI18n();
-  if (value === null || value === 0 || !Number.isFinite(value)) return null;
-  const isUp = value > 0;
-  const isGood = isUp !== lowerIsBetter;
-  const capped = Math.abs(value) > TREND_CAP;
-  const label = capped ? `${isUp ? ">+" : "<-"}${TREND_CAP}%` : `${isUp ? "+" : ""}${value.toFixed(1)}%`;
-  return (
-    <span
-      title={t(capped ? "analytics.kpi.trendCappedHint" : "analytics.kpi.trendHint")}
-      className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs font-medium ${
-        isGood ? "text-success" : "text-destructive"
-      }`}
-    >
-      {isUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-      {label}
-    </span>
-  );
+function responseTimeTile(data: AnalyticsResponse, days: readonly string[]): Omit<KpiTileProps, "label" | "icon"> {
+  const latency = data.latency;
+  if (latency && latency.overview.sampleCount > 0) {
+    const previous = latency.previousOverview;
+    return {
+      value: formatLatency(latency.overview.p50),
+      trend: previous.sampleCount > 0 ? pctChange(latency.overview.p50, previous.p50) : null,
+      previous: previous.sampleCount > 0 ? formatLatency(previous.p50) : undefined,
+      series: dailyValues(latency.dailyLatency, days, (row) => row.p50),
+    };
+  }
+  const { overview } = data;
+  return {
+    value: formatLatency(overview.avgResponseTime),
+    trend: overview.trends.responseTime,
+    previous: overview.previousPeriod.avgResponseTime > 0 ? formatLatency(overview.previousPeriod.avgResponseTime) : undefined,
+  };
 }
 
-export function KpiCards({ data }: KpiCardsProps) {
+export function KpiCards({ data, days }: KpiCardsProps) {
   const { t } = useI18n();
   const fmt = useFormat();
+  const { overview, dailyTrend } = data;
+  const previous = overview.previousPeriod;
 
-  const cards = [
+  const cacheRate = rate(overview.cachedInputTokens, overview.promptTokens);
+  const previousCacheRate = rate(previous.cachedInputTokens, previous.promptTokens);
+
+  const cards: KpiTileProps[] = [
     {
       label: t("analytics.kpi.cost"),
-      value: fmt.currency(data.totalCost),
-      trend: data.trends.cost,
+      value: fmt.currency(overview.totalCost),
+      trend: overview.trends.cost,
+      previous: fmt.currency(previous.totalCost),
+      series: dailyValues(dailyTrend, days, (row) => row.cost),
       icon: DollarSign,
     },
     {
       label: t("analytics.kpi.conversations"),
-      value: formatNumber(data.totalConversations),
-      trend: data.trends.conversations,
+      value: formatCount(overview.totalConversations),
+      trend: overview.trends.conversations,
+      previous: formatCount(previous.totalConversations),
+      series: dailyValues(dailyTrend, days, (row) => row.conversations),
       icon: MessageSquare,
     },
     {
       label: t("analytics.kpi.messages"),
-      value: formatNumber(data.totalMessages),
-      trend: data.trends.messages,
+      value: formatCount(overview.totalMessages),
+      trend: overview.trends.messages,
+      previous: formatCount(previous.totalMessages),
+      series: dailyValues(dailyTrend, days, (row) => row.messages),
       icon: Mail,
     },
     {
       label: t("analytics.kpi.responseTime"),
-      value: formatDuration(data.avgResponseTime),
-      trend: data.trends.responseTime,
+      ...responseTimeTile(data, days),
       lowerIsBetter: true,
       icon: Zap,
     },
     {
       label: t("analytics.kpi.cacheHitRate"),
-      value: formatPercent(
-        data.promptTokens > 0 ? data.cachedInputTokens / data.promptTokens : 0,
-      ),
-      trend: 0,
+      value: `${Math.round(cacheRate * 100)}%`,
+      // A rate moves in points: 40% to 44% is "+4 pt", where "+10%" would read as a ten-point jump.
+      trend: previous.promptTokens > 0 ? (cacheRate - previousCacheRate) * 100 : null,
+      trendUnit: "pt",
+      series: dailyValues(dailyTrend, days, (row) => rate(row.cachedInputTokens, row.promptTokens)),
       icon: Database,
     },
   ];
@@ -99,23 +105,7 @@ export function KpiCards({ data }: KpiCardsProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dash-tiles">
       {cards.map((card) => (
-        <Card key={card.label}>
-          <CardContent >
-            <div className="flex items-center justify-between gap-2">
-              <p className="min-w-0 text-sm font-medium text-muted-foreground">
-                {card.label}
-              </p>
-              <card.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            </div>
-            {/* Wraps so a long value and its trend stack in a narrow tile instead of spilling out of it. */}
-            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <p className="min-w-0 break-all text-2xl font-semibold tracking-tight">
-                {card.value}
-              </p>
-              <TrendBadge value={card.trend} lowerIsBetter={card.lowerIsBetter} />
-            </div>
-          </CardContent>
-        </Card>
+        <KpiTile key={card.label} {...card} />
       ))}
     </div>
   );

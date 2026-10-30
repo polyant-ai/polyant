@@ -3,20 +3,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { Pie, PieChart, Cell } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-  type ChartConfig,
-} from "@/components/ui/chart";
-import type { ModelRow } from "@/lib/api";
+import type { ModelRow, TierRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-
-const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"];
+import { useFormat } from "@/lib/use-format";
+import { RankedBars } from "./ranked-bars";
 
 /** `ai_logs.call_type` of titles, summaries and checks nobody is waiting for. */
 const SERVICE_CALL_TYPE = "service";
@@ -97,62 +88,58 @@ function topWithRest(
 
 interface ModelDistributionChartProps {
   data: ModelRow[];
+  tiers: TierRow[];
 }
 
-export function ModelDistributionChart({ data }: ModelDistributionChartProps) {
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * Which models answered, and below it the tiers they were asked for.
+ *
+ * The tier breakdown used to be a card of its own, a donut of "fast /
+ * standard / heavy" that read as nothing without the models beside it.
+ */
+export function ModelDistributionChart({ data, tiers }: ModelDistributionChartProps) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
-  const slices = useMemo(
+  const modelRows = useMemo(() => {
+    const named = new Set(data.map((row) => row.model));
+    return topModelsWithRest(
+      data,
+      (count) => t("analytics.charts.otherModels", { count }),
+      t("analytics.charts.serviceCalls"),
+    ).map((slice) => ({ key: slice.name, label: slice.name, value: slice.value, muted: !named.has(slice.name) }));
+  }, [data, t]);
+
+  const tierRows = useMemo(
     () =>
-      topModelsWithRest(
-        data,
-        (count) => t("analytics.charts.otherModels", { count }),
-        t("analytics.charts.serviceCalls"),
-      ),
-    [data, t],
+      [...tiers]
+        .sort((a, b) => b.calls - a.calls)
+        .map((row) => ({ key: row.tier, label: capitalise(row.tier), value: row.calls })),
+    [tiers],
   );
-
-  const chartConfig = useMemo(() => {
-    const cfg: ChartConfig = {};
-    slices.forEach((slice, i) => {
-      cfg[slice.name] = { label: slice.name, color: COLORS[i % COLORS.length] };
-    });
-    return cfg;
-  }, [slices]);
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">
-          {t("analytics.charts.modelDistribution")}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium">{t("analytics.charts.modelDistribution")}</CardTitle>
       </CardHeader>
-      <CardContent>
-        {data.length === 0 ? (
-          <div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
+      <CardContent className="flex flex-col gap-6">
+        {modelRows.length === 0 ? (
+          <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
             {t("analytics.noData")}
           </div>
         ) : (
-          <ChartContainer config={chartConfig} className="mx-auto h-[250px] w-full">
-            <PieChart>
-              <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
-              <Pie
-                data={slices}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={50}
-                outerRadius={80}
-                strokeWidth={2}
-              >
-                {slices.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <ChartLegend content={<ChartLegendContent nameKey="name" />} />
-            </PieChart>
-          </ChartContainer>
+          <RankedBars rows={modelRows} formatValue={fmt.number} />
+        )}
+        {tierRows.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("analytics.charts.tierDistribution")}
+            </p>
+            <RankedBars rows={tierRows} formatValue={fmt.number} />
+          </div>
         )}
       </CardContent>
     </Card>
