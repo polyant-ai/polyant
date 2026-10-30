@@ -103,7 +103,7 @@ export function KpiCards({ data, days }: KpiCardsProps) {
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dash-tiles">
+    <div className="grid gap-4 *:min-w-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dash-tiles">
       {cards.map((card) => (
         <KpiTile key={card.label} {...card} />
       ))}

@@ -158,6 +158,8 @@ describe.skipIf(!DB_AVAILABLE)("analytics against the previous window (integrati
              ('openai', 'gpt-test', 'standard', 100, 0, 100, 0, 9.0, 1000, ${PREV_AGENT}, 'ok', now() - interval '60 hours')`;
   });
 
+  afterAll(teardown);
+
   const range = () => ({ from: new Date(Date.now() - 24 * 3600_000), to: new Date() });
 
   it("reads the previous window's cost per day and its cache sums", async () => {

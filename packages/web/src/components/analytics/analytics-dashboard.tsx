@@ -35,8 +35,8 @@ function DashboardSkeleton() {
           <Skeleton key={i} className="h-[140px] rounded-xl" />
         ))}
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Skeleton className="h-[340px] rounded-xl lg:col-span-2" />
+      <div className="grid gap-4 *:min-w-0 xl:grid-cols-3">
+        <Skeleton className="h-[340px] rounded-xl xl:col-span-2" />
         <Skeleton className="h-[340px] rounded-xl" />
       </div>
     </div>
@@ -87,21 +87,21 @@ export function AnalyticsDashboard({
           {/* Summary first, then one row per question: what it cost, how much it was used, how well it answered, when. */}
           <KpiCards data={data} days={days} />
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="min-w-0 lg:col-span-2 *:h-full">
+          <div className="grid gap-4 *:min-w-0 xl:grid-cols-3">
+            <div className="xl:col-span-2 *:h-full">
               <CostTrendChart data={data.dailyTrend} previous={data.previousDailyCost} days={days} />
             </div>
             <ModelDistributionChart data={data.modelDistribution} tiers={data.tierDistribution} />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="min-w-0 lg:col-span-2 *:h-full">
+          <div className="grid gap-4 *:min-w-0 xl:grid-cols-3">
+            <div className="xl:col-span-2 *:h-full">
               <ConversationTrendChart data={data.dailyTrend} days={days} />
             </div>
             <ChannelDistributionChart data={data.channelDistribution} />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 *:min-w-0 xl:grid-cols-2">
             <LatencyTrendChart data={data.latency?.dailyLatency ?? []} days={days} />
             <ToolTable usage={data.toolUsage} latency={data.latency?.slowestTools ?? []} />
           </div>

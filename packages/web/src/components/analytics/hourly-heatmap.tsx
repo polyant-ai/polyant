@@ -57,7 +57,7 @@ export function HourlyHeatmap({ data }: HourlyHeatmapProps) {
                     <span
                       key={hour}
                       title={`${weekdays[weekday]} ${String(hour).padStart(2, "0")}:00 · ${fmt.number(count)}`}
-                      className="aspect-square rounded-[3px] bg-foreground"
+                      className="h-5 rounded-[3px] bg-foreground"
                       style={{ opacity: count === 0 ? 0.04 : 0.12 + (count / max) * 0.88 }}
                     />
                   ))}
