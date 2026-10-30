@@ -79,11 +79,13 @@ export class MemoriesController {
       throw new NotFoundException(`Agent "${uid}" not found`);
     }
 
+    // The vector describes the text that is stored, so both come from the trimmed body.
+    const content = body.content.trim();
     const embCtx = await requireEmbeddingContext(uid);
-    const [embedding] = await embedMany([body.content], embCtx);
+    const [embedding] = await embedMany([content], embCtx);
     const result = await upsertMemory({
       instanceId: uid,
-      content: body.content.trim(),
+      content,
       category: body.category ?? "general",
       importance: body.importance ?? 5,
       embedding,
