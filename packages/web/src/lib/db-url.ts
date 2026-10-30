@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import postgres from "postgres";
+
 /**
  * The panel's Postgres connection string, assembled in ONE place.
  *
@@ -34,4 +36,27 @@ export function databaseUrlFromEnv(env: DatabaseEnv = process.env): string {
 /** Whether to open the connection with TLS. Only the literal "true" enables it. */
 export function databaseSslFromEnv(env: DatabaseEnv = process.env): { rejectUnauthorized: boolean } | false {
   return env.POSTGRES_SSL === "true" ? { rejectUnauthorized: false } : false;
+}
+
+/**
+ * `postgres()` for the panel, without ever printing the connection string: the
+ * same guard as the engine's `openPostgres`. On a string it cannot read (for
+ * example a POSTGRES_PORT that is not a number, or an unencoded `#` in a
+ * DATABASE_URL password) the driver throws a TypeError whose `input` property is
+ * the whole string, password included, and the server log prints it.
+ */
+export function openDatabase(env: DatabaseEnv = process.env): postgres.Sql {
+  try {
+    return postgres(databaseUrlFromEnv(env), { ssl: databaseSslFromEnv(env) });
+  } catch (err) {
+    // Not `{ cause: err }`: the caught error holds the password.
+    const { name, code } = (err ?? {}) as { name?: unknown; code?: unknown };
+    const what = [name, code].filter((part) => typeof part === "string").join(" ");
+    throw new Error(
+      "DATABASE_URL, or the POSTGRES_* variables, do not form a connection string the database driver can read" +
+        (what ? ` (${what})` : "") +
+        ": check POSTGRES_HOST and POSTGRES_PORT (a number), or, in DATABASE_URL, percent-encode special characters" +
+        " in the user and password. The value is not shown because it holds the password.",
+    );
+  }
 }

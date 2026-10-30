@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { openPostgres } from "./open-postgres.js";
 import { config } from "../config.js";
 
-const queryClient = postgres(config.postgres.databaseUrl, {
+const queryClient = openPostgres(config.postgres.databaseUrl, {
   max: config.postgres.poolMax,
   connection: { TimeZone: "UTC" },
   ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
@@ -22,7 +22,7 @@ export const db = drizzle(queryClient);
  * capped (`statement_timeout`), so one runaway aggregate releases its
  * connection. Read-only use only: it shares no transaction with `db`.
  */
-const analyticsClient = postgres(config.postgres.databaseUrl, {
+const analyticsClient = openPostgres(config.postgres.databaseUrl, {
   max: config.postgres.analyticsPoolMax,
   connection: { TimeZone: "UTC", statement_timeout: config.postgres.analyticsStatementTimeoutMs },
   ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,

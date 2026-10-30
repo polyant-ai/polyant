@@ -9,7 +9,6 @@ import NextAuth from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import { eq } from "drizzle-orm";
 import {
   pgTable,
@@ -22,7 +21,7 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { authConfig } from "./auth.config";
-import { databaseSslFromEnv, databaseUrlFromEnv } from "./db-url";
+import { openDatabase } from "./db-url";
 import {
   resolveSignInOrgId,
   type OrgProvisioningPort,
@@ -32,7 +31,7 @@ import {
 // encryption"), so TLS follows POSTGRES_SSL and accepts the managed CA chain.
 // Both rules live in db-url.ts — see the note there on why the panel keeps its
 // own copy of the engine's assembly.
-const queryClient = postgres(databaseUrlFromEnv(), { ssl: databaseSslFromEnv() });
+const queryClient = openDatabase();
 const db = drizzle(queryClient);
 
 /**
