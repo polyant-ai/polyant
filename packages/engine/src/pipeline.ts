@@ -718,6 +718,13 @@ export interface PipelinePostResult {
   finalText: string;
   /** Post-LLM hook outcomes (response_generated + response_sent). */
   hookExecutions: HookExecutionSummary[];
+  /**
+   * True once the turn passed its last abort gate and went to `afterResponse`, which
+   * writes its messages. The turn is then final: an abort that lands later (during
+   * `response_sent`) no longer cancels it, so the caller delivers `finalText` instead
+   * of re-running the turn.
+   */
+  committed: boolean;
 }
 
 export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
@@ -730,7 +737,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
-    return { finalText: opts.resultText, hookExecutions: [] };
+    return { finalText: opts.resultText, hookExecutions: [], committed: false };
   }
 
   let finalText = opts.resultText;
@@ -759,7 +766,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // The coordinator can abort while the hooks above were awaited (a new fragment
   // arrived). Re-check before any write: an aborted run persists nothing.
   if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
+    return { finalText, hookExecutions, committed: false };
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
@@ -810,8 +817,9 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
 
   // The flush is awaited, so the coordinator may have aborted meanwhile. The state
   // upsert is idempotent for the restarted run; the messages must not be written.
+  // Past this gate the turn is committed: a later abort does not undo it.
   if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
+    return { finalText, hookExecutions, committed: false };
   }
 
   if (persist) {
@@ -855,8 +863,13 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // to the channel (the pipeline never observes physical delivery — see the
   // hooks design doc). The main flush already ran, so persist any state these
   // hooks wrote with a second flush (no-op when nothing changed).
+  // A committed turn is final, so its hooks run without the run's abort signal:
+  // a late abort (a new fragment on a debounced channel) no longer skips the
+  // hooks not yet started or refuses their state writes. Each hook keeps its
+  // own timeout. A turn that is not saved keeps the signal.
   if (hookPayload && hookCtx) {
-    hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
+    const sentCtx = persist ? buildHookRunContext(ctx) : hookCtx;
+    hookExecutions.push(...(await runHooks("response_sent", hookPayload, sentCtx)));
     if (persist && ctx.stateBuffer) {
       try {
         await ctx.stateBuffer.flush();
@@ -866,5 +879,5 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
-  return { finalText, hookExecutions };
+  return { finalText, hookExecutions, committed: persist };
 }

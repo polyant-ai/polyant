@@ -194,7 +194,7 @@ async function main() {
     // the assistant message (full turn — runPipelinePost runs post-LLM hooks +
     // memory/summary and respects the abort/commit gate).
     if (pre.shortCircuit) {
-      const { finalText } = await runPipelinePost({
+      const { finalText, committed } = await runPipelinePost({
         ctx,
         contextPrepMs,
         messageText,
@@ -209,7 +209,7 @@ async function main() {
         persist: pre.shortCircuit.persist,
         provenance: hookProvenance(pre.hookExecutions),
       });
-      return { text: finalText };
+      return { text: finalText, committed };
     }
 
     // Phase 3: Supervisor (LLM call + tool building), with response_generated
@@ -290,7 +290,7 @@ async function main() {
     // Phase 4+5: Trace + afterResponse (skipped on abort). Pass the pre-computed
     // response_generated outcome so runPipelinePost neither re-runs those hooks
     // nor re-applies replace (replayText already reflects it).
-    const { finalText } = await runPipelinePost({
+    const { finalText, committed } = await runPipelinePost({
       ctx,
       contextPrepMs,
       messageText,
@@ -324,6 +324,7 @@ async function main() {
 
     return {
       text: finalText,
+      committed,
       toolCalls: result.toolCallTraces?.map((t) => ({ name: t.name, durationMs: t.duration_ms })),
       usage: result.usage ? { promptTokens: result.usage.promptTokens, completionTokens: result.usage.completionTokens } : undefined,
     };

@@ -87,6 +87,13 @@ export interface OutgoingMessage {
   /** Set when `text` is a warning about a failed turn rather than the agent's answer. */
   failure?: TurnFailure;
 
+  /**
+   * Set when the turn passed its commit point (its messages are being written): the
+   * reply is final even if the run's abort signal fired afterwards, so the message
+   * coordinator delivers it instead of re-running its fragments.
+   */
+  committed?: boolean;
+
   /** Optional structured attachments */
   attachments?: Attachment[];
 
