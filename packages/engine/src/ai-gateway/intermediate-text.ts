@@ -13,7 +13,8 @@
  * per-channel behaviour and an unchanged prompt.
  *
  * - `discard`: only the last step's text is the reply; earlier text is never
- *   delivered, not even on a stream.
+ *   delivered, not even on a stream. When the turn stops on a step that called
+ *   a tool (the step limit), that step is the last and its text is the reply.
  * - `progress`: earlier text may be shown live as a progress note on a channel
  *   that streams; the reply is still the last step's text.
  * - `reply`: every step's text, in order, is the reply.
@@ -28,10 +29,14 @@ export function isIntermediateTextPolicy(value: unknown): value is IntermediateT
 /** Paragraph break placed between the texts of two steps under `reply`. */
 const STEP_SEPARATOR = "\n\n";
 
-/** The reply under `reply`: each step's non-empty text, in order. */
+/**
+ * The reply under `reply`: each step's text as written, in order, with a
+ * separator between steps that wrote any. The stream applies the same rule, so
+ * whitespace and indentation reach both paths unchanged.
+ */
 export function joinStepTexts(steps: readonly { text?: unknown }[]): string {
   return steps
-    .map((step) => (typeof step.text === "string" ? step.text.trim() : ""))
+    .map((step) => (typeof step.text === "string" ? step.text : ""))
     .filter((text) => text.length > 0)
     .join(STEP_SEPARATOR);
 }
@@ -56,9 +61,10 @@ const TOOL_PARTS = new Set(["tool-input-start", "tool-call"]);
 
 /**
  * Apply `policy` to an AI SDK full stream. `discard` holds a step's text until
- * the step ends and drops it if the step called a tool, so a streamed channel
- * delivers only what a buffered one does — at the cost of streaming the final
- * step only once it is complete. `reply` separates the texts of successive
+ * the step ends; a step that called a tool keeps it held until the next step
+ * starts, which drops it, or the turn finishes there, which delivers it. A
+ * streamed channel thus delivers what a buffered one does (the last step's
+ * text) at the cost of streaming the final step only once it is complete. `reply` separates the texts of successive
  * steps the way `joinStepTexts` does. Any other policy passes the stream through.
  */
 export async function* applyIntermediateTextPolicy(
@@ -79,28 +85,36 @@ export async function* applyIntermediateTextPolicy(
 async function* discardToolStepText(source: AsyncIterable<unknown>): AsyncGenerator<unknown> {
   let held: unknown[] = [];
   let toolStep = false;
+  // Text of the last closed step that called a tool: the reply if no step follows.
+  let toolStepText: unknown[] = [];
   for await (const chunk of source) {
     const part = chunk as StreamPart;
     if (part.type === "start-step") {
       held = [];
       toolStep = false;
+      toolStepText = [];
       yield chunk;
     } else if (TEXT_PARTS.has(part.type)) {
-      if (!toolStep) held.push(chunk);
+      held.push(chunk);
     } else if (TOOL_PARTS.has(part.type)) {
       toolStep = true;
-      held = [];
       yield chunk;
     } else if (part.type === "finish-step") {
-      yield* held;
+      if (toolStep) toolStepText = held;
+      else yield* held;
       held = [];
+      yield chunk;
+    } else if (part.type === "finish") {
+      yield* toolStepText;
+      toolStepText = [];
       yield chunk;
     } else {
       yield chunk;
     }
   }
-  // A stream that ends without closing its step (an abort, a provider error)
+  // A stream that ends without its finish part (an abort, a provider error)
   // still delivers the text it held, as an unfiltered stream would have.
+  yield* toolStepText;
   yield* held;
 }
 

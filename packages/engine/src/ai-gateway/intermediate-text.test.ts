@@ -95,3 +95,62 @@ describe("applyIntermediateTextPolicy", () => {
     expect(await streamedText("reply")).toBe("Hello, let me check.\n\nIt is open.");
   });
 });
+
+describe("stream and stored reply agree", () => {
+  interface Step {
+    text: string;
+    tool?: boolean;
+  }
+
+  /** The full stream of a turn made of `steps`, each optionally calling a tool. */
+  function turn(steps: Step[]): unknown[] {
+    return [
+      ...steps.flatMap((step, i) => [
+        { type: "start-step" },
+        ...(step.text
+          ? [
+              { type: "text-start", id: `s${i}` },
+              { type: "text-delta", id: `s${i}`, text: step.text },
+              { type: "text-end", id: `s${i}` },
+            ]
+          : []),
+        ...(step.tool ? [{ type: "tool-call", toolCallId: `t${i}`, toolName: "lookup", input: {} }] : []),
+        { type: "finish-step", finishReason: step.tool ? "tool-calls" : "stop" },
+      ]),
+      { type: "finish" },
+    ];
+  }
+
+  const turns: Record<string, Step[]> = {
+    "a final step after a tool step": [{ text: "Hello.", tool: true }, { text: "Answer." }],
+    "a turn that stops on a step that called a tool": [
+      { text: "Checking.", tool: true },
+      { text: "Still checking.", tool: true },
+    ],
+    "whitespace and indentation": [
+      { text: "Checking.\n\n", tool: true },
+      { text: "   ", tool: true },
+      { text: '    console.log("hello")\n' },
+    ],
+  };
+
+  for (const [name, steps] of Object.entries(turns)) {
+    for (const policy of ["discard", "reply"] as const) {
+      it(`${name}, under ${policy}`, async () => {
+        const streamed = (await collect(textDeltas(applyIntermediateTextPolicy(from(turn(steps)), policy)))).join("");
+        expect(streamed).toBe(replyTextFor(policy, steps.at(-1)!.text, steps));
+      });
+    }
+  }
+
+  it("delivers the text of a step that called a tool when the turn stops there under discard", async () => {
+    const steps = turns["a turn that stops on a step that called a tool"]!;
+    expect((await collect(textDeltas(applyIntermediateTextPolicy(from(turn(steps)), "discard")))).join("")).toBe(
+      "Still checking.",
+    );
+  });
+
+  it("keeps each step's whitespace under reply", () => {
+    expect(replyTextFor("reply", "", [{ text: "  a\n" }, { text: "" }, { text: "\n    b" }])).toBe("  a\n\n\n\n    b");
+  });
+});
