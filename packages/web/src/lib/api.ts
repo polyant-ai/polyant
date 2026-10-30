@@ -47,6 +47,7 @@ export type {
   KnowledgeDocumentDetail,
   AnalyticsOverview,
   DailyTrendRow,
+  PreviousDailyCostRow,
   HourlyRow,
   ChannelRow,
   ModelRow,

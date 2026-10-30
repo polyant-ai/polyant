@@ -667,17 +667,36 @@ export interface AnalyticsOverview {
     messages: number | null;
     responseTime: number | null;
   };
+  /** The same window shifted back by its own duration, as absolute values. */
+  previousPeriod: {
+    totalCost: number;
+    totalConversations: number;
+    totalMessages: number;
+    avgResponseTime: number;
+    promptTokens: number;
+    cachedInputTokens: number;
+  };
 }
 
 export interface DailyTrendRow {
   date: string;
   cost: number;
   tokens: number;
+  promptTokens: number;
+  cachedInputTokens: number;
   conversations: number;
   messages: number;
 }
 
+/** The previous window's daily cost, keyed by days since that window began. */
+export interface PreviousDailyCostRow {
+  dayOffset: number;
+  cost: number;
+}
+
+/** Messages people sent, per day of the week (0 = Monday) and hour of the day. */
 export interface HourlyRow {
+  weekday: number;
   hour: number;
   count: number;
 }
@@ -754,6 +773,7 @@ export interface ToolLatencyRow {
 
 export interface LatencyData {
   overview: LatencyOverview;
+  previousOverview: LatencyOverview;
   dailyLatency: LatencyDailyRow[];
   phaseBreakdown: PhaseBreakdownRow[];
   slowestTools: ToolLatencyRow[];
@@ -762,6 +782,7 @@ export interface LatencyData {
 export interface AnalyticsResponse {
   overview: AnalyticsOverview;
   dailyTrend: DailyTrendRow[];
+  previousDailyCost: PreviousDailyCostRow[];
   hourlyDistribution: HourlyRow[];
   channelDistribution: ChannelRow[];
   modelDistribution: ModelRow[];

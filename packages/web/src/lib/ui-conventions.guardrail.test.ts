@@ -104,8 +104,13 @@ describe("UI conventions", () => {
 
   it("should_draw_every_list_as_a_list_table_and_not_a_table_of_its_own", () => {
     // Report tables that are not lists of items a person manages: the dashboard's
-    // per-agent comparison and the onboarding step that shows the model of the new agent.
-    const NOT_LISTS = ["components/analytics/instance-comparison-table.tsx", "components/onboarding/wizard-steps.tsx"];
+    // per-agent comparison and tool figures, and the onboarding step that shows the model
+    // of the new agent.
+    const NOT_LISTS = [
+      "components/analytics/instance-comparison-table.tsx",
+      "components/analytics/tool-table.tsx",
+      "components/onboarding/wizard-steps.tsx",
+    ];
     const tables = sources().filter(({ text }) => /from "@\/components\/ui\/table"/.test(text));
     // Non-vacuity: the files that use the table primitive are discovered.
     expect(tables.length).toBeGreaterThan(10);

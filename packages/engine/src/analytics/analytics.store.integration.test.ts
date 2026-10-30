@@ -133,3 +133,51 @@ describe.skipIf(!DB_AVAILABLE)("analytics over preempted turns and embedder call
     ]);
   });
 });
+
+describe.skipIf(!DB_AVAILABLE)("analytics against the previous window (integration)", () => {
+  // The panel draws the previous window's cost under the current one and shows
+  // the previous figures where a percentage says nothing, so both must come
+  // from the window just before the one asked for, and only from it.
+  const PREV_AGENT = `${MARKER}-prev-agent`;
+  let prevScope: TenantScope;
+
+  beforeAll(async () => {
+    const [{ id: orgId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER + "-p"}, 'p', false) RETURNING id`;
+    const [{ id: wsId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO workspaces (organization_id, slug, name, is_default) VALUES (${orgId}, ${MARKER + "-p"}, 'p', false) RETURNING id`;
+    await queryClient`INSERT INTO instances (slug, name, workspace_id) VALUES (${PREV_AGENT}, 'p', ${wsId})`;
+    prevScope = orgScope(orgId);
+
+    // One call in the current day, one in the day before it, one two days back.
+    await queryClient`
+      INSERT INTO ai_logs (provider, model, tier, prompt_tokens, completion_tokens, total_tokens, cached_input_tokens,
+                           estimated_cost_usd, duration_ms, instance_id, outcome, created_at)
+      VALUES ('openai', 'gpt-test', 'standard', 100, 0, 100, 80, 1.0, 1000, ${PREV_AGENT}, 'ok', now() - interval '1 hour'),
+             ('openai', 'gpt-test', 'standard', 100, 0, 100, 40, 0.5, 1000, ${PREV_AGENT}, 'ok', now() - interval '30 hours'),
+             ('openai', 'gpt-test', 'standard', 100, 0, 100, 0, 9.0, 1000, ${PREV_AGENT}, 'ok', now() - interval '60 hours')`;
+  });
+
+  afterAll(teardown);
+
+  const range = () => ({ from: new Date(Date.now() - 24 * 3600_000), to: new Date() });
+
+  it("reads the previous window's cost per day and its cache sums", async () => {
+    const data = await getAnalytics(prevScope, range(), asInstanceSlug(PREV_AGENT));
+
+    expect(data.previousDailyCost.reduce((sum, d) => sum + d.cost, 0)).toBeCloseTo(0.5);
+    expect(data.previousDailyCost.every((d) => d.dayOffset >= 0 && d.dayOffset <= 1)).toBe(true);
+    expect(data.overview.previousPeriod).toEqual(
+      expect.objectContaining({ totalCost: expect.closeTo(0.5), promptTokens: 100, cachedInputTokens: 40 }),
+    );
+    expect(data.dailyTrend.reduce((sum, d) => sum + d.cachedInputTokens, 0)).toBe(80);
+  });
+
+  it("returns every hour of every weekday, so the heatmap has no holes", async () => {
+    const data = await getAnalytics(prevScope, range(), asInstanceSlug(PREV_AGENT));
+
+    expect(data.hourlyDistribution).toHaveLength(7 * 24);
+    expect(data.hourlyDistribution[0]).toEqual({ weekday: 0, hour: 0, count: 0 });
+    expect(data.hourlyDistribution[7 * 24 - 1]).toEqual(expect.objectContaining({ weekday: 6, hour: 23 }));
+  });
+});
