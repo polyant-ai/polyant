@@ -236,7 +236,20 @@ export default defineTool({
             if (params.outboundTarget != null) updateData.outboundTarget = params.outboundTarget;
             if (params.keepHistory != null) updateData.keepHistory = params.keepHistory;
 
-            // Rebuild schedule if any schedule field is provided
+            // Rebuild schedule if any schedule field is provided. A new time sent
+            // without `scheduleType` is refused, not dropped: dropping it answered
+            // success and kept the old schedule, and the type cannot be guessed (a
+            // lone runAt may move a one-shot or turn a cron into one). A `timezone`
+            // alone is still ignored: models echo its documented default on updates
+            // that change nothing else.
+            if (!params.scheduleType && (params.runAt || params.cronExpression || params.everyMs)) {
+              return {
+                error:
+                  "Nothing was changed. Field 'scheduleType' is required to change the schedule: send it with runAt " +
+                  "(one-shot), cronExpression and timezone (cron) or everyMs (interval). To keep the schedule, leave " +
+                  "runAt, cronExpression and everyMs null.",
+              };
+            }
             if (params.scheduleType) {
               const scheduleOrError = buildScheduleConfig(params as Parameters<typeof buildScheduleConfig>[0]);
               if ("error" in scheduleOrError) return scheduleOrError;
