@@ -67,6 +67,11 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 import { createLogger } from "../../utils/create-logger.js";
+import {
+  INTERMEDIATE_TEXT_POLICIES,
+  isIntermediateTextPolicy,
+  type IntermediateTextPolicy,
+} from "../../ai-gateway/intermediate-text.js";
 
 const log = createLogger();
 
@@ -109,6 +114,7 @@ function toInstanceDto(instance: Instance) {
     messageMaxRestarts: instance.messageMaxRestarts,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
@@ -394,6 +400,8 @@ export class InstancesController {
       messageMaxRestarts?: number | null;
       cacheEnabled?: boolean;
       cacheTtl?: string;
+      /** `null` clears the policy back to the behaviour from before it existed. */
+      intermediateText?: IntermediateTextPolicy | null;
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
@@ -436,6 +444,11 @@ export class InstancesController {
     }
     if (body.fastMode !== undefined && typeof body.fastMode !== "boolean") {
       throw new BadRequestException("fastMode must be a boolean");
+    }
+    if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
+      throw new BadRequestException(
+        `intermediateText must be null or one of ${INTERMEDIATE_TEXT_POLICIES.map((p) => `"${p}"`).join(", ")}`,
+      );
     }
     this.validateAgentSettings(body);
     // Accept the full effort union; the ai-gateway clamps to the chosen model's

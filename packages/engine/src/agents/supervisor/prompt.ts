@@ -19,6 +19,7 @@ import {
 } from "../tools/mcp/mcp-tool-naming.js";
 import { PRIVATE_STATE_KEY } from "../../conversations/state.buffer.js";
 import { toModelToolName } from "../../utils/model-tool-wire.js";
+import type { IntermediateTextPolicy } from "../../ai-gateway/intermediate-text.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +69,11 @@ export interface PromptOptions {
    * deterministic gate. Undefined = not injected.
    */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
+  /**
+   * The agent's policy for text written alongside a tool call. When set, a
+   * section tells the model what the user will see; undefined = not injected.
+   */
+  intermediateText?: IntermediateTextPolicy;
 }
 
 /**
@@ -140,6 +146,25 @@ function renderOptoutHintSection(hint: NonNullable<PromptOptions["optoutHint"]>)
       (resume ? ` They can resume later by sending: ${resume}.` : ``),
     `If asked how to unsubscribe, share this. Do NOT try to process opt-out yourself — the system handles it automatically.`,
   ].join("\n");
+}
+
+/**
+ * The model writes as if all of its text reaches the user, and before this
+ * section nothing said otherwise; text it wrote before a tool call was then
+ * dropped on some channels and shown on others. The section states the agent's
+ * policy so the model puts the reply where the policy delivers it.
+ */
+const REPLY_DELIVERY: Record<IntermediateTextPolicy, string> = {
+  discard:
+    "Only the text you write after your last tool call in a turn reaches the user. Anything you write before or alongside a tool call is discarded and never shown. Do not write user-facing text until you have every tool result you need; then write your complete reply, including any opening your instructions require, in that final message.",
+  progress:
+    "Text you write before or alongside a tool call may be shown to the user as a short progress note while you work, and it is not part of your reply. Keep such a note to one brief sentence about what you are doing, never your reasoning. After your last tool call, write your complete reply, including any opening your instructions require.",
+  reply:
+    "Everything you write in a turn, including text before or alongside tool calls, is shown to the user as one message, in order. Write only text meant for the user: never describe your reasoning or the tools you are calling.",
+};
+
+function renderReplyDeliverySection(policy: IntermediateTextPolicy): string {
+  return [`## Reply delivery`, ``, REPLY_DELIVERY[policy]].join("\n");
 }
 
 /**
@@ -378,6 +403,9 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   }
   if (options.optoutHint) {
     systemSections.push(renderOptoutHintSection(options.optoutHint));
+  }
+  if (options.intermediateText) {
+    systemSections.push(renderReplyDeliverySection(options.intermediateText));
   }
   if (options.contextPrompt) {
     systemSections.push(`## Conversation Context\n\n${options.contextPrompt}`);

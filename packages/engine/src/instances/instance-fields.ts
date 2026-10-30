@@ -36,6 +36,7 @@ export const UPDATABLE_INSTANCE_KEYS = [
   "datetimeInjectionEnabled",
   "cacheEnabled",
   "cacheTtl",
+  "intermediateText",
   "a2aEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",

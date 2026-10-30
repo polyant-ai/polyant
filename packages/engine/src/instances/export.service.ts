@@ -108,6 +108,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     messageMaxRestarts: instance.messageMaxRestarts,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl === "5m" ? "5m" : "1h",
+    intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
