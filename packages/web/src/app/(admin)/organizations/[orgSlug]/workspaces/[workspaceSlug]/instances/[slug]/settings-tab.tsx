@@ -310,14 +310,14 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                     <TooltipContent side="right" className="max-w-sm text-left">
                       <dl className="space-y-1.5">
                         {([
-                          ["intermediateTextUnset", "intermediateTextUnsetHint"],
-                          ["intermediateTextDiscard", "intermediateTextDiscardHint"],
-                          ["intermediateTextProgress", "intermediateTextProgressHint"],
-                          ["intermediateTextReply", "intermediateTextReplyHint"],
+                          ["settings.tab.intermediateTextUnset", "settings.tab.intermediateTextUnsetHint"],
+                          ["settings.tab.intermediateTextDiscard", "settings.tab.intermediateTextDiscardHint"],
+                          ["settings.tab.intermediateTextProgress", "settings.tab.intermediateTextProgressHint"],
+                          ["settings.tab.intermediateTextReply", "settings.tab.intermediateTextReplyHint"],
                         ] as const).map(([label, hint]) => (
                           <div key={label}>
-                            <dt className="font-medium">{t(`settings.tab.${label}`)}</dt>
-                            <dd>{t(`settings.tab.${hint}`)}</dd>
+                            <dt className="font-medium">{t(label)}</dt>
+                            <dd>{t(hint)}</dd>
                           </div>
                         ))}
                       </dl>
