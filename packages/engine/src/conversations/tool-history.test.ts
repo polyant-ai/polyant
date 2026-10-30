@@ -43,7 +43,7 @@ describe("buildHistoryWithToolResults", () => {
     const out = buildHistoryWithToolResults([
       row({
         role: "assistant",
-        content: "Let me look that up.",
+        content: "Found contact 123.",
         steps: [
           step({
             toolCalls: [{ toolCallId: "c1", toolName: "lookupContact", args: { action: "search" } }],
@@ -53,11 +53,10 @@ describe("buildHistoryWithToolResults", () => {
       }),
     ]);
 
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(3);
     expect(out[0]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "Let me look that up." },
         { type: "tool-call", toolCallId: "c1", toolName: "lookupContact", input: { action: "search" } },
       ],
     });
@@ -72,6 +71,65 @@ describe("buildHistoryWithToolResults", () => {
         },
       ],
     });
+    expect(out[2]).toEqual({ role: "assistant", content: "Found contact 123." });
+  });
+
+  // The stored reply is written after the tools return. Replayed ahead of the
+  // calls, it reads as an answer given before the tool ran, and on the next turn
+  // a live model told the user it had answered without checking, or had never
+  // made a call it did make.
+  it("replays the stored reply after the tool results, in the order the turn ran", () => {
+    const out = buildHistoryWithToolResults([
+      row({ role: "user", content: "Read the returns policy." }),
+      row({
+        role: "assistant",
+        content: "Returns are accepted within 30 days.",
+        steps: [
+          step({
+            toolCalls: [{ toolCallId: "c1", toolName: "readSkill", args: { name: "returns-policy" } }],
+            toolResults: [{ toolCallId: "c1", result: { found: true } }],
+          }),
+          step({ index: 1, text: "Returns are accepted within 30 days.", toolCalls: [], finishReason: "stop" }),
+        ],
+      }),
+      row({ role: "user", content: "And for electronics?" }),
+    ]);
+
+    expect(out.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+    expect(parts(out[1]).map((p) => p.type)).toEqual(["tool-call"]);
+    expect(out[3]).toEqual({ role: "assistant", content: "Returns are accepted within 30 days." });
+  });
+
+  // A response hook can rewrite the reply before it is stored (a masked phone
+  // number, a removed tag). The replay carries what was stored, never the raw
+  // text a step produced.
+  it("replays the stored reply, not a step's raw text", () => {
+    const out = buildHistoryWithToolResults([
+      row({
+        role: "assistant",
+        content: "Your contact is on file.",
+        steps: [
+          step({ toolCalls: [{ toolCallId: "c1", toolName: "lookupContact", args: {} }], toolResults: [{ toolCallId: "c1", result: "ok" }] }),
+          step({ index: 1, text: "Your contact is +39 333 1234567.", toolCalls: [], finishReason: "stop" }),
+        ],
+      }),
+    ]);
+
+    expect(JSON.stringify(out)).not.toContain("1234567");
+    expect(out.at(-1)).toEqual({ role: "assistant", content: "Your contact is on file." });
+  });
+
+  // A tool-only turn stores no reply text; an empty assistant message would be
+  // a blank text block, which Anthropic rejects.
+  it("adds no reply message when the stored reply is blank", () => {
+    const out = buildHistoryWithToolResults([
+      row({
+        role: "assistant",
+        content: "  \n",
+        steps: [step({ toolCalls: [{ toolCallId: "c1", toolName: "x", args: {} }], toolResults: [{ toolCallId: "c1", result: "ok" }] })],
+      }),
+    ]);
+    expect(out.map((m) => m.role)).toEqual(["assistant", "tool"]);
   });
 
   it("sanitizes a namespaced plugin tool name (':' → '__') on both call and result", () => {
