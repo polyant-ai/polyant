@@ -84,6 +84,19 @@ function toJsonValue(key: string, value: unknown): unknown {
 }
 
 /**
+ * True when the stored `_channel` value carries exactly the identity's fields, whatever their key order.
+ * Fields left undefined do not count, as in the JSON that is stored: an identity without `userName`
+ * matches a stored value without it.
+ */
+function sameChannelIdentity(stored: unknown, channel: ChannelStateIdentity): boolean {
+  if (stored === null || typeof stored !== "object") return false;
+  const storedFields = Object.entries(stored).filter(([, value]) => value !== undefined);
+  const channelFields = Object.entries(channel).filter(([, value]) => value !== undefined);
+  const byKey = new Map(storedFields);
+  return storedFields.length === channelFields.length && channelFields.every(([key, value]) => byKey.get(key) === value);
+}
+
+/**
  * Per-pipeline-run, in-memory view of a conversation's shared state.
  *
  * Constructed from the DB-loaded blob at pipeline start; tool writes mutate the
@@ -116,10 +129,12 @@ export class ConversationStateBuffer {
   /**
    * Overlay the trusted channel identity under the reserved `_channel` key.
    * Marked dirty only when it differs from the loaded value, so an unchanged
-   * channel does not trigger a write on every turn.
+   * channel does not trigger a write on every turn. The comparison is by field:
+   * the loaded value comes back from jsonb, which reorders keys, so comparing
+   * serialized strings never matched and rewrote `_channel` on every turn.
    */
   seedChannel(channel: ChannelStateIdentity): void {
-    if (JSON.stringify(this.data[CHANNEL_STATE_KEY]) !== JSON.stringify(channel)) {
+    if (!sameChannelIdentity(this.data[CHANNEL_STATE_KEY], channel)) {
       this.data[CHANNEL_STATE_KEY] = channel;
       this.dirty.add(CHANNEL_STATE_KEY);
       this.removed.delete(CHANNEL_STATE_KEY);
