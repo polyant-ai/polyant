@@ -3,11 +3,13 @@
 "use client";
 
 import { useState } from "react";
+import { Info } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, getUserErrorMessage, type Instance, type IntermediateTextPolicy } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
@@ -290,9 +292,39 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           */}
           <div className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-intermediate-text" className="text-sm font-medium">
-                {t("settings.tab.intermediateText")}
-              </Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="agent-intermediate-text" className="text-sm font-medium">
+                  {t("settings.tab.intermediateText")}
+                </Label>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground focus-visible:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={t("settings.tab.intermediateTextOptionsLabel")}
+                      >
+                        <Info className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-sm text-left">
+                      <dl className="space-y-1.5">
+                        {([
+                          ["intermediateTextUnset", "intermediateTextUnsetHint"],
+                          ["intermediateTextDiscard", "intermediateTextDiscardHint"],
+                          ["intermediateTextProgress", "intermediateTextProgressHint"],
+                          ["intermediateTextReply", "intermediateTextReplyHint"],
+                        ] as const).map(([label, hint]) => (
+                          <div key={label}>
+                            <dt className="font-medium">{t(`settings.tab.${label}`)}</dt>
+                            <dd>{t(`settings.tab.${hint}`)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <p className="text-xs text-muted-foreground">{t("settings.tab.intermediateTextHelp")}</p>
             </div>
             <Select value={draft.intermediateText} onValueChange={(value) => set("intermediateText", value)}>

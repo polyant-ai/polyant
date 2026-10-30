@@ -145,4 +145,19 @@ describe("SettingsTab (behaviour parameters)", () => {
       expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ intermediateText: null })),
     );
   });
+
+  it("explains every option in a tooltip that opens from the keyboard", async () => {
+    const user = userEvent.setup();
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await user.tab();
+    while (document.activeElement?.getAttribute("aria-label") !== "settings.tab.intermediateTextOptionsLabel") {
+      await user.tab();
+    }
+
+    const tooltip = await screen.findByRole("tooltip");
+    for (const hint of ["Unset", "Discard", "Progress", "Reply"]) {
+      expect(within(tooltip).getByText(`settings.tab.intermediateText${hint}Hint`)).toBeInTheDocument();
+    }
+  });
 });
