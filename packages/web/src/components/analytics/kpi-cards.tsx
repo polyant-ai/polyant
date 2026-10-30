@@ -32,7 +32,7 @@ const rate = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
  * chart below it can be read together. Without traces in the period it falls
  * back to the average model call, with no line to draw.
  */
-function responseTimeTile(data: AnalyticsResponse, days: readonly string[]): Omit<KpiTileProps, "label" | "icon"> {
+function responseTimeTile(data: AnalyticsResponse): Omit<KpiTileProps, "label" | "icon"> {
   const latency = data.latency;
   if (latency && latency.overview.sampleCount > 0) {
     const previous = latency.previousOverview;
@@ -40,7 +40,8 @@ function responseTimeTile(data: AnalyticsResponse, days: readonly string[]): Omi
       value: formatLatency(latency.overview.p50),
       trend: previous.sampleCount > 0 ? pctChange(latency.overview.p50, previous.p50) : null,
       previous: previous.sampleCount > 0 ? formatLatency(previous.p50) : undefined,
-      series: dailyValues(latency.dailyLatency, days, (row) => row.p50),
+      // Only the days that had turns: a quiet day has no response time, and a zero there drew a fake drop.
+      series: latency.dailyLatency.map((row) => row.p50),
     };
   }
   const { overview } = data;
@@ -87,7 +88,7 @@ export function KpiCards({ data, days }: KpiCardsProps) {
     },
     {
       label: t("analytics.kpi.responseTime"),
-      ...responseTimeTile(data, days),
+      ...responseTimeTile(data),
       lowerIsBetter: true,
       icon: Zap,
     },
@@ -97,7 +98,8 @@ export function KpiCards({ data, days }: KpiCardsProps) {
       // A rate moves in points: 40% to 44% is "+4 pt", where "+10%" would read as a ten-point jump.
       trend: previous.promptTokens > 0 ? (cacheRate - previousCacheRate) * 100 : null,
       trendUnit: "pt",
-      series: dailyValues(dailyTrend, days, (row) => rate(row.cachedInputTokens, row.promptTokens)),
+      // Only the days that sent a prompt, for the same reason.
+      series: dailyTrend.filter((row) => row.promptTokens > 0).map((row) => rate(row.cachedInputTokens, row.promptTokens)),
       icon: Database,
     },
   ];
