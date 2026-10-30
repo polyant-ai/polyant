@@ -3,11 +3,14 @@
 "use client";
 
 import { useState } from "react";
+import { Info } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { api, getUserErrorMessage, type Instance } from "@/lib/api";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { api, getUserErrorMessage, type Instance, type IntermediateTextPolicy } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
@@ -28,6 +31,14 @@ function numberOrNull(raw: string): number | null {
   if (!trimmed) return null;
   const value = Number(trimmed);
   return Number.isFinite(value) ? value : null;
+}
+
+/** The select's value for "no policy chosen": a select item cannot carry an empty value. */
+const UNSET = "unset";
+const INTERMEDIATE_TEXT_OPTIONS: readonly IntermediateTextPolicy[] = ["discard", "progress", "reply"];
+
+function intermediateTextOrNull(value: string): IntermediateTextPolicy | null {
+  return INTERMEDIATE_TEXT_OPTIONS.find((option) => option === value) ?? null;
 }
 
 /**
@@ -61,6 +72,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     messageMaxRestarts: instance.messageMaxRestarts?.toString() ?? "",
     // Replay prior-turn tool results into the model's cross-turn history (default off).
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    // What becomes of text written alongside a tool call (unset = per-channel behaviour).
+    intermediateText: instance.intermediateText ?? UNSET,
     // DEBUG mode: persist the exact LLM request payload per turn (default off).
     debugEnabled: instance.debugEnabled ?? false,
   });
@@ -74,6 +87,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         datetimeInjectionEnabled,
         toolResultsInHistoryEnabled,
         debugEnabled,
+        intermediateText: intermediateTextOrNull(draft.intermediateText),
         // Empty means "hand this back to the deployment default", which the API
         // spells as an explicit null — not as an omitted field, which would
         // leave the column as it is.
@@ -268,6 +282,62 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               checked={toolResultsInHistoryEnabled}
               onCheckedChange={(v) => set("toolResultsInHistoryEnabled", v)}
             />
+          </div>
+
+          {/*
+            Text the model writes alongside a tool call. Unset leaves each
+            channel as it was (a stream shows it, a buffered channel drops it);
+            a chosen policy applies everywhere and the engine states it to the
+            model in the system prompt.
+          */}
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="agent-intermediate-text" className="text-sm font-medium">
+                  {t("settings.tab.intermediateText")}
+                </Label>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground focus-visible:text-foreground rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={t("settings.tab.intermediateTextOptionsLabel")}
+                      >
+                        <Info className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-sm text-left">
+                      <dl className="space-y-1.5">
+                        {([
+                          ["settings.tab.intermediateTextUnset", "settings.tab.intermediateTextUnsetHint"],
+                          ["settings.tab.intermediateTextDiscard", "settings.tab.intermediateTextDiscardHint"],
+                          ["settings.tab.intermediateTextProgress", "settings.tab.intermediateTextProgressHint"],
+                          ["settings.tab.intermediateTextReply", "settings.tab.intermediateTextReplyHint"],
+                        ] as const).map(([label, hint]) => (
+                          <div key={label}>
+                            <dt className="font-medium">{t(label)}</dt>
+                            <dd>{t(hint)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("settings.tab.intermediateTextHelp")}</p>
+            </div>
+            <Select value={draft.intermediateText} onValueChange={(value) => set("intermediateText", value)}>
+              <SelectTrigger id="agent-intermediate-text" className="w-56 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNSET}>{t("settings.tab.intermediateTextUnset")}</SelectItem>
+                <SelectItem value="discard">{t("settings.tab.intermediateTextDiscard")}</SelectItem>
+                <SelectItem value="progress">{t("settings.tab.intermediateTextProgress")}</SelectItem>
+                <SelectItem value="reply">{t("settings.tab.intermediateTextReply")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/*

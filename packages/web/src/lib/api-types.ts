@@ -72,6 +72,9 @@ export interface CreatedManagementApiKey {
 
 // ── Instances ───────────────────────────────────────────────────────
 
+/** The three policies for text written alongside a tool call (see the engine's ai-gateway/intermediate-text.ts). */
+export type IntermediateTextPolicy = "discard" | "progress" | "reply";
+
 export interface Instance {
   id: string;
   slug: string;
@@ -127,6 +130,11 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /**
+   * What becomes of text the model writes alongside a tool call. null = never
+   * chosen: each channel keeps its own behaviour and the prompt says nothing.
+   */
+  intermediateText: IntermediateTextPolicy | null;
   /** When true, the instance is exposed over the inbound A2A (Agent2Agent) protocol. */
   a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
