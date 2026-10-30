@@ -763,6 +763,44 @@ describe("superviseStream", () => {
     expect(output.ttfbMs).toEqual(expect.any(Number));
   });
 
+  // Every streaming consumer (chat/stream, the OpenAI SSE endpoint, A2A) reads
+  // `fullStream` only: timed on `textStream` alone, the trace never had a TTFB.
+  it("records ttfbMs when the consumer reads only fullStream, at its first text", async () => {
+    let resolveResponse: (v: typeof defaultChatResponse) => void;
+    const deferredResponse = new Promise<typeof defaultChatResponse>((r) => { resolveResponse = r; });
+    mockChatStream.mockReturnValue({
+      textStream: (async function* () {})(),
+      fullStream: (async function* () {
+        yield { type: "reasoning-delta", text: "thinking" };
+        await new Promise((r) => setTimeout(r, 30));
+        yield { type: "text-delta", text: "Hello" };
+      })(),
+      response: deferredResponse,
+    });
+
+    const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
+    for await (const _part of result.fullStream) { void _part; }
+    resolveResponse!(defaultChatResponse);
+    const output = await result.completed;
+
+    // Timed at the text, not at the reasoning part that came 30 ms earlier.
+    expect(output.ttfbMs).toBeGreaterThanOrEqual(25);
+  });
+
+  it("records no ttfbMs for a streamed turn that produced no text", async () => {
+    mockChatStream.mockReturnValue({
+      textStream: (async function* () {})(),
+      fullStream: (async function* () { yield { type: "tool-call", toolName: "noop" }; })(),
+      response: Promise.resolve(defaultChatResponse),
+    });
+
+    const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
+    for await (const _part of result.fullStream) { void _part; }
+    const output = await result.completed;
+
+    expect(output.ttfbMs).toBeUndefined();
+  });
+
   it("calls chatStream with standard tier and system prompt", async () => {
     await superviseStream({ message: "test", instanceId: asInstanceSlug("x") });
 

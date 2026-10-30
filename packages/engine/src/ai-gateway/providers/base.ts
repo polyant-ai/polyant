@@ -739,6 +739,68 @@ function temperatureCallParam(
     : {};
 }
 
+/**
+ * Reads a model stream to its end exactly once, whatever its consumer does,
+ * and hands the parts to that one consumer.
+ *
+ * Every getter of an AI SDK 7 stream result splits (`tee()`) its stream, and
+ * every chunk is then copied into each branch: reading `textStream` and
+ * `stream`, then awaiting `text`, `usage`, `steps` and `finalStep`, made six
+ * branches per turn, four of them full read loops that only settled promises.
+ * Here the stream is split once and the result comes from `onEnd`.
+ *
+ * The read does not wait for the consumer: a turn that nobody reads, or whose
+ * reader stops early (a client that went away), still runs to the end and is
+ * saved, as before.
+ */
+function readOnce(source: AsyncIterable<unknown>): { parts: AsyncIterable<unknown>; drained: Promise<void> } {
+  const queue: unknown[] = [];
+  let head = 0;
+  let done = false;
+  let failure: { error: unknown } | undefined;
+  let detached = false;
+  let wake: (() => void) | undefined;
+
+  const drained = (async () => {
+    try {
+      for await (const part of source) {
+        if (detached) continue;
+        queue.push(part);
+        wake?.();
+      }
+    } catch (error) {
+      failure = { error };
+    } finally {
+      done = true;
+      wake?.();
+    }
+  })();
+
+  const parts = (async function* () {
+    try {
+      for (;;) {
+        if (head < queue.length) {
+          const part = queue[head];
+          queue[head++] = undefined;
+          if (head === queue.length) queue.length = head = 0;
+          yield part;
+        } else if (done) {
+          if (failure) throw failure.error;
+          return;
+        } else {
+          await new Promise<void>((resolve) => { wake = resolve; });
+          wake = undefined;
+        }
+      }
+    } finally {
+      detached = true;
+      queue.length = head = 0;
+    }
+  })();
+
+  return { parts, drained };
+}
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -826,22 +888,30 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { instructions, messages, completed, args } = callSetup(request, modelId);
+      // A finished turn reaches `onEnd` before the SDK's stream closes.
+      let ended: { text: string; steps: unknown } | undefined;
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
-        tracedStreamText(args()),
+        tracedStreamText({ ...args(), onEnd: (event) => { ended = event; } }),
       );
+      // v7 renamed the SDK result's `fullStream` to `stream`; the property on
+      // OUR stream interface keeps its name, so only the read changes here.
+      const { parts, drained } = readOnce((result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream);
 
       return {
-        textStream: result.textStream,
-        // v7 renamed the SDK result's `fullStream` to `stream`; the property on
-        // OUR stream interface keeps its name, so only the read changes here.
-        fullStream: (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream,
+        // Split off the SDK's stream only if someone reads it.
+        textStream: (async function* () { yield* result.textStream; })(),
+        fullStream: parts,
         response: (async () => {
           try {
-            const finalText = await result.text;
-            const finalUsage = await cumulativeUsage(result);
-            const steps = await result.steps;
+            await drained;
+            // Without `onEnd` (aborted, failed, or no output) the result's own
+            // promises settle the response, as they always did.
+            const end = ended;
+            const finalText = end ? end.text : await result.text;
+            const finalUsage = end ? cumulativeUsage(end) : await cumulativeUsage(result);
+            const steps = end ? end.steps : await result.steps;
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
-            const topReasoning = await finalStepReasoningAsync(result);
+            const topReasoning = end ? finalStepReasoning(end) : await finalStepReasoningAsync(result);
             const response = buildChatResponse(
               finalText,
               normalizeSdkSteps(steps),
