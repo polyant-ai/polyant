@@ -185,6 +185,42 @@ describe("memory-store", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
+    // The same fact extracted again: which UPDATEs leave the stored vector alone.
+    const updateWith = async (closest: Record<string, unknown>, provider = "openai") => {
+      mockDb.select.mockReturnValue(createChainMock([{ id: "existing-id", ...closest }]) as any);
+      const updChain = createChainMock(undefined);
+      mockDb.update.mockReturnValue(updChain as any);
+      await upsertMemory({
+        instanceId: asInstanceSlug("user-1"),
+        content: "User likes pizza",
+        category: "preference",
+        importance: 7,
+        embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider,
+      });
+      return updChain.set.mock.calls[0][0] as Record<string, unknown>;
+    };
+
+    it("keeps the vector columns out when the same text from the same provider comes back with the same vector", async () => {
+      const set = await updateWith({ content: "User likes pizza", embeddingProvider: "openai", distance: 1e-7 });
+      expect(set).not.toHaveProperty("embedding");
+      expect(set).not.toHaveProperty("embedding1024");
+      expect(set).toMatchObject({ content: "User likes pizza", category: "preference", importance: 7, embeddingProvider: "openai" });
+    });
+
+    it("writes the vector when the text, the provider or the vector itself differ", async () => {
+      for (const [closest, provider] of [
+        [{ content: "User likes pasta", embeddingProvider: "openai", distance: 1e-7 }, "openai"],
+        [{ content: "User likes pizza", embeddingProvider: "bedrock", distance: 1e-7 }, "openai"],
+        [{ content: "User likes pizza", embeddingProvider: "openai", distance: 0.04 }, "openai"],
+      ] as const) {
+        vi.clearAllMocks();
+        const set = await updateWith(closest, provider);
+        expect(set).toMatchObject({ embedding: [0.1, 0.2], embedding1024: null });
+      }
+    });
+
     it("retries on serialization_failure 40001 carried on err.cause (DrizzleQueryError shape)", async () => {
       // 4 retries fail with 40001 nested in `cause`, the 5th succeeds.
       const wrap = (msg: string) => {
