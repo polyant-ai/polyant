@@ -2,7 +2,7 @@
 
 import { sql } from "drizzle-orm";
 import { analyticsDb } from "../database/client.js";
-import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
+import { type DateRange, toISO, asRows, instanceFilter, previousRange } from "../utils/query-helpers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -40,6 +40,8 @@ export interface ToolLatencyRow {
 
 export interface LatencyData {
   overview: LatencyOverview;
+  /** The same figures for the window just before, so the panel can show how the response time moved. */
+  previousOverview: LatencyOverview;
   dailyLatency: LatencyDailyRow[];
   phaseBreakdown: PhaseBreakdownRow[];
   slowestTools: ToolLatencyRow[];
@@ -193,11 +195,12 @@ export async function getLatencyAnalytics(
   range: DateRange,
   instanceId?: string,
 ): Promise<LatencyData> {
-  const [overview, { dailyLatency, phaseBreakdown }, slowestTools] = await Promise.all([
+  const [overview, previousOverview, { dailyLatency, phaseBreakdown }, slowestTools] = await Promise.all([
     getLatencyOverview(scope, range, instanceId),
+    getLatencyOverview(scope, previousRange(range), instanceId),
     getDailyLatencyAndPhases(scope, range, instanceId),
     getSlowestTools(scope, range, instanceId),
   ]);
 
-  return { overview, dailyLatency, phaseBreakdown, slowestTools };
+  return { overview, previousOverview, dailyLatency, phaseBreakdown, slowestTools };
 }
