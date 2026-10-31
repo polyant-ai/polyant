@@ -6,6 +6,9 @@ import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout, type McpConnection } from "./mcp-connect.js";
 import { acquireMcpConnection, retireMcpConnection } from "./mcp-client-pool.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
+import { createHash } from "node:crypto";
+import { DEFAULT_PROVIDER } from "../../../ai-gateway/model-catalog.js";
+import { wireDialectFor } from "../../../ai-gateway/config.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { resolveInstanceUuid } from "../../../instances/instance-meta.js";
 import { findInstanceBySlug } from "../../../instances/store.js";
@@ -74,7 +77,30 @@ function retireOnError(t: Tool, retire: () => void): Tool {
   } as Tool;
 }
 
-const MAX_MCP_TOOL_NAME_LENGTH = 128;
+const DEFAULT_MAX_MCP_TOOL_NAME_LENGTH = 128;
+
+/**
+ * Bedrock Converse caps `ToolSpecification.name` at 64 and rejects the whole
+ * call over it (#424). Anthropic documents 128 (`^[a-zA-Z0-9_-]{1,128}$`) and
+ * OpenAI enforces 128 (129 is rejected with `string_above_max_length`).
+ */
+const BEDROCK_MAX_MCP_TOOL_NAME_LENGTH = 64;
+
+const CAPPED_NAME_HASH_LENGTH = 8;
+
+/** A long slug is shortened down to this many characters before the tool part is. */
+const CAPPED_SLUG_MIN_LENGTH = 16;
+
+/**
+ * The longest equipped MCP tool name the agent's provider accepts. Keyed on the
+ * catalog's `wireDialect`, not on the provider name, like the rest of the
+ * gateway: a provider that speaks Converse under another name gets 64 too.
+ */
+export function maxMcpToolNameLength(provider: string | undefined): number {
+  return wireDialectFor(provider ?? DEFAULT_PROVIDER) === "bedrock"
+    ? BEDROCK_MAX_MCP_TOOL_NAME_LENGTH
+    : DEFAULT_MAX_MCP_TOOL_NAME_LENGTH;
+}
 
 /**
  * `toModelToolName` (utils/model-tool-wire.ts) already maps every character
@@ -82,20 +108,36 @@ const MAX_MCP_TOOL_NAME_LENGTH = 128;
  * `create.issue` or `search files` from getting the WHOLE turn rejected with a
  * provider 400 (every core tool going down with it). The one thing it does NOT
  * do is bound the length — fine for core/plugin names, which are dev-authored
- * and linted at boot, but MCP tool names arrive from a remote server, so a
- * pathologically long one is a real input. Cap it here and let the shared
- * helper own the charset rule, so there is only ONE spelling of it.
+ * and linted at boot, but MCP tool names arrive from a remote server, so a long
+ * one is a real input. Cap it here and let the shared helper own the charset
+ * rule, so there is only ONE spelling of it.
+ *
+ * A name within the cap is `mcp__<slug>__<tool>`, unchanged. Over the cap, the
+ * slug is shortened first (down to 16 characters), then the tool part, and the
+ * key ends with `_` plus the first 8 hex digits of the SHA-256 of the full
+ * mapped name. So the model still sees what the tool is called even under a
+ * long slug, two long names that share a prefix stay two keys (a plain slice
+ * would collapse them and the already-equipped guard would drop the second with
+ * only a log line), and the key is the same on every turn.
  *
  * Renaming the map KEY is safe: verified against `toolsFromDefinitions()` in
- * node_modules/@ai-sdk/mcp/dist/index.mjs — each tool's `execute` closes over the
- * ORIGINAL remote name (`name3` from the definitions loop, captured per-iteration by
- * the `for...of` block scoping) and calls `self.callTool({ name: name3, ... })`. The
- * key the SDK stores the tool under (`tools[name3]`) is never read by `execute` — so
- * whatever key WE equip it under here has no bearing on which remote tool actually
- * gets invoked.
+ * node_modules/@ai-sdk/mcp/dist/index.js (2.0.86) — each tool's `execute` closes
+ * over the ORIGINAL remote `name` from the definitions loop (captured
+ * per-iteration by the `for...of` block scoping) and calls
+ * `self.callTool({ name, ... })`. The key the SDK stores the tool under is never
+ * read by `execute` — so whatever key WE equip it under here has no bearing on
+ * which remote tool actually gets invoked.
  */
-function capModelToolName(name: string): string {
-  return name.length > MAX_MCP_TOOL_NAME_LENGTH ? name.slice(0, MAX_MCP_TOOL_NAME_LENGTH) : name;
+export function mcpModelToolName(slug: string, toolName: string, max: number): string {
+  const full = toModelToolName(`mcp:${slug}:${toolName}`);
+  if (full.length <= max) return full;
+  const hash = createHash("sha256").update(full).digest("hex").slice(0, CAPPED_NAME_HASH_LENGTH);
+  const slugPart = toModelToolName(slug);
+  const toolPart = toModelToolName(toolName);
+  // What is left for the two parts once `mcp__`, the `__` between them and `_<hash>` are in.
+  const room = max - "mcp__".length - "__".length - CAPPED_NAME_HASH_LENGTH - 1;
+  const slugKept = slugPart.slice(0, Math.max(CAPPED_SLUG_MIN_LENGTH, room - toolPart.length));
+  return `mcp__${slugKept}__${toolPart.slice(0, room - slugKept.length)}_${hash}`;
 }
 
 interface McpTurnOptions {
@@ -228,7 +270,13 @@ export async function buildMcpTools(opts: McpTurnOptions & {
   abortSignal?: AbortSignal;
   /** The server list from `startMcpConnections`; read here when absent. */
   servers?: Promise<McpServerRecord[]>;
+  /**
+   * The provider the agent runs on (`undefined` = the gateway default). It
+   * sets the longest tool name to equip: Bedrock rejects names over 64.
+   */
+  provider?: string;
 }): Promise<McpBuildResult> {
+  const maxNameLength = maxMcpToolNameLength(opts.provider);
   const tools: Record<string, Tool> = {};
   const clients: Array<{ close: () => Promise<void> }> = [];
   const leases: Array<{ release: () => void }> = [];
@@ -268,16 +316,19 @@ export async function buildMcpTools(opts: McpTurnOptions & {
       }
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
-        const modelName = capModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));
+        const modelName = mcpModelToolName(server.slug, toolName, maxNameLength);
         if (modelName in tools) {
           mcpLog.warn("mcp", `server '${server.slug}': tool '${toolName}' sanitizes to '${modelName}', which is already equipped — skipping`);
           continue;
+        }
+        if (modelName !== toModelToolName(`mcp:${server.slug}:${toolName}`)) {
+          mcpLog.debug("mcp", `server '${server.slug}': tool '${toolName}' equipped as '${modelName}' (provider limit ${maxNameLength})`);
         }
         tools[modelName] = onCallError ? retireOnError(t as Tool, onCallError) : (t as Tool);
       }
     } catch (e) {
       if (e instanceof UnauthorizedError && provider?.pendingAuthorizeUrl) {
-        tools[toModelToolName(`mcp:${server.slug}:connect`)] = connectTool(server, provider.pendingAuthorizeUrl);
+        tools[mcpModelToolName(server.slug, "connect", maxNameLength)] = connectTool(server, provider.pendingAuthorizeUrl);
       } else {
         mcpLog.warn("mcp", `server '${server.slug}' unavailable this turn: ${errMsg(e)}`);
       }
