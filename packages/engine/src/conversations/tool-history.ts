@@ -13,12 +13,18 @@
  * (truncated) from the persisted `steps`, so the model retains tool outputs
  * across turns.
  *
- * Each assistant turn that used tools becomes two messages: an assistant message
- * carrying the text + every `tool-call` part, then a `tool` message with one
- * `tool-result` part per call. Every call gets a matching result (synthesised if
- * none was persisted) so the call/result pairing the providers require always
- * holds. Multi-step turns are flattened into one parallel-call shape — valid, and
- * it preserves the data the model needs to remember.
+ * Each assistant turn that used tools becomes up to three messages, in the order
+ * the turn ran: an assistant message carrying every `tool-call` part, a `tool`
+ * message with one `tool-result` part per call, then the stored reply as a plain
+ * assistant message. Every call gets a matching result (synthesised if none was
+ * persisted) so the call/result pairing the providers require always holds.
+ * Multi-step turns are flattened into one parallel-call shape — valid, and it
+ * preserves the data the model needs to remember.
+ *
+ * The reply goes last because it was written after the tools returned: replayed
+ * ahead of the calls, a live model reads it as an answer given before the tool
+ * ran. It is the stored `content` (after any response hook), never a step's raw
+ * text.
  */
 
 import type { ModelMessage } from "ai";
@@ -77,9 +83,6 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
     }
 
     const assistantParts: unknown[] = [];
-    if (row.content && row.content.trim().length > 0) {
-      assistantParts.push({ type: "text", text: row.content });
-    }
     // Result lookup stays keyed by the RAW persisted id; only the EMITTED id is
     // sanitized (idempotent → both sides of the pair stay equal).
     for (const tc of toolCalls) {
@@ -109,6 +112,9 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
     // ModelMessage union is stricter than what we construct row-by-row here.
     out.push({ role: "assistant", content: assistantParts } as unknown as ModelMessage);
     out.push({ role: "tool", content: toolParts } as unknown as ModelMessage);
+    if (row.content && row.content.trim().length > 0) {
+      out.push({ role: "assistant", content: row.content });
+    }
   }
 
   return out;
