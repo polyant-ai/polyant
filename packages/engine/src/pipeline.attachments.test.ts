@@ -53,6 +53,7 @@ function respond(attachments: { data: Buffer; mimeType: string }[]) {
     userMessage: "ecco la foto",
     assistantResponse: "Ricevuta, grazie",
     userAttachments: attachments.map((a) => ({ type: "image" as const, ...a })),
+    receivedAt: new Date(),
   });
 }
 
