@@ -28,6 +28,10 @@ contract or sanitized captures; simulated context is not evidence it reaches pro
 For changed logging/error boundaries, use synthetic secret canaries in the real error
 wrapper and inspect emitted normal/debug output, including nested causes. Preserve
 useful diagnostics while verifying that values do not escape through serialization.
+For partial updates, verify omitted fields stay omitted through validation and preserve
+existing values; distinguish explicit null/default values where the contract allows them.
+For streamed replies, compare live text with the persisted reply, including a turn that
+stops on a tool step and meaningful whitespace.
 For fallback/cache/hybrid paths, use inputs the alternative cannot satisfy and demonstrate
 the regression by disabling only the path under examination.
 
