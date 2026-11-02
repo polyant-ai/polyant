@@ -60,8 +60,18 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     messageMaxRestarts: null,
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,
+    intermediateText: null,
     ...overrides,
   } as Instance;
+}
+
+/** Pick an option of the intermediate-text select, by its label. */
+async function pickIntermediateText(option: string) {
+  const user = userEvent.setup();
+  const trigger = screen.getByRole("combobox", { name: "settings.tab.intermediateText" });
+  trigger.focus();
+  await user.keyboard("{Enter}");
+  await user.click(await screen.findByRole("option", { name: option }));
 }
 
 /** The debug switch, by its unique help text. */
@@ -108,5 +118,46 @@ describe("SettingsTab (behaviour parameters)", () => {
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ datetimeTimezone: null })),
     );
+  });
+
+  it("saves a chosen policy for text written alongside tools", async () => {
+    const user = userEvent.setup();
+    mocks.update.mockResolvedValueOnce({ instance: makeInstance({ intermediateText: "discard" }) });
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await pickIntermediateText("settings.tab.intermediateTextDiscard");
+    await user.click(screen.getByText("common.save"));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ intermediateText: "discard" })),
+    );
+  });
+
+  it("clears the policy as null when set back to not set", async () => {
+    const user = userEvent.setup();
+    mocks.update.mockResolvedValueOnce({ instance: makeInstance() });
+    renderWithProvider(<SettingsTab instance={makeInstance({ intermediateText: "reply" })} onUpdate={vi.fn()} />);
+
+    await pickIntermediateText("settings.tab.intermediateTextUnset");
+    await user.click(screen.getByText("common.save"));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ intermediateText: null })),
+    );
+  });
+
+  it("explains every option in a tooltip that opens from the keyboard", async () => {
+    const user = userEvent.setup();
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await user.tab();
+    while (document.activeElement?.getAttribute("aria-label") !== "settings.tab.intermediateTextOptionsLabel") {
+      await user.tab();
+    }
+
+    const tooltip = await screen.findByRole("tooltip");
+    for (const hint of ["Unset", "Discard", "Progress", "Reply"]) {
+      expect(within(tooltip).getByText(`settings.tab.intermediateText${hint}Hint`)).toBeInTheDocument();
+    }
   });
 });

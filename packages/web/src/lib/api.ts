@@ -47,6 +47,7 @@ export type {
   KnowledgeDocumentDetail,
   AnalyticsOverview,
   DailyTrendRow,
+  PreviousDailyCostRow,
   HourlyRow,
   ChannelRow,
   ModelRow,
@@ -80,6 +81,7 @@ export type {
   McpOAuthAccount,
   McpServer,
   McpTestResult,
+  IntermediateTextPolicy,
 } from "./api-types";
 
 // Re-export value-level constants (the `export type` block above only carries types).
@@ -132,6 +134,7 @@ import type {
   OrganizationMember,
   ManagementApiKey,
   CreatedManagementApiKey,
+  IntermediateTextPolicy,
   McpAuthMode,
   McpServer,
   McpTestResult,
@@ -388,6 +391,7 @@ export const api = {
         thinkingEnabled?: boolean;
         thinkingLevel?: string;
         temperature?: number | null;
+        fastMode?: boolean;
         stateInPromptEnabled?: boolean;
         datetimeInjectionEnabled?: boolean;
         // Nullable, not merely optional: null CLEARS the override back to the
@@ -400,6 +404,8 @@ export const api = {
         messageMaxRestarts?: number | null;
         cacheEnabled?: boolean;
         cacheTtl?: string;
+        // null clears the policy, handing every channel back its own behaviour.
+        intermediateText?: IntermediateTextPolicy | null;
         a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;

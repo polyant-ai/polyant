@@ -2,6 +2,7 @@
 
 import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer, real } from "drizzle-orm/pg-core";
 import { workspaces } from "../organizations/organization.schema.js";
+import type { IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
 
 export const instances = pgTable("instances", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -21,6 +22,8 @@ export const instances = pgTable("instances", {
   // Nebius provider (maps to reasoning_effort). Portable set: low|medium|high.
   thinkingLevel: text("thinking_level").notNull().default("medium"),
   temperature: real("temperature"), // nullable; null = use the provider default
+  // Ask the provider for fast mode; honoured only on a model the catalog prices in it.
+  fastMode: boolean("fast_mode").notNull().default(false),
   /**
    * When true, the current conversation state store is rendered (read-only) into
    * the supervisor system prompt so the model can see known facts. Default false
@@ -71,6 +74,13 @@ export const instances = pgTable("instances", {
   cacheEnabled: boolean("cache_enabled").notNull().default(true),
   /** Cross-turn Anthropic cache TTL: "5m" or "1h" (default "1h"). Bedrock is 5m regardless. */
   cacheTtl: text("cache_ttl").notNull().default("1h"),
+  /**
+   * What becomes of text the model writes in a step that also calls a tool:
+   * "discard", "progress" or "reply" (see ai-gateway/intermediate-text.ts). NULL
+   * = never chosen: the reply is the last step's text, a stream shows every
+   * step's text, and the prompt says nothing about it.
+   */
+  intermediateText: text("intermediate_text").$type<IntermediateTextPolicy>(),
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
   a2aEnabled: boolean("a2a_enabled").notNull().default(false),
   /**

@@ -40,6 +40,7 @@ import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
+import type { IntermediateTextPolicy } from "../../ai-gateway/intermediate-text.js";
 import { emitToolStart } from "../../activity-stream/emitters/emit-tool.js";
 import { createLogger } from "../../utils/create-logger.js";
 import { errMsg } from "../../utils/error.js";
@@ -77,6 +78,8 @@ export interface SupervisorInput {
   thinkingLevel?: string;
   /** Sampling temperature [0, 2]. Already gated by config-resolver; forwarded verbatim. Omitted when undefined. */
   temperature?: number | null;
+  /** Ask the provider for fast mode; the gateway sends it only to a model priced in it. */
+  fastMode?: boolean;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
   /** When true, inject the current date/time into every turn (resolved from instance config). */
@@ -87,6 +90,10 @@ export interface SupervisorInput {
   cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
+  /** The agent's policy for text written alongside a tool call; null/absent = unset. */
+  intermediateText?: IntermediateTextPolicy | null;
+  /** The channel's veto on each tool, asked right before it runs (`IncomingMessage.toolGate`). */
+  toolGate?: (toolName: string) => boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
@@ -196,7 +203,12 @@ export interface SupervisorOutput {
 interface SupervisorSignals {
   replyHandled: boolean;
   replyTexts: string[];
+  /** The channel's veto, asked by every tool wrapper right before the tool runs. */
+  toolGate?: (toolName: string) => boolean;
 }
+
+/** What the model reads for a tool the channel stopped: the turn was cut short before it ran. */
+const TOOL_NOT_RUN = "Not run: the user interrupted this turn before the tool started. Nothing was done.";
 
 export interface SupervisorStreamOutput {
   textStream: AsyncIterable<string>;
@@ -218,8 +230,8 @@ function safeOutputPreview(output: unknown): string | undefined {
   return raw;
 }
 
-/** Wrap a built tool with audit timing/output capture for the tool phase. */
-function wrapToolWithAudit(
+/** Wrap a built tool with audit timing/output capture for the tool phase. Exported for tests only. */
+export function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
   instanceId: InstanceSlug,
@@ -237,6 +249,13 @@ function wrapToolWithAudit(
     execute: async (params: any) => {
       const toolStart = Date.now();
       const emitToolEnd = emitToolStart({ toolName: name, args: params, conversationId, instanceSlug: instanceId });
+
+      // Asked here, right before the call, so nothing awaited can sit between the answer and the run.
+      if (signals?.toolGate && !signals.toolGate(toModelToolName(name))) {
+        toolCallTraces?.push({ name, duration_ms: Date.now() - toolStart, success: false });
+        emitToolEnd({ kind: "error", message: TOOL_NOT_RUN });
+        return { error: TOOL_NOT_RUN, notRun: true };
+      }
 
       try {
         const output = await originalExecute(params);
@@ -431,10 +450,13 @@ async function buildTools(opts: BuildToolsOptions) {
         timeoutMs: (await resolvePlatformSettings()).agentCallTimeoutMs,
         dispatch: (input) => adapter.dispatch(input),
       });
+      const handoff = synth.execute as (args: { prompt: string }) => Promise<string>;
       tools[synth.name] = aiTool({
         description: synth.description,
         inputSchema: synth.inputSchema,
-        execute: synth.execute as (args: { prompt: string }) => Promise<string>,
+        // The channel's veto covers a handoff too: the other agent can write.
+        execute: async (args: { prompt: string }) =>
+          signals?.toolGate && !signals.toolGate(synth.name) ? { error: TOOL_NOT_RUN, notRun: true } : handoff(args),
       });
     }
   }
@@ -544,7 +566,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   }
 
   const toolCallTraces: ToolCallTrace[] = [];
-  const signals: SupervisorSignals = { replyHandled: false, replyTexts: [] };
+  const signals: SupervisorSignals = { replyHandled: false, replyTexts: [], ...(input.toolGate ? { toolGate: input.toolGate } : {}) };
   const toolBuildStart = Date.now();
   const tools = await buildTools({
     instanceId: instanceSlug,
@@ -608,6 +630,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       datetimeInjectionEnabled: input.datetimeInjectionEnabled,
       datetime: input.datetime,
       optoutHint: input.optoutHint,
+      intermediateText: input.intermediateText ?? undefined,
     });
 
     pipelineLog.systemPrompt(instanceSlug, systemPrompt);
@@ -648,6 +671,7 @@ function buildChatArgs(
       thinking: input.thinkingEnabled ?? false,
       ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.temperature != null ? { temperature: input.temperature } : {}),
+      ...(input.fastMode ? { fast: true } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,
@@ -657,6 +681,7 @@ function buildChatArgs(
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
       cacheConfig: input.cacheConfig,
+      ...(input.intermediateText ? { intermediateText: input.intermediateText } : {}),
     },
     {
       conversationId: input.conversationId,

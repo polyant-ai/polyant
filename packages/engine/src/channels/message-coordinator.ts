@@ -26,6 +26,11 @@ const log = createLogger();
  *    pipeline and re-arm the pipelineTimer (another soft-debounce window starts).
  * 6. If `maxRestarts` is reached, subsequent fragments no longer cancel — they
  *    accumulate and are flushed in a new pipeline once the current one finishes.
+ * 7. The same holds once the in-flight pipeline has started a tool: a cancelled
+ *    run is not saved, so what the tool did (a booking) would be missing from
+ *    the history the restarted run reads, and the same words could do it again.
+ *    The run goes on and is saved; the new fragments get a run of their own
+ *    after it. No tool starts in a run once it is cancelled.
  *
  * Rationale: delayed typing gives a human-like "starting to think" latency,
  * while cancel-and-restart keeps the pipeline responsive to updated intent
@@ -90,6 +95,8 @@ interface ConversationState {
   currentAbort: AbortController | null;
   /** Number of consecutive aborts triggered by newly-arrived fragments. */
   restartCount: number;
+  /** The in-flight pipeline has started a tool: it is no longer cancelled, its fragments wait for it. */
+  toolStarted: boolean;
   /** Serialization chain for pipeline runs on the same conversation. */
   flushChain: Promise<unknown>;
   /**
@@ -168,7 +175,7 @@ export class MessageCoordinator {
 
     if (state.currentAbort) {
       // Pipeline in flight — decide whether to abort and restart, or accumulate.
-      if (state.restartCount < state.timings.maxRestarts) {
+      if (state.restartCount < state.timings.maxRestarts && !state.toolStarted) {
         state.currentAbort.abort();
         state.currentAbort = null;
         state.restartCount++;
@@ -176,8 +183,8 @@ export class MessageCoordinator {
         // catch branch (see doFlush). We just re-arm the pipeline timer here.
         this.armPipelineTimer(key);
       }
-      // else: degraded — keep fragment in buffer; a new pipeline will be armed
-      // by finalizePipeline() once the current run completes.
+      // else: degraded, or a tool has started — keep fragment in buffer; a new
+      // pipeline will be armed by finalizePipeline() once the current run completes.
     } else {
       // Pipeline not yet started — reset sliding timers.
       this.armPipelineTimer(key);
@@ -230,6 +237,7 @@ export class MessageCoordinator {
       pipelineTimer: null,
       currentAbort: null,
       restartCount: 0,
+      toolStarted: false,
       flushChain: Promise.resolve(),
       settle,
     };
@@ -303,10 +311,17 @@ export class MessageCoordinator {
           return;
         }
 
+        state.toolStarted = false;
         const combined: IncomingMessage = {
           ...state.seed,
           text: fragments.join("\n"),
           attachments: burstAttachments,
+          // Asked right before each tool: a cancelled run starts none, and one that starts any is not cancelled.
+          toolGate: () => {
+            if (signal.aborted) return false;
+            if (state.currentAbort?.signal === signal) state.toolStarted = true;
+            return true;
+          },
         };
         return this.doFlush(key, state, combined, signal, fragments, burstAttachments);
       })
@@ -383,6 +398,7 @@ export class MessageCoordinator {
   private finalizePipeline(key: string, state: ConversationState, signal: AbortSignal): void {
     if (state.currentAbort?.signal === signal) state.currentAbort = null;
     state.restartCount = 0;
+    state.toolStarted = false;
     state.typingSent = false;
     state.lastSid = undefined;
 

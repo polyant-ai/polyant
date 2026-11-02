@@ -305,7 +305,7 @@ describe("serializeTools (debug capture)", () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("search");
     expect(result[0].description).toBe("Search the web");
-    // zod-to-json-schema produces an object schema with the `q` property.
+    // The zod schema becomes an object schema with the `q` property.
     expect(result[0].parameters).toMatchObject({ type: "object" });
     expect(JSON.stringify(result[0].parameters)).toContain("\"q\"");
   });
@@ -391,8 +391,8 @@ describe("createProvider – usage of the model calls answered before a failure"
       cacheCreation5mInputTokens: 0,
       // Each model call stays a call of its own, for a model priced by prompt length.
       calls: [
-        { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
-        { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
+        { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0, fast: false },
+        { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0, fast: false },
       ],
     });
   });
@@ -495,6 +495,30 @@ describe("createProvider – cumulative usage across SDK majors", () => {
       cachedInputTokens: 700,
       cacheCreationInputTokens: 50,
     });
+  });
+
+  it("chat: marks the steps the provider reports as fast, and the turn only when every step was", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    const step = (providerMetadata: unknown) => ({ text: "", toolCalls: [], usage: { inputTokens: 10, outputTokens: 1 }, providerMetadata });
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [step({ openai: { serviceTier: "fast" } }), step({ openai: { serviceTier: "default" } })],
+      usage: V7_CUMULATIVE,
+    } as any);
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [step({ anthropic: { usage: { speed: "fast" } } })],
+      usage: V7_CUMULATIVE,
+    } as any);
+
+    const adapter = createProvider("openai", (_modelId) => ({}) as any);
+    const mixed = await adapter.chat({ ...baseRequest }, "gpt-6.1-terra");
+    expect(mixed.steps.map((s) => s.fast)).toEqual([true, undefined]);
+    expect(mixed.usage.fast).toBeUndefined();
+
+    const allFast = await adapter.chat({ ...baseRequest }, "claude-opus-5-5");
+    expect(allFast.usage.fast).toBe(true);
   });
 
   it("chat: falls back to `totalUsage` when `usage` is absent", async () => {
@@ -931,5 +955,90 @@ describe("normalizeStrictConversation", () => {
     const snapshot = JSON.stringify(input);
     normalizeStrictConversation(input);
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+});
+
+describe("createProvider – text written alongside a tool call (intermediateText)", () => {
+  // A model that greets while calling a tool, then answers in a final step.
+  const STEPS = [
+    { text: "Hello, I am the assistant.", toolCalls: [{ toolCallId: "t1", toolName: "lookup", input: {} }] },
+    { text: "It is open until six.", toolCalls: [] },
+  ];
+  const PARTS = [
+    { type: "start-step" },
+    { type: "text-delta", id: "a", text: "Hello, I am the assistant." },
+    { type: "tool-call", toolCallId: "t1", toolName: "lookup", input: {} },
+    { type: "finish-step", finishReason: "tool-calls" },
+    { type: "start-step" },
+    { type: "text-delta", id: "b", text: "It is open until six." },
+    { type: "finish-step", finishReason: "stop" },
+  ];
+
+  function mockGenerate() {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({
+      text: "It is open until six.",
+      steps: STEPS,
+      usage: { inputTokens: 1, outputTokens: 1 },
+    } as any);
+  }
+
+  function mockStream() {
+    // Like the SDK, every read of `stream` hands out its own copy.
+    vi.mocked(tracedStreamText).mockResolvedValueOnce({
+      textStream: (async function* () {
+        yield "Hello, I am the assistant.";
+        yield "It is open until six.";
+      })(),
+      get stream() {
+        return (async function* () {
+          yield* PARTS;
+        })();
+      },
+      text: Promise.resolve("It is open until six."),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+      steps: Promise.resolve(STEPS),
+    } as any);
+  }
+
+  async function read(stream: AsyncIterable<string>): Promise<string> {
+    let out = "";
+    for await (const chunk of stream) out += chunk;
+    return out;
+  }
+
+  const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+
+  it("chat: the reply is the last step's text when no policy is set", async () => {
+    mockGenerate();
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-5");
+    expect(res.text).toBe("It is open until six.");
+  });
+
+  it("chat: the reply carries every step's text under reply", async () => {
+    mockGenerate();
+    const res = await adapter.chat({ ...baseRequest, intermediateText: "reply" }, "claude-sonnet-5");
+    expect(res.text).toBe("Hello, I am the assistant.\n\nIt is open until six.");
+  });
+
+  it("chatStream: a stream still shows the greeting when no policy is set", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-5");
+    expect(await read(stream.textStream)).toBe("Hello, I am the assistant.It is open until six.");
+    expect((await stream.response).text).toBe("It is open until six.");
+  });
+
+  it("chatStream: under discard the stream shows what the stored reply holds, nothing more", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest, intermediateText: "discard" }, "claude-sonnet-5");
+    expect(await read(stream.textStream)).toBe("It is open until six.");
+    expect((await stream.response).text).toBe("It is open until six.");
+  });
+
+  it("chatStream: under reply the stream and the stored reply carry the same text", async () => {
+    mockStream();
+    const stream = await adapter.chatStream!({ ...baseRequest, intermediateText: "reply" }, "claude-sonnet-5");
+    const streamed = await read(stream.textStream);
+    expect(streamed).toBe("Hello, I am the assistant.\n\nIt is open until six.");
+    expect((await stream.response).text).toBe(streamed);
   });
 });

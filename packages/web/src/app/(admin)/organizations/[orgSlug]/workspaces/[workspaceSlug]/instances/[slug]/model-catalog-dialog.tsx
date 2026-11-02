@@ -20,9 +20,9 @@ import type { TranslationKey } from "@/lib/i18n/types";
 import { BRAND_NAMES } from "@/lib/provider-secrets";
 import { cn } from "@/lib/utils";
 
-// Model-catalog dialog: a flattened row (model + its provider) and the
-// column keys the table can sort by.
-type CatalogRow = ModelsResponse["providers"][string]["models"][number] & { provider: string };
+// Model-catalog dialog: a flattened row (model + its provider, and whether it
+// is the model's fast variant) and the column keys the table can sort by.
+type CatalogRow = ModelsResponse["providers"][string]["models"][number] & { provider: string; fast: boolean };
 type CatalogSortKey = "provider" | "model" | "input" | "output" | "cacheRead" | "cacheWrite";
 
 function catalogSortValue(row: CatalogRow, key: CatalogSortKey): string | number {
@@ -30,7 +30,7 @@ function catalogSortValue(row: CatalogRow, key: CatalogSortKey): string | number
     case "provider":
       return BRAND_NAMES[row.provider] ?? row.provider;
     case "model":
-      return row.id;
+      return row.fast ? `${row.id} fast` : row.id;
     case "input":
       return row.costInput;
     case "output":
@@ -48,15 +48,46 @@ interface Props {
   providerNames: readonly string[];
   selectedProvider: string;
   selectedModel: string;
+  /** The fast variant of the selected model is the one chosen. */
+  selectedFast: boolean;
   /** A row was clicked: the dialog closes on its own. */
-  onSelect: (provider: string, model: string) => void;
+  onSelect: (provider: string, model: string, fast: boolean) => void;
+}
+
+/**
+ * A model's fast variant as a row of its own: every rate is the catalogued
+ * multiple of the model's, as the engine bills a call the provider ran fast.
+ */
+function fastRow(row: CatalogRow, multiplier: number): CatalogRow {
+  const scale = (v: number) => v * multiplier;
+  return {
+    ...row,
+    fast: true,
+    // The tier names the model the engine falls back to, never its fast variant.
+    tier: null,
+    costInput: scale(row.costInput),
+    costOutput: scale(row.costOutput),
+    costCacheRead: scale(row.costCacheRead),
+    costCacheWrite: scale(row.costCacheWrite),
+    ...(row.costLongPrompt
+      ? {
+          costLongPrompt: {
+            ...row.costLongPrompt,
+            costInput: scale(row.costLongPrompt.costInput),
+            costOutput: scale(row.costLongPrompt.costOutput),
+            costCacheRead: scale(row.costLongPrompt.costCacheRead),
+            costCacheWrite: scale(row.costLongPrompt.costCacheWrite),
+          },
+        }
+      : {}),
+  };
 }
 
 /**
  * Every model the deployment serves with its prices, searchable, filterable by
  * provider and sortable by column; a row picks that provider and model.
  */
-export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider, selectedModel, onSelect }: Props) {
+export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider, selectedModel, selectedFast, onSelect }: Props) {
   const { t } = useI18n();
   const fmt = useFormat();
   // Model catalog dialog: search + provider filter + column sort over a single
@@ -73,10 +104,15 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
   const providerRows = useMemo<CatalogRow[]>(() => {
     if (!modelsData) return [];
     return Object.entries(modelsData.providers)
-      .flatMap(([providerName, { models }]) => models.map((m) => ({ ...m, provider: providerName })))
+      .flatMap(([providerName, { models }]) =>
+        models.flatMap((m) => {
+          const row: CatalogRow = { ...m, provider: providerName, fast: false };
+          return m.fastMultiplier !== undefined ? [row, fastRow(row, m.fastMultiplier)] : [row];
+        }),
+      )
       .filter((m) => catalogProvider === "all" || m.provider === catalogProvider);
   }, [modelsData, catalogProvider]);
-  const searched = useListView(providerRows, catalogSearch, (m) => [m.id, m.tier, BRAND_NAMES[m.provider] ?? m.provider], null);
+  const searched = useListView(providerRows, catalogSearch, (m) => [m.id, m.tier, BRAND_NAMES[m.provider] ?? m.provider, m.fast ? "fast" : null], null);
   const catalogRows = useMemo<CatalogRow[]>(() => {
     const dir = catalogSort.dir === "asc" ? 1 : -1;
     return [...searched].sort((a, b) => {
@@ -178,9 +214,9 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
               </TableHeader>
               <TableBody>
                 {catalogRows.map((m) => {
-                  const isSelected = selectedProvider === m.provider && selectedModel === m.id;
+                  const isSelected = selectedProvider === m.provider && selectedModel === m.id && selectedFast === m.fast;
                   const pick = () => {
-                    onSelect(m.provider, m.id);
+                    onSelect(m.provider, m.id, m.fast);
                     setPricingOpen(false);
                   };
                   // A cache rate "doesn't count" when it's free (0) or billed at the
@@ -191,9 +227,9 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
                     return val === 0 || val === m.costInput ? "—" : fmt.currency(val);
                   };
                   return (
-                    <ListRow key={`${m.provider}:${m.id}`} onOpen={pick} selected={isSelected}>
+                    <ListRow key={`${m.provider}:${m.id}${m.fast ? ":fast" : ""}`} onOpen={pick} selected={isSelected}>
                       <ListNameCell
-                        name={m.id}
+                        name={m.fast ? t("settings.tab.fastVariant", { model: m.id }) : m.id}
                         onOpen={pick}
                         badges={m.tier ? <Badge variant="secondary">{m.tier}</Badge> : undefined}
                         summary={

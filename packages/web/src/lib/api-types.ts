@@ -72,6 +72,9 @@ export interface CreatedManagementApiKey {
 
 // ── Instances ───────────────────────────────────────────────────────
 
+/** The three policies for text written alongside a tool call (see the engine's ai-gateway/intermediate-text.ts). */
+export type IntermediateTextPolicy = "discard" | "progress" | "reply";
+
 export interface Instance {
   id: string;
   slug: string;
@@ -106,6 +109,8 @@ export interface Instance {
    * instances that pre-date this field.
    */
   temperature?: number | null;
+  /** Ask the provider for fast mode; applied only on a model whose catalog entry has `fastMultiplier`. */
+  fastMode?: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */
@@ -125,6 +130,11 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /**
+   * What becomes of text the model writes alongside a tool call. null = never
+   * chosen: each channel keeps its own behaviour and the prompt says nothing.
+   */
+  intermediateText: IntermediateTextPolicy | null;
   /** When true, the instance is exposed over the inbound A2A (Agent2Agent) protocol. */
   a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
@@ -250,6 +260,8 @@ export interface ModelInfo {
     costCacheWrite: number;
     costCacheWrite5m?: number;
   };
+  /** Only on models that run in the provider's fast mode: the multiple of every rate a fast call costs. */
+  fastMultiplier?: number;
   /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
   supportsCache: boolean;
   /**
@@ -663,17 +675,36 @@ export interface AnalyticsOverview {
     messages: number | null;
     responseTime: number | null;
   };
+  /** The same window shifted back by its own duration, as absolute values. */
+  previousPeriod: {
+    totalCost: number;
+    totalConversations: number;
+    totalMessages: number;
+    avgResponseTime: number;
+    promptTokens: number;
+    cachedInputTokens: number;
+  };
 }
 
 export interface DailyTrendRow {
   date: string;
   cost: number;
   tokens: number;
+  promptTokens: number;
+  cachedInputTokens: number;
   conversations: number;
   messages: number;
 }
 
+/** The previous window's daily cost, keyed by days since that window began. */
+export interface PreviousDailyCostRow {
+  dayOffset: number;
+  cost: number;
+}
+
+/** Messages people sent, per day of the week (0 = Monday) and hour of the day. */
 export interface HourlyRow {
+  weekday: number;
   hour: number;
   count: number;
 }
@@ -750,14 +781,18 @@ export interface ToolLatencyRow {
 
 export interface LatencyData {
   overview: LatencyOverview;
+  previousOverview: LatencyOverview;
   dailyLatency: LatencyDailyRow[];
   phaseBreakdown: PhaseBreakdownRow[];
   slowestTools: ToolLatencyRow[];
+  /** The most called tools, named as `toolUsage` names them. */
+  toolTimings: ToolLatencyRow[];
 }
 
 export interface AnalyticsResponse {
   overview: AnalyticsOverview;
   dailyTrend: DailyTrendRow[];
+  previousDailyCost: PreviousDailyCostRow[];
   hourlyDistribution: HourlyRow[];
   channelDistribution: ChannelRow[];
   modelDistribution: ModelRow[];

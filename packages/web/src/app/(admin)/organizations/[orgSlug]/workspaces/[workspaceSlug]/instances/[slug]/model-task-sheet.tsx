@@ -65,6 +65,8 @@ interface Draft {
   thinkingEnabled: boolean;
   thinkingLevel: string;
   temperature: number | null;
+  /** The fast variant of the model is chosen. */
+  fastMode: boolean;
   cacheEnabled: boolean;
   cacheTtl: string;
   embeddingProvider: string;
@@ -78,6 +80,9 @@ interface Draft {
 /** Mirrors the engine's default for new agents and provider switches. */
 const DEFAULT_EMBEDDING_DIM = 1024;
 
+/** Marks the fast variant of a model in the model select's values. */
+const FAST_SUFFIX = "#fast";
+
 const brand = (p: string) => BRAND_NAMES[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
 
 function draftOf(instance: Instance): Draft {
@@ -87,6 +92,7 @@ function draftOf(instance: Instance): Draft {
     thinkingEnabled: instance.thinkingEnabled,
     thinkingLevel: instance.thinkingLevel ?? "medium",
     temperature: instance.temperature ?? null,
+    fastMode: instance.fastMode ?? false,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
     embeddingProvider: instance.embeddingProvider ?? "openai",
@@ -149,6 +155,9 @@ export function ModelTaskSheet({
     availableModels.find((m) => m.id === draft.model) ??
     (draft.model === "" ? availableModels.find((m) => m.tier === "standard") : undefined);
   const canEnableThinking = !!selectedModelInfo?.supportsThinking;
+  // Fast is a variant of an explicitly chosen model, never of the system default.
+  const fastMultiplier = draft.model ? selectedModelInfo?.fastMultiplier : undefined;
+  const fastChosen = draft.fastMode && fastMultiplier !== undefined;
   // gpt-oss & co. reason on every call: the toggle is locked on, and saved on
   // so the engine applies the effort level.
   const alwaysOnThinking = !!selectedModelInfo?.reasoningAlwaysOn;
@@ -182,7 +191,7 @@ export function ModelTaskSheet({
   const changed = <K extends keyof Draft>(key: K) => JSON.stringify(draft[key]) !== JSON.stringify(initial[key]);
   const instanceDirty =
     task === "chat"
-      ? (["provider", "model", "thinkingEnabled", "thinkingLevel", "temperature", "cacheEnabled", "cacheTtl"] as const).some(changed)
+      ? (["provider", "model", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "cacheEnabled", "cacheTtl"] as const).some(changed)
       : task === "embed"
         ? changed("embeddingProvider") || changed("embeddingDim")
         : changed("sttProvider");
@@ -239,6 +248,7 @@ export function ModelTaskSheet({
                 thinkingEnabled: thinkingToPersist,
                 thinkingLevel: draft.thinkingLevel,
                 temperature: canSetTemperature ? draft.temperature : null,
+                fastMode: fastChosen,
                 cacheEnabled: draft.cacheEnabled,
                 cacheTtl: draft.cacheTtl,
               }
@@ -317,14 +327,15 @@ export function ModelTaskSheet({
               providerNames={providerNames}
               selectedProvider={draft.provider}
               selectedModel={draft.model}
-              onSelect={(p, m) => set({ provider: p, model: m })}
+              selectedFast={fastChosen}
+              onSelect={(p, m, fast) => set({ provider: p, model: m, fastMode: fast })}
             />
           </div>
         )}
         {field(
           "task-provider",
           t("settings.tab.provider"),
-          <Select value={draft.provider} onValueChange={(value) => set({ provider: value, model: "" })}>
+          <Select value={draft.provider} onValueChange={(value) => set({ provider: value, model: "", fastMode: false })}>
             <SelectTrigger id="task-provider" className="w-full">
               <SelectValue placeholder={t("settings.tab.systemDefault")} />
             </SelectTrigger>
@@ -340,18 +351,34 @@ export function ModelTaskSheet({
         {field(
           "task-model",
           t("settings.tab.model"),
-          <Select value={draft.model} onValueChange={(value) => set({ model: value })} disabled={!draft.provider}>
+          <Select
+            value={fastChosen ? `${draft.model}${FAST_SUFFIX}` : draft.model}
+            onValueChange={(value) =>
+              value.endsWith(FAST_SUFFIX)
+                ? set({ model: value.slice(0, -FAST_SUFFIX.length), fastMode: true })
+                : set({ model: value, fastMode: false })
+            }
+            disabled={!draft.provider}
+          >
             <SelectTrigger id="task-model" className="w-full">
               <SelectValue placeholder={t("settings.tab.systemDefault")} />
             </SelectTrigger>
             <SelectContent>
-              {availableModels.map((m) => (
+              {availableModels.flatMap((m) => [
                 <SelectItem key={m.id} value={m.id}>
                   {m.id}
-                </SelectItem>
-              ))}
+                </SelectItem>,
+                ...(m.fastMultiplier !== undefined
+                  ? [
+                      <SelectItem key={`${m.id}${FAST_SUFFIX}`} value={`${m.id}${FAST_SUFFIX}`}>
+                        {t("settings.tab.fastVariant", { model: m.id })}
+                      </SelectItem>,
+                    ]
+                  : []),
+              ])}
             </SelectContent>
           </Select>,
+          fastChosen ? t("settings.tab.fastHint", { multiplier: fastMultiplier }) : undefined,
         )}
       </>
     ) : task === "embed" ? (

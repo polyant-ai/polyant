@@ -78,6 +78,16 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
+/**
+ * A response time: seconds from one second up, milliseconds below. Unlike
+ * `formatDuration` it never turns into minutes, because it is read against
+ * other response times, not as how long something lasted.
+ */
+export function formatLatency(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "-";
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
+}
+
 export function formatDateTime(iso: string | null | undefined, locale: string): string {
   if (!iso) return "\u2014";
   try {

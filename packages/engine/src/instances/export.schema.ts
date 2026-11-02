@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
+import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -36,7 +37,7 @@ export const exportChannelSchema = z.object({
   enabled: z.boolean(),
   // Non-secret config only — credential-like keys (token/secret/password/key/
   // credential) are stripped at export time. Defaulted for 1.0 back-compat.
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const exportMcpServerSchema = z.object({
@@ -48,14 +49,14 @@ export const exportMcpServerSchema = z.object({
   // Nested secrets (auth.token / staticClient.clientSecret / dcrClient) are
   // stripped at export time — see stripMcpSecrets in export.service.ts.
   // Defaulted for 1.0/1.1 back-compat (the field didn't exist before 1.2).
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const exportHookSchema = z.object({
   event: z.string(),
   actionType: z.string(),
   // { functionName } — the registered hook function to run.
-  actionConfig: z.record(z.unknown()),
+  actionConfig: z.record(z.string(), z.unknown()),
   enabled: z.boolean(),
   position: z.number(),
   timeoutMs: z.number(),
@@ -135,6 +136,7 @@ export const exportInstanceDataSchema = z.object({
   // agent that thinks at a different depth, with nothing to see.
   thinkingLevel: z.string().default("medium"),
   temperature: z.number().nullable().default(null),
+  fastMode: z.boolean().default(false),
   stateInPromptEnabled: z.boolean().default(false),
   datetimeInjectionEnabled: z.boolean().default(true),
   /**
@@ -151,6 +153,7 @@ export const exportInstanceDataSchema = z.object({
   messageMaxRestarts: z.number().int().min(0).nullable().default(null),
   cacheEnabled: z.boolean().default(true),
   cacheTtl: z.enum(["5m", "1h"]).default("1h"),
+  intermediateText: z.enum(INTERMEDIATE_TEXT_POLICIES).nullable().default(null),
   a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
   debugEnabled: z.boolean().default(false),
@@ -215,7 +218,7 @@ export type ExportInstanceData = z.infer<typeof exportInstanceDataSchema>;
 export const exportSkillVersionSchema = z.object({
   version: z.string(),
   content: z.string(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
   scripts: z.array(z.object({
     file: z.string(),
     description: z.string(),

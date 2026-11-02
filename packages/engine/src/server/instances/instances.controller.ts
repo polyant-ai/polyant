@@ -67,6 +67,11 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 import { createLogger } from "../../utils/create-logger.js";
+import {
+  INTERMEDIATE_TEXT_POLICIES,
+  isIntermediateTextPolicy,
+  type IntermediateTextPolicy,
+} from "../../ai-gateway/intermediate-text.js";
 
 const log = createLogger();
 
@@ -98,6 +103,7 @@ function toInstanceDto(instance: Instance) {
     thinkingEnabled: instance.thinkingEnabled,
     thinkingLevel: instance.thinkingLevel,
     temperature: instance.temperature,
+    fastMode: instance.fastMode,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     datetimeTimezone: instance.datetimeTimezone,
@@ -108,6 +114,7 @@ function toInstanceDto(instance: Instance) {
     messageMaxRestarts: instance.messageMaxRestarts,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
@@ -178,7 +185,7 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; costCacheWrite5m?: number; costLongPrompt?: LongPromptCost; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; costCacheWrite5m?: number; costLongPrompt?: LongPromptCost; fastMultiplier?: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
       const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
@@ -210,6 +217,9 @@ export class InstancesController {
               },
             }
           : {}),
+        // Only on models that run in the provider's fast mode: the multiple of
+        // every rate above that a fast call costs.
+        ...(cost.fastMultiplier !== undefined ? { fastMultiplier: cost.fastMultiplier } : {}),
         // Whether the provider+model has real prompt caching — a UI hint; single
         // source of truth shared with the runtime marker gate (bedrock.ts).
         supportsCache: cacheSupported(name, modelId),
@@ -373,6 +383,7 @@ export class InstancesController {
       thinkingEnabled?: boolean;
       thinkingLevel?: string;
       temperature?: number | null;
+      fastMode?: boolean;
       stateInPromptEnabled?: boolean;
       datetimeInjectionEnabled?: boolean;
       /**
@@ -389,6 +400,8 @@ export class InstancesController {
       messageMaxRestarts?: number | null;
       cacheEnabled?: boolean;
       cacheTtl?: string;
+      /** `null` clears the policy back to the behaviour from before it existed. */
+      intermediateText?: IntermediateTextPolicy | null;
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
@@ -428,6 +441,14 @@ export class InstancesController {
     // whether end users' files are kept must be a boolean or nothing.
     if (body.attachmentStorageEnabled !== undefined && typeof body.attachmentStorageEnabled !== "boolean") {
       throw new BadRequestException("attachmentStorageEnabled must be a boolean");
+    }
+    if (body.fastMode !== undefined && typeof body.fastMode !== "boolean") {
+      throw new BadRequestException("fastMode must be a boolean");
+    }
+    if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
+      throw new BadRequestException(
+        `intermediateText must be null or one of ${INTERMEDIATE_TEXT_POLICIES.map((p) => `"${p}"`).join(", ")}`,
+      );
     }
     this.validateAgentSettings(body);
     // Accept the full effort union; the ai-gateway clamps to the chosen model's

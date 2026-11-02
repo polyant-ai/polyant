@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
+import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../intermediate-text.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
@@ -24,7 +25,7 @@ export function serializeTools(tools: ChatRequest["tools"]): LlmDebugPayload["to
     const t = tool as { description?: string; inputSchema?: unknown };
     let parameters: unknown;
     try {
-      if (t.inputSchema) parameters = zodToJsonSchema(t.inputSchema as never);
+      if (t.inputSchema) parameters = toJsonSchema(t.inputSchema as never);
     } catch {
       parameters = undefined;
     }
@@ -132,6 +133,8 @@ interface SdkStep {
   reasoningDetails?: unknown[];
   finishReason?: string;
   usage?: MappedUsage;
+  /** The provider reported that this step's model call ran in fast mode. */
+  fast?: boolean;
 }
 
 /**
@@ -171,7 +174,7 @@ interface MappedUsage {
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
 /** The summed usage of the completed steps, and each step's own (`calls`). */
-type UsageBeforeFailure = Required<MappedUsage> & { calls: Required<MappedUsage>[] };
+type UsageBeforeFailure = Required<MappedUsage> & { calls: (Required<MappedUsage> & { fast: boolean })[] };
 
 /** The usage of the model calls a failed or aborted turn completed, or null when none had answered. */
 export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
@@ -182,9 +185,9 @@ export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | 
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
-  const calls: Required<MappedUsage>[] = [];
+  const calls: UsageBeforeFailure["calls"] = [];
   return {
-    onLanguageModelCallEnd: (event: { usage?: unknown }) => {
+    onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
       const usage = mapUsage(event.usage);
       const call = {
         promptTokens: usage.promptTokens ?? 0,
@@ -194,12 +197,24 @@ function completedCallsUsage() {
         cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens ?? 0,
       };
       for (const key of Object.keys(total) as (keyof typeof total)[]) total[key] += call[key];
-      calls.push(call);
+      calls.push({ ...call, fast: ranFast(event.providerMetadata) });
     },
     pinTo(err: unknown): void {
       if (calls.length > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total, calls: [...calls] });
     },
   };
+}
+
+/**
+ * Whether the provider reports that a model call ran in fast mode: Anthropic
+ * echoes `usage.speed`, OpenAI the `service_tier` it actually served, which can
+ * fall back to `default` under load. Read from the response, never from the
+ * request, because that is what the call is billed at.
+ */
+function ranFast(providerMetadata: unknown): boolean {
+  if (!providerMetadata || typeof providerMetadata !== "object") return false;
+  const meta = providerMetadata as { anthropic?: { usage?: { speed?: unknown } }; openai?: { serviceTier?: unknown } };
+  return meta.anthropic?.usage?.speed === "fast" || meta.openai?.serviceTier === "fast" || meta.openai?.serviceTier === "priority";
 }
 
 function mapUsage(u: unknown): MappedUsage {
@@ -304,6 +319,7 @@ function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
       reasoningDetails: Array.isArray(s.reasoning) ? s.reasoning : undefined,
       finishReason: typeof s.finishReason === "string" ? s.finishReason : undefined,
       usage: mapUsage(s.usage),
+      ...(ranFast(s.providerMetadata) ? { fast: true } : {}),
     };
   });
 }
@@ -389,6 +405,7 @@ export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetai
     if (s.usage?.cachedInputTokens !== undefined) detail.cachedInputTokens = safeTokens(s.usage.cachedInputTokens);
     if (s.usage?.cacheCreationInputTokens !== undefined) detail.cacheCreationInputTokens = safeTokens(s.usage.cacheCreationInputTokens);
     if (s.usage?.cacheCreation5mInputTokens !== undefined) detail.cacheCreation5mInputTokens = safeTokens(s.usage.cacheCreation5mInputTokens);
+    if (s.fast) detail.fast = true;
     return detail;
   });
 }
@@ -437,6 +454,7 @@ function buildChatResponse(
       cachedInputTokens,
       cacheCreationInputTokens,
       ...(cacheCreation5mInputTokens !== undefined ? { cacheCreation5mInputTokens } : {}),
+      ...(rawSteps.length > 0 && rawSteps.every((s) => s.fast) ? { fast: true } : {}),
     },
     durationMs,
     model: modelId,
@@ -789,9 +807,10 @@ export function createProvider(
       // (array). Normalised for type safety.
       const topReasoning = finalStepReasoning(result);
 
+      const steps = normalizeSdkSteps((result as unknown as { steps?: unknown }).steps);
       const response = buildChatResponse(
-        result.text,
-        normalizeSdkSteps((result as unknown as { steps?: unknown }).steps),
+        replyTextFor(request.intermediateText, result.text, steps),
+        steps,
         topReasoning,
         mapUsage(cumulativeUsage(result)),
         Date.now() - start,
@@ -813,21 +832,27 @@ export function createProvider(
         tracedStreamText(args()),
       );
 
+      // v7 renamed the SDK result's `fullStream` to `stream`; the property on
+      // OUR stream interface keeps its name, so only the read changes here. Each
+      // read of `stream` is its own copy of the stream, so the text stream and
+      // the full stream each filter their own.
+      const fullStream = () => (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream;
+      const policy = request.intermediateText;
+      const filtered = policy === "discard" || policy === "reply";
+
       return {
-        textStream: result.textStream,
-        // v7 renamed the SDK result's `fullStream` to `stream`; the property on
-        // OUR stream interface keeps its name, so only the read changes here.
-        fullStream: (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream,
+        textStream: filtered ? textDeltas(applyIntermediateTextPolicy(fullStream(), policy)) : result.textStream,
+        fullStream: filtered ? applyIntermediateTextPolicy(fullStream(), policy) : fullStream(),
         response: (async () => {
           try {
             const finalText = await result.text;
             const finalUsage = await cumulativeUsage(result);
-            const steps = await result.steps;
+            const steps = normalizeSdkSteps(await result.steps);
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
             const topReasoning = await finalStepReasoningAsync(result);
             const response = buildChatResponse(
-              finalText,
-              normalizeSdkSteps(steps),
+              replyTextFor(policy, finalText, steps),
+              steps,
               topReasoning,
               mapUsage(finalUsage),
               Date.now() - start,

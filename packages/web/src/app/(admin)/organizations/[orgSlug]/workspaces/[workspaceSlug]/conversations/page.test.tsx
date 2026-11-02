@@ -142,6 +142,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
   messageMaxRestarts: null,
     cacheEnabled: true,
     cacheTtl: "1h",
+    intermediateText: null,
     a2aEnabled: false,
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,

@@ -233,8 +233,10 @@ async function main() {
       thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
       thinkingLevel: ctx.instanceConfig.thinkingLevel,
       temperature: ctx.instanceConfig.temperature ?? undefined,
+      fastMode: ctx.instanceConfig.fastMode,
       attachments: msg.attachments,
       abortSignal,
+      toolGate: msg.toolGate,
       agentCallDepth: agentMeta?.depth,
       agentCallMetadata: agentMeta,
       stateBuffer: ctx.stateBuffer,
@@ -242,6 +244,7 @@ async function main() {
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
       datetime: ctx.instanceConfig.datetime,
       cacheConfig: ctx.instanceConfig.cacheConfig,
+      intermediateText: ctx.instanceConfig.intermediateText,
       debugEnabled: ctx.instanceConfig.debugEnabled,
       // Conversational entry point: a real user behind a stable, reused
       // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
@@ -422,8 +425,10 @@ async function main() {
         thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
         thinkingLevel: ctx.instanceConfig.thinkingLevel,
         temperature: ctx.instanceConfig.temperature ?? undefined,
+        fastMode: ctx.instanceConfig.fastMode,
         attachments: msg.attachments,
         abortSignal,
+        toolGate: msg.toolGate,
         agentCallDepth: agentMetaStream?.depth,
         agentCallMetadata: agentMetaStream,
         stateBuffer: ctx.stateBuffer,
@@ -431,6 +436,7 @@ async function main() {
         datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
         datetime: ctx.instanceConfig.datetime,
         cacheConfig: ctx.instanceConfig.cacheConfig,
+        intermediateText: ctx.instanceConfig.intermediateText,
         debugEnabled: ctx.instanceConfig.debugEnabled,
         // Conversational entry point: a real user behind a stable, reused
         // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).

@@ -75,6 +75,15 @@ export interface IncomingMessage {
 
   /** Channel-specific metadata */
   metadata: Record<string, unknown>;
+
+  /**
+   * Asked right before each of the turn's tools runs, with its model-facing
+   * name; false and the tool does not run (the model gets an error result).
+   * Set only in-process, by whoever can cut the turn short: the moment a tool
+   * is about to run is the one moment where "has this turn done something it
+   * cannot take back?" has an answer that no other event can race.
+   */
+  toolGate?: (toolName: string) => boolean;
 }
 
 /** Why a turn produced a warning instead of an answer. Channels ignore it; API bridges map it to an error status. */

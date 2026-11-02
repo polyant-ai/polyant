@@ -60,17 +60,42 @@ export interface OverviewStats {
     messages: number | null;
     responseTime: number | null;
   };
+  /**
+   * The same window shifted back by its own duration, as absolute values. A
+   * percentage says nothing when the previous figure is near zero, and the
+   * panel then shows the previous figure itself; the cache hit rate is a rate,
+   * so its change is read in points from these two sums.
+   */
+  previousPeriod: {
+    totalCost: number;
+    totalConversations: number;
+    totalMessages: number;
+    avgResponseTime: number;
+    promptTokens: number;
+    cachedInputTokens: number;
+  };
 }
 
 export interface DailyTrendRow {
   date: string;
   cost: number;
   tokens: number;
+  /** With `cachedInputTokens`, the day's cache hit rate. */
+  promptTokens: number;
+  cachedInputTokens: number;
   conversations: number;
   messages: number;
 }
 
+/** The previous window's daily cost, keyed by days since that window began. */
+export interface PreviousDailyCostRow {
+  dayOffset: number;
+  cost: number;
+}
+
+/** Messages people sent, per day of the week (0 = Monday) and hour of the day. */
 export interface HourlyRow {
+  weekday: number;
   hour: number;
   count: number;
 }
@@ -115,6 +140,7 @@ export interface InstanceComparisonRow {
 export interface AnalyticsData {
   overview: OverviewStats;
   dailyTrend: DailyTrendRow[];
+  previousDailyCost: PreviousDailyCostRow[];
   hourlyDistribution: HourlyRow[];
   channelDistribution: ChannelRow[];
   modelDistribution: ModelRow[];
@@ -176,6 +202,8 @@ async function getOverviewStats(
     analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
+        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
         COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
@@ -219,6 +247,8 @@ export interface OverviewConvRow {
 }
 export interface OverviewPrevAiRow {
   total_cost: number;
+  prompt_tokens: number;
+  cached_input_tokens: number;
   avg_duration_ms: number;
 }
 export interface OverviewPrevConvRow {
@@ -258,6 +288,14 @@ export function overviewFromRows(
       messages: pctChange(convStats?.total_messages ?? 0, prevConv?.total_messages ?? 0),
       responseTime: pctChange(aiStats?.avg_duration_ms ?? 0, prevAi?.avg_duration_ms ?? 0),
     },
+    previousPeriod: {
+      totalCost: prevAi?.total_cost ?? 0,
+      totalConversations: prevConv?.total_conversations ?? 0,
+      totalMessages: prevConv?.total_messages ?? 0,
+      avgResponseTime: prevAi?.avg_duration_ms ?? 0,
+      promptTokens: prevAi?.prompt_tokens ?? 0,
+      cachedInputTokens: prevAi?.cached_input_tokens ?? 0,
+    },
   };
 }
 
@@ -277,12 +315,16 @@ async function getDailyTrend(
     date: string;
     cost: number;
     tokens: number;
+    prompt_tokens: number;
+    cached_input_tokens: number;
   }>(
     await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(SUM(total_tokens), 0)::int AS tokens
+        COALESCE(SUM(total_tokens), 0)::int AS tokens,
+        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
@@ -314,7 +356,15 @@ async function getDailyTrend(
 
   for (const r of rows) {
     const d = String(r.date);
-    dateMap.set(d, { date: d, cost: r.cost, tokens: r.tokens, conversations: 0, messages: 0 });
+    dateMap.set(d, {
+      date: d,
+      cost: r.cost,
+      tokens: r.tokens,
+      promptTokens: r.prompt_tokens,
+      cachedInputTokens: r.cached_input_tokens,
+      conversations: 0,
+      messages: 0,
+    });
   }
   for (const r of convRows) {
     const d = String(r.date);
@@ -323,11 +373,47 @@ async function getDailyTrend(
       existing.conversations = r.conversations;
       existing.messages = r.messages;
     } else {
-      dateMap.set(d, { date: d, cost: 0, tokens: 0, conversations: r.conversations, messages: r.messages });
+      dateMap.set(d, {
+        date: d,
+        cost: 0,
+        tokens: 0,
+        promptTokens: 0,
+        cachedInputTokens: 0,
+        conversations: r.conversations,
+        messages: r.messages,
+      });
     }
   }
 
   return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * The previous window's cost per day, drawn under the current one. Keyed by
+ * the day's distance from the window's start so the two series line up day for
+ * day without the panel having to know where the previous window began.
+ */
+async function getPreviousDailyCost(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: InstanceSlug,
+): Promise<PreviousDailyCostRow[]> {
+  const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const { from, to } = previousRange(range);
+
+  return asRows<{ day_offset: number; cost: number }>(
+    await analyticsDb.execute(sql`
+      SELECT
+        (DATE(created_at) - DATE(${toISO(from)}::timestamptz))::int AS day_offset,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
+      FROM ai_logs
+      WHERE created_at >= ${toISO(from)} AND created_at < ${toISO(to)}
+        ${instFilter} ${orgInst}
+      GROUP BY 1
+      ORDER BY 1
+    `),
+  ).map((r) => ({ dayOffset: r.day_offset, cost: r.cost }));
 }
 
 // ── Hourly Distribution ─────────────────────────────────────────────
@@ -340,9 +426,10 @@ async function getHourlyDistribution(
   const convFilter = instanceFilter(instanceId, "c.instance_id");
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
-  const rows = asRows<{ hour: number; count: number }>(
+  const rows = asRows<{ weekday: number; hour: number; count: number }>(
     await analyticsDb.execute(sql`
       SELECT
+        (EXTRACT(ISODOW FROM cm.created_at)::int - 1) AS weekday,
         EXTRACT(HOUR FROM cm.created_at)::int AS hour,
         COUNT(*)::int AS count
       FROM conversation_messages cm
@@ -351,16 +438,17 @@ async function getHourlyDistribution(
         AND cm.role = 'user'
         ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
-      GROUP BY EXTRACT(HOUR FROM cm.created_at)
-      ORDER BY hour
+      GROUP BY 1, 2
+      ORDER BY 1, 2
     `),
   );
 
-  // Fill in missing hours with 0
-  const hourMap = new Map(rows.map((r) => [r.hour, r.count]));
-  return Array.from({ length: 24 }, (_, i) => ({
-    hour: i,
-    count: hourMap.get(i) ?? 0,
+  // Every cell of the week, empty ones included, so the grid never has holes.
+  const counts = new Map(rows.map((r) => [r.weekday * 24 + r.hour, r.count]));
+  return Array.from({ length: 7 * 24 }, (_, i) => ({
+    weekday: Math.floor(i / 24),
+    hour: i % 24,
+    count: counts.get(i) ?? 0,
   }));
 }
 
@@ -547,6 +635,7 @@ export async function getAnalytics(
   const [
     overview,
     dailyTrend,
+    previousDailyCost,
     hourlyDistribution,
     channelDistribution,
     modelDistribution,
@@ -556,6 +645,7 @@ export async function getAnalytics(
   ] = await Promise.all([
     getOverviewStats(scope, range, instanceId),
     getDailyTrend(scope, range, instanceId),
+    getPreviousDailyCost(scope, range, instanceId),
     getHourlyDistribution(scope, range, instanceId),
     getChannelDistribution(scope, range, instanceId),
     getModelDistribution(scope, range, instanceId),
@@ -567,6 +657,7 @@ export async function getAnalytics(
   return {
     overview,
     dailyTrend,
+    previousDailyCost,
     hourlyDistribution,
     channelDistribution,
     modelDistribution,

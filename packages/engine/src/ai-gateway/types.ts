@@ -3,6 +3,7 @@
 import type { ModelMessage, Tool } from "ai";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
@@ -24,6 +25,11 @@ export interface ChatRequest {
   thinkingLevel?: string;
   /** Sampling temperature in [0, 2]. Omitted from the provider call when undefined. */
   temperature?: number;
+  /**
+   * Ask the provider for its fast mode. Sent only to a model the catalog prices
+   * in fast mode (`fastMultiplier`); ignored for any other.
+   */
+  fast?: boolean;
   messages: ModelMessage[];
   tools?: Record<string, Tool>;
   maxSteps?: number;
@@ -70,6 +76,12 @@ export interface ChatRequest {
    * no marker) or Nebius (no cache API).
    */
   cacheConfig?: { enabled: boolean; ttl: CacheTtl };
+  /**
+   * What becomes of text written in a step that also calls a tool (see
+   * `intermediate-text.ts`). Undefined = the reply is the last step's text and a
+   * stream carries every step's text, as before the policy existed.
+   */
+  intermediateText?: IntermediateTextPolicy;
 }
 
 export interface ChatResponse {
@@ -143,6 +155,8 @@ export interface TokenUsage {
    * older rows): the writes are then all billed at the model's `cacheWrite`.
    */
   cacheCreation5mInputTokens?: number;
+  /** Every model call of the turn ran in fast mode, as the provider reported it. */
+  fast?: boolean;
 }
 
 /**

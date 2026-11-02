@@ -39,7 +39,7 @@ const setBodySchema = z.object({
   url: z.string().url(),
   authMode: z.enum(MCP_AUTH_MODES),
   enabled: z.boolean(),
-  config: z.record(z.unknown()),
+  config: z.record(z.string(), z.unknown()),
 });
 
 // `test` has no `:serverSlug` route param (the candidate being tested may not

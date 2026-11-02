@@ -78,7 +78,10 @@ export function StatusTab({
           >
             <Row label={t("status.current.providerModel")}>
               <span className="font-mono text-xs">
-                {instance.effectiveProvider} / {instance.effectiveModel}
+                {instance.effectiveProvider} /{" "}
+                {instance.model && instance.fastMode
+                  ? t("settings.tab.fastVariant", { model: instance.effectiveModel })
+                  : instance.effectiveModel}
               </span>
             </Row>
             <Row label={t("status.current.status")}>

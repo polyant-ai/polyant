@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateTurnCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
+import { resolveModel, estimateTurnCostBreakdown, fastSupported, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -144,6 +144,19 @@ function resolveCallConfig(
     }
   }
 
+  // Fast mode, only on a model the catalog prices in it: an agent can keep the
+  // setting after moving to a model without one, which would reject it.
+  if (request.fast && fastSupported(providerName, modelId)) {
+    const fastOption =
+      dialect === "anthropic" ? { speed: "fast" } : dialect === "openai" ? { serviceTier: "fast" } : undefined;
+    if (fastOption) {
+      providerOptions = {
+        ...providerOptions,
+        [providerName]: { ...(providerOptions?.[providerName] ?? {}), ...fastOption },
+      };
+    }
+  }
+
   // v6: OpenAI's `strictJsonSchema` defaults to true; our tools use Zod
   // .nullish()/.optional() schemas (incompatible with strict mode). v4 disabled
   // this via the now-removed factory option `structuredOutputs:false` — we opt
@@ -260,6 +273,7 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
     cachedInputTokens: s.cachedInputTokens,
     cacheCreationInputTokens: s.cacheCreationInputTokens,
     cacheCreation5mInputTokens: s.cacheCreation5mInputTokens,
+    fast: s.fast,
   }));
 }
 

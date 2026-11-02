@@ -44,6 +44,10 @@ describe("createHookSchema", () => {
     expect(updateHookSchema.safeParse({ enabled: false }).success).toBe(true);
     expect(updateHookSchema.safeParse({}).success).toBe(true);
   });
+
+  it("should_leave_out_of_an_update_the_fields_it_does_not_send", () => {
+    expect(updateHookSchema.parse({ enabled: false })).toEqual({ enabled: false });
+  });
 });
 
 describe("validateHookFunction", () => {

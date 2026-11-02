@@ -2,8 +2,9 @@
 
 import { sql } from "drizzle-orm";
 import { analyticsDb } from "../database/client.js";
-import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
+import { type DateRange, toISO, asRows, instanceFilter, previousRange } from "../utils/query-helpers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
+import { toModelToolName } from "../utils/model-tool-wire.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -40,9 +41,18 @@ export interface ToolLatencyRow {
 
 export interface LatencyData {
   overview: LatencyOverview;
+  /** The same figures for the window just before, so the panel can show how the response time moved. */
+  previousOverview: LatencyOverview;
   dailyLatency: LatencyDailyRow[];
   phaseBreakdown: PhaseBreakdownRow[];
   slowestTools: ToolLatencyRow[];
+  /**
+   * Timings of the most called tools, named as the model calls them
+   * (`plugin__tool`) so they join `toolUsage`, which counts the tool calls the
+   * conversations recorded under that name. The traces store the canonical
+   * name (`plugin:tool`), and `slowestTools` keeps it.
+   */
+  toolTimings: ToolLatencyRow[];
 }
 
 // ── Overview (percentiles + averages) ────────────────────────────────
@@ -143,12 +153,18 @@ async function getDailyLatencyAndPhases(
   };
 }
 
-// ── Slowest Tool Calls ───────────────────────────────────────────────
+// ── Tool timings ─────────────────────────────────────────────────────
 
-async function getSlowestTools(
+const TOOL_ORDER = {
+  slowest: { by: sql`avg_duration_ms DESC`, limit: 10 },
+  busiest: { by: sql`call_count DESC`, limit: 20 },
+} as const;
+
+async function getToolTimings(
   scope: TenantScope,
   range: DateRange,
-  instanceId?: string,
+  instanceId: string | undefined,
+  order: keyof typeof TOOL_ORDER,
 ): Promise<ToolLatencyRow[]> {
   const instFilter = instanceFilter(instanceId);
   const tenant = buildOrgScopedAgentFilterFragment(scope);
@@ -174,8 +190,8 @@ async function getSlowestTools(
         AND tool_calls IS NOT NULL
         AND jsonb_array_length(tool_calls) > 0
       GROUP BY tool_call->>'name'
-      ORDER BY avg_duration_ms DESC
-      LIMIT 10
+      ORDER BY ${TOOL_ORDER[order].by}
+      LIMIT ${TOOL_ORDER[order].limit}
     `),
   ).map((r) => ({
     tool: r.tool,
@@ -193,11 +209,14 @@ export async function getLatencyAnalytics(
   range: DateRange,
   instanceId?: string,
 ): Promise<LatencyData> {
-  const [overview, { dailyLatency, phaseBreakdown }, slowestTools] = await Promise.all([
+  const [overview, previousOverview, { dailyLatency, phaseBreakdown }, slowestTools, busiestTools] = await Promise.all([
     getLatencyOverview(scope, range, instanceId),
+    getLatencyOverview(scope, previousRange(range), instanceId),
     getDailyLatencyAndPhases(scope, range, instanceId),
-    getSlowestTools(scope, range, instanceId),
+    getToolTimings(scope, range, instanceId, "slowest"),
+    getToolTimings(scope, range, instanceId, "busiest"),
   ]);
+  const toolTimings = busiestTools.map((row) => ({ ...row, tool: toModelToolName(row.tool) }));
 
-  return { overview, dailyLatency, phaseBreakdown, slowestTools };
+  return { overview, previousOverview, dailyLatency, phaseBreakdown, slowestTools, toolTimings };
 }
