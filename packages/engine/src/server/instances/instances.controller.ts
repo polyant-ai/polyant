@@ -40,7 +40,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
-import { providerConfigs, DEFAULT_PROVIDER, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import { providerConfigs, DEFAULT_PROVIDER, fastSupported, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import {
   assertDimSupported,
@@ -95,6 +95,9 @@ function toInstanceDto(instance: Instance) {
     model: instance.model,
     effectiveProvider: effective.provider,
     effectiveModel: effective.model,
+    // What runs: the gateway asks for fast mode only on a model the catalog
+    // prices fast, so a stored `fastMode` on any other model changes nothing.
+    effectiveFastMode: instance.fastMode && fastSupported(effective.provider, effective.model),
     memoryEnabled: instance.memoryEnabled,
     knowledgeEnabled: instance.knowledgeEnabled,
     langsmithEnabled: instance.langsmithEnabled,
