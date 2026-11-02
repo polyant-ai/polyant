@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useResource } from "./use-resource";
 
@@ -14,17 +14,26 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/**
+ * Lets a pending load land inside `act`, so React renders it before `act`
+ * returns. Polling with `waitFor` races a one-second wall clock, which a busy
+ * CI worker can outlast before the render runs.
+ */
+const settle = () => act(async () => {});
+
 describe("useResource", () => {
   it("loads, then reloads without dropping the data", async () => {
     let n = 0;
     const { result } = renderHook(() => useResource("k", async () => ++n));
     expect(result.current.loading).toBe(true);
-    await waitFor(() => expect(result.current.data).toBe(1));
+    await settle();
+    expect(result.current.data).toBe(1);
     expect(result.current.loading).toBe(false);
     act(() => result.current.reload());
     expect(result.current.data).toBe(1);
     expect(result.current.loading).toBe(true);
-    await waitFor(() => expect(result.current.data).toBe(2));
+    await settle();
+    expect(result.current.data).toBe(2);
   });
 
   it("ignores an answer that arrives for an old key", async () => {
@@ -42,10 +51,12 @@ describe("useResource", () => {
   it("reports a failure and clears it on reload", async () => {
     let fail = true;
     const { result } = renderHook(() => useResource("k", async () => { if (fail) throw new Error("x"); return 1; }));
-    await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+    await settle();
+    expect(result.current.error).toBeInstanceOf(Error);
     fail = false;
     act(() => result.current.reload());
-    await waitFor(() => expect(result.current.data).toBe(1));
+    await settle();
+    expect(result.current.data).toBe(1);
     expect(result.current.error).toBeUndefined();
   });
 
@@ -59,11 +70,13 @@ describe("useResource", () => {
   it("mutate changes the held data at once and a reload replaces it", async () => {
     let list = [1, 2];
     const { result } = renderHook(() => useResource("k", async () => list));
-    await waitFor(() => expect(result.current.data).toEqual([1, 2]));
+    await settle();
+    expect(result.current.data).toEqual([1, 2]);
     act(() => result.current.mutate((rows) => rows.filter((n) => n !== 1)));
     expect(result.current.data).toEqual([2]);
     list = [2, 3];
     act(() => result.current.reload());
-    await waitFor(() => expect(result.current.data).toEqual([2, 3]));
+    await settle();
+    expect(result.current.data).toEqual([2, 3]);
   });
 });
