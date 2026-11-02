@@ -40,9 +40,9 @@
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "^16.4.2",
+    "next": "^16.4.3",
     "axios": "^1.20.0",
-    "langsmith": "^0.10.7",
+    "langsmith": "^0.11.1",
     "multer": "^2.5.0",
     "@ai-sdk/provider-utils": {
       "undici": "^7.30.1"
