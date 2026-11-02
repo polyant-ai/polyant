@@ -37,7 +37,7 @@ export const exportChannelSchema = z.object({
   enabled: z.boolean(),
   // Non-secret config only — credential-like keys (token/secret/password/key/
   // credential) are stripped at export time. Defaulted for 1.0 back-compat.
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const exportMcpServerSchema = z.object({
@@ -49,14 +49,14 @@ export const exportMcpServerSchema = z.object({
   // Nested secrets (auth.token / staticClient.clientSecret / dcrClient) are
   // stripped at export time — see stripMcpSecrets in export.service.ts.
   // Defaulted for 1.0/1.1 back-compat (the field didn't exist before 1.2).
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const exportHookSchema = z.object({
   event: z.string(),
   actionType: z.string(),
   // { functionName } — the registered hook function to run.
-  actionConfig: z.record(z.unknown()),
+  actionConfig: z.record(z.string(), z.unknown()),
   enabled: z.boolean(),
   position: z.number(),
   timeoutMs: z.number(),
@@ -218,7 +218,7 @@ export type ExportInstanceData = z.infer<typeof exportInstanceDataSchema>;
 export const exportSkillVersionSchema = z.object({
   version: z.string(),
   content: z.string(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
   scripts: z.array(z.object({
     file: z.string(),
     description: z.string(),

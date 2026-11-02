@@ -48,7 +48,7 @@ const safeOAuthEndpoint = z
 
 /**
  * The DCR (RFC 7591) registration response, written back by the SDK through
- * `saveClientInformation`. Spelled out rather than `z.record(z.unknown())`: an
+ * `saveClientInformation`. Spelled out rather than `z.record(z.string(), z.unknown())`: an
  * open record made the schema a pass-through, so an import bundle could seed a
  * fabricated `dcrClient` — which `clientInformation()` PREFERS over
  * `staticClient` — and point its three endpoint fields anywhere. Unknown keys

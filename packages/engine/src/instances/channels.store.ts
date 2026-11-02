@@ -256,7 +256,7 @@ async function persistChannelConfig(
  *
  * NOTE: `packages/engine/src/instances/import.service.ts` writes rows into
  * `instance_channels` directly, bypassing this function entirely.
- * `export.schema.ts` types channel config as `z.record(z.unknown())`, so
+ * `export.schema.ts` types channel config as `z.record(z.string(), z.unknown())`, so
  * `import.service.ts` computes `canEnable` by `safeParse`-ing whatever the
  * bundle contains — a hand-crafted bundle carrying `authMode: "apiKey"` plus
  * a caller-chosen `webhookSecret` would otherwise satisfy the union and be
