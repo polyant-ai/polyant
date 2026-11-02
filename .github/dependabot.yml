@@ -36,6 +36,11 @@ updates:
       # minor updates. Remove this once eslint-plugin-react supports ESLint 10.
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
+      # The major of @types/node follows the Node release it describes. CI, the
+      # images and .nvmrc run Node 24, so a newer major types APIs the runtime
+      # does not have (#604 failed on that). Raise it together with Node itself.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
     groups:
       ai-sdk:
