@@ -103,7 +103,7 @@ export function AnalyticsDashboard({
 
           <div className="grid gap-4 *:min-w-0 xl:grid-cols-2">
             <LatencyTrendChart data={data.latency?.dailyLatency ?? []} days={days} />
-            <ToolTable usage={data.toolUsage} latency={data.latency?.slowestTools ?? []} />
+            <ToolTable usage={data.toolUsage} latency={data.latency?.toolTimings ?? []} />
           </div>
 
           <HourlyHeatmap data={data.hourlyDistribution} />

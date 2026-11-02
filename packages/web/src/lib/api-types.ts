@@ -785,6 +785,8 @@ export interface LatencyData {
   dailyLatency: LatencyDailyRow[];
   phaseBreakdown: PhaseBreakdownRow[];
   slowestTools: ToolLatencyRow[];
+  /** The most called tools, named as `toolUsage` names them. */
+  toolTimings: ToolLatencyRow[];
 }
 
 export interface AnalyticsResponse {
