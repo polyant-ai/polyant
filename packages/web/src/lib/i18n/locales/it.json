@@ -538,7 +538,7 @@
   "settings.tab.intermediateTextOptionsLabel": "Cosa fa ciascuna opzione",
   "settings.tab.intermediateTextUnsetHint": "Ogni canale resta com'è: WhatsApp e HTTP scartano il testo, la chat dal vivo lo mostra, la voce lo pronuncia. Il prompt non cambia.",
   "settings.tab.intermediateTextDiscardHint": "Arriva solo il messaggio scritto dopo l'ultimo tool, su tutti i canali. Il prompt lo dice al modello.",
-  "settings.tab.intermediateTextProgressHint": "Sui canali dal vivo il testo compare come nota di stato mentre l'agente lavora. La risposta resta il messaggio finale.",
+  "settings.tab.intermediateTextProgressHint": "Sui canali dal vivo il testo si vede mentre l'agente lavora e non viene conservato: la risposta salvata è il messaggio finale.",
   "settings.tab.intermediateTextReplyHint": "Tutto il testo del turno, in ordine, diventa la risposta. Il messaggio può ripetere la stessa informazione.",
   "settings.tab.debug": "Modalità debug",
   "settings.tab.debugHelp": "Se attiva, l'engine salva la richiesta esatta inviata al modello (system prompt completo, array dei messaggi e definizioni dei tool) per ogni turno — ispezionabile cliccando un messaggio nel playground o nel dettaglio conversazione. Pesante e memorizza PII a riposo; tienila disattiva se non stai analizzando.",

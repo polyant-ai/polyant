@@ -353,6 +353,25 @@ describe("triggerConversation", () => {
       expect((superviseArg.includeHarness as Set<string>).size).toBe(0);
     });
 
+    it("should_run_a_webhook_turn_with_the_agent_model_settings", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({
+        provider: "openai",
+        model: "gpt-6.1-terra",
+        apiKeys: { openai: "sk-test" },
+        secrets: {},
+        memoryEnabled: false,
+        knowledgeEnabled: false,
+        thinkingEnabled: true,
+        thinkingLevel: "high",
+        temperature: 0.2,
+        fastMode: true,
+      });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+
+      expect(mockSupervise.mock.calls[0][0]).toMatchObject({ thinkingLevel: "high", temperature: 0.2, fastMode: true });
+    });
+
     it("records trace with channel='webhook'", async () => {
       await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
       expect(mockTraceRecord).toHaveBeenCalledWith(
