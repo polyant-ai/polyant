@@ -536,4 +536,79 @@ describe("MessageCoordinator", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await drain;
   });
+  it("does not cancel a run that has started a tool: the new fragment gets its own run once that one is saved", async () => {
+    // What a tool did is only in the history if its run is saved: a run cancelled after a booking would be
+    // restarted on the same words, on a history without that booking, and could book again.
+    const booked: string[] = [];
+    let finishFirst!: () => void;
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(async (msg, signal) => {
+      if (msg.text.includes("prenota")) {
+        if (msg.toolGate?.("book") === false) return { text: "" };
+        booked.push(msg.text);
+        // The booking is done; the model still writes its reply.
+        await new Promise<void>((resolve, reject) => {
+          finishFirst = resolve;
+          signal.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+        return { text: "Prenotato." };
+      }
+      return { text: "Ok." };
+    });
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+
+    await c.onMessage(makeMsg({ text: "prenota martedì alle 10" }));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(booked).toEqual(["prenota martedì alle 10"]);
+
+    await c.onMessage(makeMsg({ text: "grazie" }));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(handler.mock.calls[0][1].aborted).toBe(false);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await vi.runAllTimersAsync();
+    expect(booked).toEqual(["prenota martedì alle 10"]);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler.mock.calls[1][0].text).toBe("grazie");
+    expect(sendOutbound.mock.calls.map((call) => call[3])).toEqual(["Prenotato.", "Ok."]);
+  });
+
+  it("still cancels and restarts a run that has started no tool yet", async () => {
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(async (_msg, signal) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 5000);
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+      return { text: "ok" };
+    });
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound: vi.fn().mockResolvedValue(undefined),
+    });
+    await c.onMessage(makeMsg({ text: "first" }));
+    await vi.advanceTimersByTimeAsync(2000);
+    await c.onMessage(makeMsg({ text: "second" }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handler.mock.calls[0][1].aborted).toBe(true);
+    // A tool the cancelled run reaches after the cut does not run.
+    expect(handler.mock.calls[0][0].toolGate?.("book")).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(handler.mock.calls[1][0].text).toBe("first\nsecond");
+    await vi.runAllTimersAsync();
+  });
 });
