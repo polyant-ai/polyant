@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
@@ -25,7 +25,7 @@ export function serializeTools(tools: ChatRequest["tools"]): LlmDebugPayload["to
     const t = tool as { description?: string; inputSchema?: unknown };
     let parameters: unknown;
     try {
-      if (t.inputSchema) parameters = zodToJsonSchema(t.inputSchema as never);
+      if (t.inputSchema) parameters = toJsonSchema(t.inputSchema as never);
     } catch {
       parameters = undefined;
     }

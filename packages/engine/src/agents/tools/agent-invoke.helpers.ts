@@ -42,7 +42,7 @@ export type DispatchFn = (input: AgentDispatchInput) => Promise<string>;
 export interface AgentInvokeTool {
   name: string;
   description: string;
-  inputSchema: z.ZodTypeAny;
+  inputSchema: z.ZodType<{ prompt: string }>;
   execute: (
     args: { prompt: string },
     opts?: { signal?: AbortSignal }

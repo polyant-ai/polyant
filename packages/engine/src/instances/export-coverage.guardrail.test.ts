@@ -149,27 +149,27 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
 const ROW_IDENTITY = new Set(["id", "instance_id", "assistant_id", "created_at", "updated_at"]);
 
 /** The object schema under a bundle field, through arrays, defaults and nullables. */
-function objectAt(path: string): z.ZodObject<z.ZodRawShape> | undefined {
+function objectAt(path: string): z.ZodObject | undefined {
   let schema: z.ZodTypeAny = exportInstanceDataSchema;
   for (const key of path.split(".")) {
     const object = unwrap(schema);
     if (!object || !(key in object.shape)) return undefined;
-    schema = object.shape[key];
+    schema = object.shape[key] as z.ZodTypeAny;
   }
   return unwrap(schema);
 }
 
-function unwrap(schema: z.ZodTypeAny): z.ZodObject<z.ZodRawShape> | undefined {
+function unwrap(schema: z.ZodTypeAny): z.ZodObject | undefined {
   let current: z.ZodTypeAny = schema;
   for (;;) {
     if (current instanceof z.ZodObject) return current;
-    if (current instanceof z.ZodArray) current = current.element;
+    if (current instanceof z.ZodArray) current = current.element as z.ZodTypeAny;
     else if (
       current instanceof z.ZodDefault ||
       current instanceof z.ZodNullable ||
       current instanceof z.ZodOptional
     ) {
-      current = current._def.innerType;
+      current = current.unwrap() as z.ZodTypeAny;
     } else return undefined;
   }
 }

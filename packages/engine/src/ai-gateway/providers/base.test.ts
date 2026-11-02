@@ -305,7 +305,7 @@ describe("serializeTools (debug capture)", () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("search");
     expect(result[0].description).toBe("Search the web");
-    // zod-to-json-schema produces an object schema with the `q` property.
+    // The zod schema becomes an object schema with the `q` property.
     expect(result[0].parameters).toMatchObject({ type: "object" });
     expect(JSON.stringify(result[0].parameters)).toContain("\"q\"");
   });

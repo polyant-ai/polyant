@@ -9,13 +9,13 @@ const OUTBOUND_CHANNEL_TYPES = ["telegram", "slack", "whatsapp", "agent"] as con
 export const createEventSourceSchema = z.object({
   name: z.string().min(1),
   sourceType: z.string().min(1),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
   enabled: z.boolean().optional(),
 });
 
 export const updateEventSourceSchema = z.object({
   name: z.string().min(1).optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   enabled: z.boolean().optional(),
 });
 

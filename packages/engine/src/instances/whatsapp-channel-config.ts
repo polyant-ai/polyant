@@ -72,7 +72,7 @@ export const whatsappConfigSchema = z.preprocess(
 export const WHATSAPP_MODE_SCHEMAS = {
   authToken: whatsappAuthTokenConfig,
   apiKey: whatsappApiKeyConfig,
-} satisfies Record<WhatsAppAuthMode, z.AnyZodObject>;
+} satisfies Record<WhatsAppAuthMode, z.ZodObject>;
 
 /** Config keys that belong to exactly one WhatsApp credential mode. */
 export const WHATSAPP_MODE_ONLY_KEYS: Record<WhatsAppAuthMode, readonly string[]> = {
