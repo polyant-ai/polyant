@@ -228,8 +228,16 @@ describe("ModelTab", () => {
     );
   });
 
+  it("names the model plainly when fast mode is stored on a model that has none", async () => {
+    render(<ModelTab instance={makeInstance({ model: "gpt-4o", fastMode: true, effectiveFastMode: false })} onUpdate={onUpdate} />);
+
+    const chat = await row("settings.role.chat.title");
+    expect(within(chat).getByText("gpt-4o")).toBeInTheDocument();
+    expect(within(chat).queryByText("settings.tab.fastVariant:gpt-4o")).not.toBeInTheDocument();
+  });
+
   it("drops fast mode when the model changes to one without it", async () => {
-    render(<ModelTab instance={makeInstance({ model: "o3", fastMode: true })} onUpdate={onUpdate} />);
+    render(<ModelTab instance={makeInstance({ model: "o3", effectiveModel: "o3", fastMode: true, effectiveFastMode: true })} onUpdate={onUpdate} />);
 
     expect(within(await row("settings.role.chat.title")).getByText("settings.tab.fastVariant:o3")).toBeInTheDocument();
     const panel = await openTask("settings.role.chat.title");

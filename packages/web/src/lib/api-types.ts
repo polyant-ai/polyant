@@ -111,6 +111,8 @@ export interface Instance {
   temperature?: number | null;
   /** Ask the provider for fast mode; applied only on a model whose catalog entry has `fastMultiplier`. */
   fastMode?: boolean;
+  /** Whether the effective model runs in fast mode: `fastMode` on a model the catalog prices fast. */
+  effectiveFastMode?: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */

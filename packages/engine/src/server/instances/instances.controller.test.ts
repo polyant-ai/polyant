@@ -83,6 +83,8 @@ vi.mock("../../instances/config-resolver.js", () => ({
 vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
   DEFAULT_PROVIDER: "openai",
+  // The catalog prices these two fast; every other model has no fast mode.
+  fastSupported: (_provider: string, model: string): boolean => model === "gpt-6.1-terra" || model === "claude-sonnet",
   isThinkingCapable: vi.fn().mockReturnValue(false),
   temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
     if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
@@ -219,7 +221,7 @@ describe("InstancesController", () => {
 
       // Allowed fields
       const allowed = new Set([
-        "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel",
+        "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel", "effectiveFastMode",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "stateInPromptEnabled", "datetimeInjectionEnabled",
         // The six that moved off the environment. On the allow-list because the
@@ -255,6 +257,31 @@ describe("InstancesController", () => {
         effectiveProvider: "openai",
         effectiveModel: "gpt-4o",
       });
+    });
+
+    it("should_report_fast_mode_as_off_when_the_effective_model_has_no_fast_mode", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "openai", model: "gpt-4o", fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      // The stored choice stays visible; what runs is told apart.
+      expect(instance).toMatchObject({ fastMode: true, effectiveFastMode: false });
+    });
+
+    it("should_report_fast_mode_as_on_when_the_effective_model_runs_fast", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "openai", model: "gpt-6.1-terra", fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      expect(instance).toMatchObject({ fastMode: true, effectiveFastMode: true });
+    });
+
+    it("should_report_fast_mode_from_the_standard_tier_model_when_the_agent_has_no_model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "anthropic", model: null, fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      expect(instance).toMatchObject({ model: null, effectiveModel: "claude-sonnet", effectiveFastMode: true });
     });
 
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {
