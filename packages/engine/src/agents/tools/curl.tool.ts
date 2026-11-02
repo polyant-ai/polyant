@@ -50,13 +50,13 @@ export default defineTool({
         .string()
         .describe("Full URL to request (must start with `http://` or `https://`)."),
       headers: z
-        .record(z.string())
+        .record(z.string(), z.string())
         .nullable()
         .describe(
           "HTTP headers to send with the request (e.g. Authorization, Accept). Pass null if not needed.",
         ),
       queryParams: z
-        .record(z.string())
+        .record(z.string(), z.string())
         .nullable()
         .describe("Query parameters to append to the URL. Pass null if not needed."),
       maxBodySize: z

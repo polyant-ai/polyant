@@ -68,7 +68,7 @@ function walk(node: unknown, path: string, violations: string[]): void {
     // OpenAI strict-mode formally requires `false`, but in practice it accepts
     // `additionalProperties: { type: <something> }` (z.record(z.string()))
     // — a record of strings, as a plugin's free-form properties map declares. We reject ONLY unbounded cases:
-    // `true` or empty `{}` (typical of z.record(z.unknown())).
+    // `true` or empty `{}` (typical of z.record(z.string(), z.unknown())).
     if (n.additionalProperties !== false) {
       const ap = n.additionalProperties;
       const isUnbounded =

@@ -148,7 +148,7 @@ export default defineTool({
       .describe("HTTP method: POST, PUT, PATCH, or DELETE"),
     // NOTE: body is a SERIALIZED JSON STRING, not a Zod object. Reason:
     // OpenAI strict-mode rejects `additionalProperties: {}` (unbounded)
-    // emitted by z.record(z.unknown()). Parsed at runtime in execute().
+    // emitted by z.record(z.string(), z.unknown()). Parsed at runtime in execute().
     // See CLAUDE.md → "Important Caveats" and strict-mode.test.ts.
     body: z
       .string()
@@ -202,7 +202,7 @@ export default defineTool({
         };
       }
 
-      // Runtime body parse (replaces z.record(z.unknown()) — see schema note).
+      // Runtime body parse (replaces z.record(z.string(), z.unknown()) — see schema note).
       let requestBody: unknown;
       try {
         requestBody = JSON.parse(body);
