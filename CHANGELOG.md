@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-11-02
+
 ### Added
 
 - Models: OpenAI's `gpt-6.1-terra` ($1 / $5 per million tokens, reasoning can
@@ -20,6 +22,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `0097`). `GET /api/instances/models` returns the price multiple as
   `fastMultiplier`. A call is billed at the fast rate only when the provider
   reports that it ran fast.
+- Text written alongside tools. A model can write text in a step that also
+  calls a tool; until now that text was dropped on WhatsApp and HTTP, shown on
+  a live chat and spoken on voice, and the model was never told. Each agent can
+  now choose, in Settings, to discard it (only the text after the last tool
+  call is the reply, on every channel), show it as progress (shown on a live
+  chat while the agent works, not kept in the reply) or make it part of the
+  reply (every step's text, in order). A set policy adds a "Reply delivery"
+  section to the prompt; unset keeps the previous behaviour and prompt. The
+  agent's `intermediateText` (`discard`, `progress`, `reply` or `null`) is
+  accepted by `PATCH /api/instances/:slug` and carried by export and import
+  (migration `0098`).
+- The analytics dashboard compares every KPI with the previous period (the
+  previous figure when the percentage would be meaningless), draws each KPI's
+  daily shape, overlays the previous period's cost, and shows when people
+  write as a weekday × hour heatmap. Tool usage and tool latency become one
+  Tools table with calls, success rate and p95. The API gains
+  `overview.previousPeriod`, `dailyTrend[].promptTokens` and
+  `cachedInputTokens`, `previousDailyCost`, `latency.previousOverview` and
+  `latency.toolTimings`.
 - The generated description under a conversation's title stops at two lines,
   with Show more / Hide when it is longer.
 
@@ -28,10 +49,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The OpenAI `standard` tier resolves to `gpt-6.1-terra` instead of
   `gpt-6-sol`, at half the price. Agents with no model of their own, and the
   `spawnTask` sub-agents of those agents, change model.
-- The AI SDK packages are updated together (`ai` 7.0.156,
-  `@ai-sdk/openai` 4.0.104). The previous `@ai-sdk/openai` dropped
-  `reasoning_effort: "none"` on `gpt-6.1-terra`, so it kept reasoning with
-  thinking off.
+- On WhatsApp and Telegram, a message fragment that arrives after the running
+  turn has started a tool no longer cancels it: the turn finishes and replies,
+  and the fragment gets a turn of its own. A turn that has not called a tool
+  yet is still cancelled and restarted on the joined text. A tool that a
+  cancelled turn asks for does not run and returns `{ error, notRun: true }`.
+- The response time KPI is the pipeline median (p50), as in the response time
+  chart, which drops p99. The model, tier and channel donuts become ranked
+  bars, and the tier breakdown moves into the model card.
+- `GET` analytics returns `hourlyDistribution` as 168 rows, one per weekday
+  and hour, each with `weekday` (0 = Monday), instead of 24.
+- Webhook-started turns and rooms run with the agent's fast mode, reasoning
+  level and temperature, which they ignored.
+- The engine moves to Zod 4.6.6 and `@polyant-ai/plugin-sdk` 1.12.0, which
+  accepts plugins written with Zod 3 or 4. The JSON Schema of the core tools is
+  unchanged. The text of validation errors in `400` responses follows Zod 4.
+- New Polyant logo in the panel and the README.
+- Dependency updates: `ai` 7.0.156 and `@ai-sdk/openai` 4.0.104 (the engine
+  now requires them), Next.js 16.4.3, langsmith 0.11.7, the AWS SDK, dotenv,
+  tsx, drizzle-kit and Playwright.
+
+### Fixed
+
+- A tool run by a WhatsApp or Telegram turn that a new fragment then cancelled
+  was missing from the history of the restarted turn, which could run it again.
+- `@ai-sdk/openai` before 4.0.104 dropped `reasoning_effort: "none"` on
+  `gpt-6.1-terra`, so it kept reasoning with thinking off.
+- KPI values and trends stay inside their tile at every width.
+- The analytics charts no longer cut their donuts or axis labels, and a daily
+  series fills the days without activity.
+
+### Security
+
+- Zod 4.6.6 fixes GHSA-mrhx-c7xc-m3w5: an array schema without a length bound
+  collected one issue per failing element, so a large request could exhaust
+  memory.
 
 ## [1.3.4] - 2026-10-26
 
@@ -1091,7 +1143,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.4...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.5...HEAD
+[1.3.5]: https://github.com/polyant-ai/polyant/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/polyant-ai/polyant/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/polyant-ai/polyant/compare/v1.3.1...v1.3.3
 [1.3.1]: https://github.com/polyant-ai/polyant/compare/v1.3.0...v1.3.1
