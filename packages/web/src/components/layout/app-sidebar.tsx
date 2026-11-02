@@ -182,9 +182,11 @@ export function AppSidebar(
           href="/"
           className="flex h-10 items-center gap-2 rounded-md px-2 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Bot className="size-4" />
-          </div>
+          {/* A 28px SVG gains nothing from next/image optimisation. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/polyant-mark-light.svg" alt="" aria-hidden="true" className="size-7 dark:hidden" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/polyant-mark-dark.svg" alt="" aria-hidden="true" className="hidden size-7 dark:block" />
           <span className="truncate text-base font-semibold group-data-[collapsible=icon]:hidden">
             Polyant
           </span>

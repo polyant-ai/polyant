@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <title>Polyant symbol</title>
+  <desc>Sky deck, 7 July 2026. Three horizontal lines ending in dots. Transparent background.</desc>
+  <g stroke="#0B1F3A" stroke-width="2.2" stroke-linecap="round" fill="none">
+    <line x1="3" y1="6.5" x2="14" y2="6.5"/>
+    <line x1="3" y1="12" x2="18" y2="12"/>
+    <line x1="3" y1="17.5" x2="11" y2="17.5"/>
+  </g>
+  <g fill="#7AAF12">
+    <circle cx="17.5" cy="6.5" r="1.7"/>
+    <circle cx="21" cy="12" r="1.7"/>
+    <circle cx="14.5" cy="17.5" r="1.7"/>
+  </g>
+</svg>
