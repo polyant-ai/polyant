@@ -3,6 +3,7 @@
 import type { ModelMessage, Tool } from "ai";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
@@ -75,6 +76,12 @@ export interface ChatRequest {
    * no marker) or Nebius (no cache API).
    */
   cacheConfig?: { enabled: boolean; ttl: CacheTtl };
+  /**
+   * What becomes of text written in a step that also calls a tool (see
+   * `intermediate-text.ts`). Undefined = the reply is the last step's text and a
+   * stream carries every step's text, as before the policy existed.
+   */
+  intermediateText?: IntermediateTextPolicy;
 }
 
 export interface ChatResponse {

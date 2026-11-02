@@ -243,6 +243,7 @@ async function main() {
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
       datetime: ctx.instanceConfig.datetime,
       cacheConfig: ctx.instanceConfig.cacheConfig,
+      intermediateText: ctx.instanceConfig.intermediateText,
       debugEnabled: ctx.instanceConfig.debugEnabled,
       // Conversational entry point: a real user behind a stable, reused
       // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
@@ -433,6 +434,7 @@ async function main() {
         datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
         datetime: ctx.instanceConfig.datetime,
         cacheConfig: ctx.instanceConfig.cacheConfig,
+        intermediateText: ctx.instanceConfig.intermediateText,
         debugEnabled: ctx.instanceConfig.debugEnabled,
         // Conversational entry point: a real user behind a stable, reused
         // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).

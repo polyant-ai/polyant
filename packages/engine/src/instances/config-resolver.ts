@@ -18,6 +18,7 @@ import {
   type MessageTimingSettings,
 } from "./agent-settings.js";
 import { invalidateAllInstanceMeta, invalidateInstanceMeta } from "./instance-meta.js";
+import { isIntermediateTextPolicy, type IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -76,6 +77,8 @@ export interface InstanceConfig {
   messageTimings: MessageTimingSettings;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
   cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  /** What becomes of text written alongside a tool call; null = unset, the pre-policy behaviour. */
+  intermediateText: IntermediateTextPolicy | null;
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
   a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
@@ -172,6 +175,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
       messageTimings: resolveMessageTimings(UNSET_AGENT_SETTINGS),
       cacheConfig: { enabled: true, ttl: "1h" },
+      intermediateText: null,
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
@@ -265,6 +269,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
     },
+    intermediateText: isIntermediateTextPolicy(instance.intermediateText) ? instance.intermediateText : null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,

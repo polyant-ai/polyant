@@ -40,6 +40,7 @@ import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
+import type { IntermediateTextPolicy } from "../../ai-gateway/intermediate-text.js";
 import { emitToolStart } from "../../activity-stream/emitters/emit-tool.js";
 import { createLogger } from "../../utils/create-logger.js";
 import { errMsg } from "../../utils/error.js";
@@ -89,6 +90,8 @@ export interface SupervisorInput {
   cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
+  /** The agent's policy for text written alongside a tool call; null/absent = unset. */
+  intermediateText?: IntermediateTextPolicy | null;
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
@@ -610,6 +613,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       datetimeInjectionEnabled: input.datetimeInjectionEnabled,
       datetime: input.datetime,
       optoutHint: input.optoutHint,
+      intermediateText: input.intermediateText ?? undefined,
     });
 
     pipelineLog.systemPrompt(instanceSlug, systemPrompt);
@@ -660,6 +664,7 @@ function buildChatArgs(
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
       cacheConfig: input.cacheConfig,
+      ...(input.intermediateText ? { intermediateText: input.intermediateText } : {}),
     },
     {
       conversationId: input.conversationId,

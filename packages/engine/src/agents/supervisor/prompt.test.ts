@@ -86,6 +86,7 @@ function buildPrompt(overrides?: {
   datetimeInjectionEnabled?: boolean;
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   conversationState?: Record<string, unknown>;
+  intermediateText?: "discard" | "progress" | "reply";
 }) {
   return buildSupervisorSystemPrompt({
     instanceId: overrides?.instanceId ?? TEST_INSTANCE_ID,
@@ -299,6 +300,24 @@ describe("buildSupervisorSystemPrompt", () => {
     });
     expect(system).toContain("## Messaging opt-out");
     expect(turnContext).not.toContain("Messaging opt-out");
+  });
+
+  it("says nothing about reply delivery when the agent set no policy, so its prompt is unchanged", async () => {
+    const { system } = await buildPrompt();
+    expect(system).not.toContain("## Reply delivery");
+  });
+
+  it("tells the model under discard that only text after its last tool call reaches the user", async () => {
+    const { system, turnContext } = await buildPrompt({ intermediateText: "discard" });
+    expect(system).toContain("## Reply delivery");
+    expect(system).toContain("Only the text you write after your last tool call");
+    expect(turnContext).not.toContain("Reply delivery");
+  });
+
+  it("tells the model under reply that everything it writes is shown", async () => {
+    const { system } = await buildPrompt({ intermediateText: "reply" });
+    expect(system).toContain("Everything you write in a turn");
+    expect(system).not.toContain("Only the text you write after your last tool call");
   });
 
   it("wraps conversation state in a <conversation_state> tag in turnContext", async () => {

@@ -110,6 +110,7 @@ export async function runDirectTurn(input: DirectTurnInput): Promise<DirectTurnO
         datetimeInjectionEnabled: cfg.datetimeInjectionEnabled,
         datetime: cfg.datetime,
         cacheConfig: cfg.cacheConfig,
+        intermediateText: cfg.intermediateText,
         stateBuffer,
         // A direct turn has no browser present to authorize an MCP oauth server,
         // even when the conversation id happens to be stable. Leave MCP oauth

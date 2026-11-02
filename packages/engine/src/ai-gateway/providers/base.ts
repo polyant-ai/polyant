@@ -5,6 +5,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
+import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../intermediate-text.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
@@ -806,9 +807,10 @@ export function createProvider(
       // (array). Normalised for type safety.
       const topReasoning = finalStepReasoning(result);
 
+      const steps = normalizeSdkSteps((result as unknown as { steps?: unknown }).steps);
       const response = buildChatResponse(
-        result.text,
-        normalizeSdkSteps((result as unknown as { steps?: unknown }).steps),
+        replyTextFor(request.intermediateText, result.text, steps),
+        steps,
         topReasoning,
         mapUsage(cumulativeUsage(result)),
         Date.now() - start,
@@ -830,21 +832,27 @@ export function createProvider(
         tracedStreamText(args()),
       );
 
+      // v7 renamed the SDK result's `fullStream` to `stream`; the property on
+      // OUR stream interface keeps its name, so only the read changes here. Each
+      // read of `stream` is its own copy of the stream, so the text stream and
+      // the full stream each filter their own.
+      const fullStream = () => (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream;
+      const policy = request.intermediateText;
+      const filtered = policy === "discard" || policy === "reply";
+
       return {
-        textStream: result.textStream,
-        // v7 renamed the SDK result's `fullStream` to `stream`; the property on
-        // OUR stream interface keeps its name, so only the read changes here.
-        fullStream: (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream,
+        textStream: filtered ? textDeltas(applyIntermediateTextPolicy(fullStream(), policy)) : result.textStream,
+        fullStream: filtered ? applyIntermediateTextPolicy(fullStream(), policy) : fullStream(),
         response: (async () => {
           try {
             const finalText = await result.text;
             const finalUsage = await cumulativeUsage(result);
-            const steps = await result.steps;
+            const steps = normalizeSdkSteps(await result.steps);
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
             const topReasoning = await finalStepReasoningAsync(result);
             const response = buildChatResponse(
-              finalText,
-              normalizeSdkSteps(steps),
+              replyTextFor(policy, finalText, steps),
+              steps,
               topReasoning,
               mapUsage(finalUsage),
               Date.now() - start,
