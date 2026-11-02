@@ -4,7 +4,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  Bot,
   BookOpen,
   ExternalLink,
   GitBranch,
@@ -70,9 +69,10 @@ export default function AboutPage() {
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row">
           <div className="flex shrink-0 flex-col gap-2 sm:w-40">
             <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <Bot className="size-4" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/polyant-mark-light.svg" alt="" aria-hidden="true" className="size-8 dark:hidden" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/polyant-mark-dark.svg" alt="" aria-hidden="true" className="hidden size-8 dark:block" />
               <span className="text-lg font-semibold">Polyant</span>
             </div>
 
