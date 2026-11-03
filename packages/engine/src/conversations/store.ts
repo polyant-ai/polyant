@@ -447,8 +447,7 @@ export class ConversationStore {
    * Get the most recent N messages for a conversation, ordered chronologically.
    *
    * Returns ModelMessage shape for direct use by the AI gateway. Reasoning is
-   * NOT included here — Anthropic signed-block re-injection is handled by a
-   * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
+   * NOT included here; `getRecentMessageRows()` returns the full rows.
    */
   async getRecentMessages(conversationId: string, limit = 15): Promise<ModelMessage[]> {
     const rows = await db
@@ -494,9 +493,8 @@ export class ConversationStore {
   /**
    * Get the most recent N messages with full reasoning + steps detail.
    *
-   * Used by the AI gateway's reasoning-injector to rebuild Anthropic
-   * multi-turn payloads that include the previous turn's signed thinking
-   * blocks. Returns chronologically ordered rows.
+   * Used by the pipeline to replay tool results in the history
+   * (`rowsToModelMessages`). Returns chronologically ordered rows.
    */
   async getRecentMessageRows(conversationId: string, limit = 15): Promise<MessageRow[]> {
     const rows = await db
