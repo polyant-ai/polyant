@@ -260,6 +260,23 @@ describe("insertChunksAndFinalize", () => {
     expect(mockDb.update).toHaveBeenCalled();
   });
 
+  // One statement carrying every vector of a large document (thousands of
+  // 1024-number arrays) held all of them, as text, in memory at once.
+  it("inserts a large document in statements of at most 500 chunks", async () => {
+    mockDb.select.mockReturnValue(createChainMock([{ id: "doc-1" }]));
+    mockDb.delete.mockReturnValue(createChainMock([]));
+    const insChain = createChainMock([]);
+    mockDb.insert.mockReturnValue(insChain);
+    mockDb.update.mockReturnValue(createChainMock([]));
+    const chunks = Array.from({ length: 1201 }, (_, i) => ({ ...chunk, chunkIndex: i }));
+
+    const count = await insertChunksAndFinalize("doc-1", chunks, 1024, "bedrock", "hash");
+
+    expect(count).toBe(1201);
+    const batches = insChain.values.mock.calls.map((c) => (c[0] as unknown[]).length);
+    expect(batches).toEqual([500, 500, 201]);
+  });
+
   it("marks the doc ready with chunkCount 0 for an empty batch", async () => {
     mockDb.select.mockReturnValue(createChainMock([{ id: "doc-1" }]));
     mockDb.delete.mockReturnValue(createChainMock([]));

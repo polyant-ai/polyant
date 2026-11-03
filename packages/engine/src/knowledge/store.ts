@@ -484,6 +484,9 @@ export async function insertChunks(
   return chunks.length;
 }
 
+/** Chunks per INSERT statement when a document's chunks are stored. */
+const INSERT_BLOCK_SIZE = 500;
+
 /**
  * Replace a document's chunks and mark it ready, in one transaction, if the
  * document still holds the text the chunks were made from (`textHash`).
@@ -512,9 +515,11 @@ export async function insertChunksAndFinalize(
     if (!current) return null;
 
     await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, docId));
-    if (chunks.length > 0) {
+    // In blocks: one statement for a whole large document holds every vector,
+    // as text, in memory at once.
+    for (let i = 0; i < chunks.length; i += INSERT_BLOCK_SIZE) {
       await tx.insert(knowledgeChunks).values(
-        chunks.map((c) => chunkRowValues(c, dimensions, provider)),
+        chunks.slice(i, i + INSERT_BLOCK_SIZE).map((c) => chunkRowValues(c, dimensions, provider)),
       );
     }
 

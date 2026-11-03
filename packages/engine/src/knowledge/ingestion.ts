@@ -16,6 +16,39 @@ import { errMsg } from "../utils/error.js";
 const log = createLogger();
 
 /**
+ * Documents this process indexes at once. A bundle import starts every
+ * document's ingestion together, and each pass holds its embeddings in memory
+ * (about 30 KB per chunk at 1024 dimensions) and keeps provider calls in
+ * flight; the rest wait their turn.
+ */
+const MAX_CONCURRENT_INGESTIONS = 4;
+/** How often a waiting document reports it is still queued, well inside the stuck-document window. */
+const QUEUED_KEEPALIVE_MS = 60_000;
+
+let runningIngestions = 0;
+const waitingIngestions: Array<() => void> = [];
+
+/** Wait for an ingestion slot; the returned function gives it back. */
+async function acquireIngestionSlot(docId: string): Promise<() => void> {
+  if (runningIngestions < MAX_CONCURRENT_INGESTIONS) {
+    runningIngestions++;
+  } else {
+    // A queued document is not abandoned: the recovery must not fail it.
+    const keepAlive = setInterval(() => {
+      touchDocument(docId).catch((err) => log.warn("knowledge", `Could not touch queued doc ${docId}`, err));
+    }, QUEUED_KEEPALIVE_MS);
+    // The slot passes straight from the pass that ends to this one.
+    await new Promise<void>((resolve) => waitingIngestions.push(resolve));
+    clearInterval(keepAlive);
+  }
+  return () => {
+    const next = waitingIngestions.shift();
+    if (next) next();
+    else runningIngestions--;
+  };
+}
+
+/**
  * Process a document: chunk the text, generate embeddings, store chunks.
  * Designed to be called asynchronously after document creation.
  *
@@ -33,6 +66,19 @@ const log = createLogger();
  * against chunks that mention the surrounding context but not that subject.
  */
 export async function processDocument(
+  docId: string,
+  instanceId: InstanceSlug,
+  textContent: string,
+): Promise<{ chunkCount: number; superseded?: true }> {
+  const release = await acquireIngestionSlot(docId);
+  try {
+    return await indexDocument(docId, instanceId, textContent);
+  } finally {
+    release();
+  }
+}
+
+async function indexDocument(
   docId: string,
   instanceId: InstanceSlug,
   textContent: string,

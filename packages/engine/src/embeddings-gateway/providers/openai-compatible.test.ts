@@ -79,6 +79,12 @@ describe("the requested vector length is enforced on what comes back", () => {
     expect(mockEmbedMany).not.toHaveBeenCalled();
   });
 
+  it("caps the provider calls a batch runs at once", async () => {
+    mockEmbedMany.mockResolvedValueOnce({ embeddings: [vector(1024), vector(1024)] });
+    await embedManyCompatible(["a", "b"], opts);
+    expect(mockEmbedMany).toHaveBeenCalledWith(expect.objectContaining({ maxParallelCalls: 8 }));
+  });
+
   it("returns nothing for an empty batch without calling the provider", async () => {
     await expect(embedManyCompatible([], opts)).resolves.toEqual({ embeddings: [], tokens: 0 });
     expect(mockEmbed).not.toHaveBeenCalled();
