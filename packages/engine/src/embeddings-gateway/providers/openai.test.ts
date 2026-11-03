@@ -47,4 +47,10 @@ describe("embedManyOpenAI", () => {
     const out = await embedManyOpenAI(["a", "b"], { apiKey: "k", dimensions: 1024 });
     expect(out).toEqual({ embeddings: [[0.1], [0.2]], tokens: 12 });
   });
+  // The SDK splits a batch into as many provider calls as the model needs and,
+  // by default, sends them all at once.
+  it("caps the provider calls a batch runs at once", async () => {
+    await embedManyOpenAI(["a", "b"], { apiKey: "k", dimensions: 1024 });
+    expect(embedManyMock).toHaveBeenCalledWith(expect.objectContaining({ maxParallelCalls: 8 }));
+  });
 });

@@ -62,6 +62,7 @@ describe("writeKnowledge tool", () => {
       created: true,
       sizeBytes: 5,
       rawContent: "hello",
+      reindex: true,
     });
 
     const result = await writeKnowledge.execute(
@@ -94,6 +95,7 @@ describe("writeKnowledge tool", () => {
       created: false,
       sizeBytes: 12,
       rawContent: "foo\n\nbar",
+      reindex: true,
     });
 
     const result = await writeKnowledge.execute(
@@ -115,12 +117,32 @@ describe("writeKnowledge tool", () => {
     expect(mockProcessDocument).toHaveBeenCalledWith("doc-2", "inst-1", "foo\n\nbar");
   });
 
+  it("schedules no reindex when the write left an indexed document's text unchanged", async () => {
+    mockUpsert.mockResolvedValue({
+      docId: "doc-4",
+      created: false,
+      sizeBytes: 5,
+      rawContent: "hello",
+      reindex: false,
+    });
+
+    const result = await writeKnowledge.execute(
+      { action: "write", filename: "a.md", content: "hello", mimeType: null },
+      { toolCallId: "tc-1", messages: [] } as any,
+    );
+
+    expect(result).toMatchObject({ ok: true, reindexScheduled: false });
+    await flushMicrotasks();
+    expect(mockProcessDocument).not.toHaveBeenCalled();
+  });
+
   it("forwards custom mimeType on creation", async () => {
     mockUpsert.mockResolvedValue({
       docId: "doc-3",
       created: true,
       sizeBytes: 3,
       rawContent: "raw",
+      reindex: true,
     });
 
     await writeKnowledge.execute(

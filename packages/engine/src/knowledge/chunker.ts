@@ -196,6 +196,11 @@ export function splitSentences(text: string): string[] {
  *
  * Overlap logic: the last `overlap` characters of the previous chunk are used as
  * a prefix for the next chunk, ensuring context continuity.
+ *
+ * No chunk is longer than `chunkSize` (for an `overlap` below `chunkSize - 2`),
+ * whatever the punctuation: text extracted from PDFs, tables and CSV has no
+ * blank lines and few sentence ends, and a chunk that grew with it could pass
+ * the embedder's input limit and reach the model as thousands of tokens.
  */
 export function chunkText(
   text: string,
@@ -217,7 +222,6 @@ export function chunkText(
   const chunks: Chunk[] = [];
   let buffer = "";
   let position = 0;
-  let overlapPrefix = "";
 
   for (const para of paragraphs) {
     const trimmed = para.trim();
@@ -228,39 +232,26 @@ export function chunkText(
       continue;
     }
 
-    // If buffer is non-empty and adding would exceed, flush buffer
+    // Flush the buffer; its tail becomes the prefix of what follows.
+    let overlapPrefix = "";
     if (buffer) {
       chunks.push({ content: buffer.trim(), metadata: { position } });
       position++;
+      overlapPrefix = overlap > 0 ? buffer.slice(-overlap) : "";
+    }
 
-      // Calculate overlap prefix from the end of the flushed chunk
-      if (overlap > 0 && buffer.length > overlap) {
-        overlapPrefix = buffer.slice(-overlap);
-      } else if (overlap > 0) {
-        overlapPrefix = buffer;
-      } else {
-        overlapPrefix = "";
-      }
-
-      // Start new buffer with overlap prefix + new paragraph
-      buffer = overlapPrefix ? overlapPrefix + "\n\n" + trimmed : trimmed;
+    const next = overlapPrefix ? overlapPrefix + "\n\n" + trimmed : trimmed;
+    if (next.length <= chunkSize) {
+      buffer = next;
       continue;
     }
 
-    // If single paragraph exceeds chunk size, split by sentences
-    if (trimmed.length > chunkSize) {
-      const sentenceChunks = splitBySentences(trimmed, chunkSize, overlap);
-      for (const sc of sentenceChunks) {
-        chunks.push({ content: sc, metadata: { position } });
-        position++;
-      }
-      buffer = "";
-      overlapPrefix = "";
-      continue;
+    // Too long to start a chunk with: split by sentences.
+    for (const sc of splitBySentences(trimmed, chunkSize, overlap, overlapPrefix)) {
+      chunks.push({ content: sc, metadata: { position } });
+      position++;
     }
-
-    buffer = overlapPrefix ? overlapPrefix + "\n\n" + trimmed : trimmed;
-    overlapPrefix = "";
+    buffer = "";
   }
 
   // Flush remaining buffer
@@ -273,37 +264,57 @@ export function chunkText(
 
 /**
  * Split a long paragraph into chunks by sentence boundaries.
- * Overlap is applied as a prefix from the end of the previous chunk.
+ * Overlap is applied as a prefix from the end of the previous chunk; `prefix`
+ * is the overlap carried from the chunk before the paragraph.
+ *
+ * A "sentence" with no room left for the overlap is cut first at the last
+ * whitespace before that room, or at the room itself when there is no
+ * whitespace in its second half, so no piece can push a chunk past `chunkSize`.
  */
 function splitBySentences(
   text: string,
   chunkSize: number,
   overlap: number,
+  prefix: string,
 ): string[] {
-  const sentences = splitSentences(text);
+  const room = Math.max(1, chunkSize - overlap - 2);
+  const pieces: string[] = [];
+  for (const sentence of splitSentences(text)) {
+    let rest = sentence;
+    while (rest.length > room) {
+      const at = lastWhitespaceBefore(rest, room);
+      const cut = at > room / 2 ? at + 1 : room;
+      pieces.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    if (rest) pieces.push(rest);
+  }
 
   const chunks: string[] = [];
-  let buffer = "";
+  let buffer = prefix ? prefix + "\n\n" : "";
 
-  for (const sentence of sentences) {
-    if (buffer.length + sentence.length <= chunkSize) {
-      buffer += sentence;
+  for (const piece of pieces) {
+    if (buffer.length + piece.length <= chunkSize) {
+      buffer += piece;
     } else {
       if (buffer.trim()) chunks.push(buffer.trim());
 
       // Calculate overlap prefix from the end of the flushed chunk
-      const overlapText =
-        overlap > 0 && buffer.length > overlap
-          ? buffer.slice(-overlap)
-          : overlap > 0
-            ? buffer
-            : "";
+      const overlapText = overlap > 0 ? buffer.slice(-overlap) : "";
 
-      // Start new buffer with overlap prefix + new sentence
-      buffer = overlapText ? overlapText + sentence : sentence;
+      // Start new buffer with overlap prefix + new piece
+      buffer = overlapText + piece;
     }
   }
 
   if (buffer.trim()) chunks.push(buffer.trim());
   return chunks;
+}
+
+/** Index of the last whitespace character before `limit`, or -1. */
+function lastWhitespaceBefore(text: string, limit: number): number {
+  for (let i = limit - 1; i >= 0; i--) {
+    if (/\s/.test(text[i])) return i;
+  }
+  return -1;
 }

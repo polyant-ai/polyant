@@ -4,7 +4,7 @@ import { embed, embedMany } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import type { EmbeddingDim, EmbeddingResult } from "../types.js";
-import { EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
+import { EMBEDDING_MAX_PARALLEL_CALLS, EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
 
 interface BedrockCallOptions {
   readonly apiKey?: string;
@@ -63,6 +63,7 @@ export async function embedManyBedrock(texts: string[], opts: BedrockCallOptions
   const { embeddings, usage } = await embedMany({
     model,
     values: texts,
+    maxParallelCalls: EMBEDDING_MAX_PARALLEL_CALLS,
     providerOptions: { bedrock: { dimensions: opts.dimensions } },
   });
   return { embeddings, tokens: usage?.tokens ?? 0 };

@@ -8,6 +8,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
@@ -31,21 +32,36 @@ import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
 import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
 import { MAX_DOCUMENT_BYTES, prepareImportDocuments } from "../utils/import-bundle.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
-import { resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
+import { DEFAULT_KNOWLEDGE_DOC_CAP, resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
+import { parsePagination } from "../utils/parse-pagination.js";
 import { createLogger } from "../../utils/create-logger.js";
 
 const log = createLogger();
 
+/** Documents per page of the list: an agent within the default cap fits in one. */
+const DOCUMENT_PAGE_SIZE = DEFAULT_KNOWLEDGE_DOC_CAP;
+
 @Controller("api/instances/:slug/knowledge")
 export class InstanceKnowledgeController {
-  /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
+  /**
+   * GET /api/instances/:slug/knowledge?limit&offset — one page of documents (no
+   * rawContent), newest first, with the `nextOffset` of the next page or null.
+   * The default page is the default per-agent document cap, so an agent within
+   * it is listed whole in one call.
+   */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
-  async list(@Param("slug") slug: string) {
+  async list(
+    @Param("slug") slug: string,
+    @Query("limit") limitStr?: string,
+    @Query("offset") offsetStr?: string,
+  ) {
     const instance = await findInstanceOrFail(slug);
 
-    const documents = await listDocuments(instance.slug);
+    const page = parsePagination(limitStr, offsetStr, { defaultLimit: DOCUMENT_PAGE_SIZE, maxLimit: DOCUMENT_PAGE_SIZE });
+    const { documents, nextOffset } = await listDocuments(instance.slug, page);
     return {
+      nextOffset,
       documents: documents.map((d) => ({
         id: d.id,
         filename: d.filename,

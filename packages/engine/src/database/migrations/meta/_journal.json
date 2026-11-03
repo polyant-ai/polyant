@@ -659,6 +659,13 @@
       "when": 1793264500000,
       "tag": "0100_conversation_watermarks",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793264600000,
+      "tag": "0101_knowledge_query_stopwords",
+      "breakpoints": true
     }
   ]
 }
