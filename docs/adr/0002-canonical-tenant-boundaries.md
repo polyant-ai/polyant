@@ -3,7 +3,6 @@
 - **Status**: Accepted
 - **Date**: 2026-08-05
 - **Deciders**: @freegenie, @paolovalletta-exelab
-- **Related**: PR #245
 
 ## Context
 
