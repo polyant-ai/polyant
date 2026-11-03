@@ -223,28 +223,6 @@ export async function searchByVector(
 }
 
 /**
- * Get all memories for a user, ordered by most recent first.
- */
-export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRecord[]> {
-  const rows = await db
-    .select({
-      id: memories.id,
-      instanceId: memories.instanceId,
-      content: memories.content,
-      category: memories.category,
-      importance: memories.importance,
-      sourceConversationId: memories.sourceConversationId,
-      createdAt: memories.createdAt,
-      updatedAt: memories.updatedAt,
-    })
-    .from(memories)
-    .where(eq(memories.instanceId, instanceId))
-    .orderBy(desc(memories.updatedAt));
-
-  return rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) }));
-}
-
-/**
  * Search memories with pagination, text filtering (ILIKE), and category filtering.
  */
 export async function searchMemories(

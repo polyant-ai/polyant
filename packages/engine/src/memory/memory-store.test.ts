@@ -82,7 +82,6 @@ vi.mock("drizzle-orm/sql/functions", () => ({
 import {
   upsertMemory,
   searchByVector,
-  getAllMemories,
   deleteMemoryForInstance,
   deleteAllMemories,
   countMemories,
@@ -291,31 +290,6 @@ describe("memory-store", () => {
       expect(results).toHaveLength(1);
       expect(results[0].similarity).toBe(0.85); // 1 - 0.15
       expect(results[0].content).toBe("Likes coffee");
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-  });
-
-  describe("getAllMemories", () => {
-    it("returns records for user", async () => {
-      const rows = [
-        {
-          id: "m1",
-          instanceId: "user-1",
-          content: "Fact A",
-          category: "general",
-          importance: 5,
-          sourceConversationId: null,
-          createdAt: new Date("2025-01-01"),
-          updatedAt: new Date("2025-01-02"),
-        },
-      ];
-      const selChain = createChainMock(rows);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const results = await getAllMemories(asInstanceSlug("user-1"));
-
-      expect(results).toHaveLength(1);
-      expect(results[0].content).toBe("Fact A");
       expect(mockDb.select).toHaveBeenCalled();
     });
   });
