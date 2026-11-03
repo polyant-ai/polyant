@@ -584,28 +584,41 @@ export async function searchByVector(
 }
 
 /**
- * Keyword search: PostgreSQL FTS over the chunk content, ranked by ts_rank.
- * Uses `simple` config (no language stemming) for multilingual coherence with
- * the rest of the project (see CLAUDE.md). `websearch_to_tsquery` accepts the
- * raw user query — no manual escaping needed.
+ * Keyword search: PostgreSQL FTS over the chunk content, ranked by cover density.
+ *
+ * A chunk matches when it holds ANY word of the question; chunks holding more
+ * of them, closer together, rank higher. The words come from the
+ * `knowledge_query` configuration, which reads them like the chunks' `simple`
+ * index (no stemming, for multilingual coherence) and drops Italian and English
+ * stopwords. Requiring every word, stopwords included, made a question in
+ * natural language ("what are the opening hours?") match nothing. A question
+ * with no word left matches nothing.
+ *
+ * The tsquery is assembled from the lexemes, each quoted (quotes and
+ * backslashes doubled) and joined with OR, so the raw question needs no
+ * escaping and an empty question yields NULL instead of a server notice.
  */
 export async function searchByKeyword(
   query: string,
   instanceId: InstanceSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
+  const anyWord = sql`(
+    SELECT string_agg($q$'$q$ || replace(replace(lexeme, $q$\\$q$, $q$\\\\$q$),$q$'$q$, $q$''$q$) || $q$'$q$, ' | ')::tsquery
+    FROM unnest(to_tsvector('knowledge_query', ${query}))
+  )`;
   const rows = await db.execute(sql`
     SELECT
       kc.id,
       kc.content,
       kc.chunk_index,
       kd.filename,
-      ts_rank(kc.content_tsv, websearch_to_tsquery('simple', ${query})) AS rank
+      ts_rank_cd(kc.content_tsv, ${anyWord}) AS rank
     FROM knowledge_chunks kc
     INNER JOIN knowledge_documents kd ON kd.id = kc.document_id
     WHERE kc.instance_id = ${instanceId}
       AND kd.enabled
-      AND kc.content_tsv @@ websearch_to_tsquery('simple', ${query})
+      AND kc.content_tsv @@ ${anyWord}
     ORDER BY rank DESC
     LIMIT ${limit}
   `);
