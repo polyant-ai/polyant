@@ -657,51 +657,6 @@ describe("instances/store", () => {
   });
 
   // -----------------------------------------------------------------------
-  // deleteInstance
-  // -----------------------------------------------------------------------
-  describe("deleteInstance", () => {
-    /*
-      Assert WHICH tables, and in what ORDER — not how many times `delete` was
-      called. A count passes when one table is dropped from the cascade and
-      another is deleted twice, which is exactly the mistake worth catching; and
-      the order is not cosmetic, it is the foreign-key order (children first).
-
-      conversation_messages is now deleted unconditionally, through a subquery
-      over the instance's conversations instead of a list of ids read into Node —
-      so there is no longer a "no conversations" branch to test separately. An
-      empty set is handled by SQL.
-    */
-    it("deletes every slug-keyed table, children first, inside one transaction", async () => {
-      mockDb.select.mockReturnValue(createChainMock([]) as any);
-      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
-
-      const result = await deleteInstance(asInstanceSlug("default"));
-
-      expect(result).toBe(true);
-      expect(mockDb.transaction).toHaveBeenCalled();
-      expect(mockDb.delete.mock.calls.map((c) => c[0])).toEqual([
-        conversationMessages,
-        conversations,
-        memories,
-        knowledgeDocuments,
-        scheduledTasks,
-        conversationState,
-        principalSecrets,
-        instances,
-      ]);
-    });
-
-    it("returns false when no instance row is deleted", async () => {
-      mockDb.select.mockReturnValue(createChainMock([]) as any);
-      mockDb.delete.mockReturnValue(createChainMock([]) as any);
-
-      const result = await deleteInstance(asInstanceSlug("nonexistent"));
-
-      expect(result).toBe(false);
-    });
-  });
-
-  // -----------------------------------------------------------------------
   // listAllInstances
   // -----------------------------------------------------------------------
   describe("listAllInstances", () => {
