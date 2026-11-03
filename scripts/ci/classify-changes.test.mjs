@@ -16,6 +16,7 @@ test("markdown that a build or test reads counts as code", () => {
   for (const file of [
     "CHANGELOG.md",
     "CLAUDE.md",
+    "AGENTS.md",
     ".claude/rules/engine.md",
     "packages/engine/tests/guardrails/SKILL.md",
     "examples/skills/weather/SKILL.md",

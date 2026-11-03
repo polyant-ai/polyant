@@ -24,7 +24,7 @@ export const API_FILE_LIMIT = 3000;
  * Documentation no build, test or image reads. Markdown that something does
  * read is excluded on purpose:
  *   CHANGELOG.md        parsed by the web build (generate-changelog.ts);
- *   CLAUDE.md, .claude/rules/
+ *   CLAUDE.md, AGENTS.md, .claude/rules/
  *                       held to a size budget by an engine unit test;
  *   packages/, examples/
  *                       markdown there can be loaded by code or tests.
@@ -35,7 +35,7 @@ export function isDocumentation(file) {
   if (file.startsWith("docs/")) return true;
   if (file.startsWith(".claude/")) return !file.startsWith(".claude/rules/");
   if (!file.endsWith(".md")) return false;
-  if (file === "CHANGELOG.md" || file === "CLAUDE.md") return false;
+  if (file === "CHANGELOG.md" || file === "CLAUDE.md" || file === "AGENTS.md") return false;
   if (file.startsWith("packages/") || file.startsWith("examples/")) return false;
   return true;
 }
