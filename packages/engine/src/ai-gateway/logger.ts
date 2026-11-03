@@ -33,6 +33,8 @@ export const aiLogs = pgTable(
     outcome: text("outcome").notNull().default("ok"),
     // The CLASS of the failure (see classifyProviderError below), never the
     // message: the message can quote the request, and the request is the prompt.
+    // On an `aborted` row, `in_flight` marks that its prompt includes the
+    // estimate of a model call aborted before it answered.
     errorKind: text("error_kind"),
   },
   (table) => [

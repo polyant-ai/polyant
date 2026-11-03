@@ -211,12 +211,35 @@ function reasoningCharCount(response: ChatResponse): number {
   return n;
 }
 
+/**
+ * How many prompt tokens each conversation's latest answered model call left
+ * in the provider's cache (read plus written), so the next call of the
+ * conversation can be priced as reading them when it is aborted in flight and
+ * never reports usage. Per process and bounded: an estimate, not a ledger.
+ */
+const cachedPrefixByConversation = new Map<string, number>();
+const CACHED_PREFIX_CONVERSATIONS = 10_000;
+
+function rememberCachedPrefix(conversationId: string | undefined, response: ChatResponse): void {
+  if (!conversationId) return;
+  const last = response.steps.at(-1);
+  const prefix = last && last.promptTokens !== undefined
+    ? (last.cachedInputTokens ?? 0) + (last.cacheCreationInputTokens ?? 0)
+    : (response.usage.cachedInputTokens ?? 0) + (response.usage.cacheCreationInputTokens ?? 0);
+  cachedPrefixByConversation.delete(conversationId);
+  cachedPrefixByConversation.set(conversationId, prefix);
+  if (cachedPrefixByConversation.size > CACHED_PREFIX_CONVERSATIONS) {
+    cachedPrefixByConversation.delete(cachedPrefixByConversation.keys().next().value!);
+  }
+}
+
 function logAndRecordUsage(
   config: { providerName: string; modelId: string },
   request: ChatRequest,
   response: ChatResponse,
   options?: ChatCallOptions,
 ): void {
+  rememberCachedPrefix(options?.conversationId, response);
   pipelineLog.llmResponse(
     options?.instanceId ?? "",
     config.modelId,
@@ -301,8 +324,12 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
  * the failure rate measure how often people type quickly. But the model calls
  * it had already made were billed, so when there are any, the turn is logged
  * as `aborted` with their usage and cost: sums of cost and tokens count it,
- * counts of answered and failed calls do not. A turn aborted before any model
- * call answered cost nothing and writes nothing.
+ * counts of answered and failed calls do not. A model call aborted in flight
+ * had reached the provider, which bills its prompt although no usage comes
+ * back: the row adds the provider's estimate of that prompt, read from cache
+ * up to what the conversation's previous call left there, and is marked
+ * `in_flight`. A turn aborted before any model call started cost nothing and
+ * writes nothing.
  *
  * A signal aborted by the caller's own deadline (`AbortSignal.timeout`, alone
  * or inside `AbortSignal.any`) carries a `TimeoutError` reason. Nobody
@@ -320,16 +347,18 @@ function logFailedCall(
   const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
   const aborted = signal?.aborted === true && !timedOut;
   if (aborted && !usage) return;
-  const cost = usage ? costOfUsage(config, usage) : 0;
+  const inFlight = aborted && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
+  const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
+  const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
   aiLogger.log(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
       request.tier,
       request.thinking ?? false,
-      usage?.promptTokens ?? 0,
+      promptTokens,
       usage?.completionTokens ?? 0,
-      (usage?.promptTokens ?? 0) + (usage?.completionTokens ?? 0),
+      promptTokens + (usage?.completionTokens ?? 0),
       cost,
       durationMs,
       0,
@@ -337,12 +366,19 @@ function logFailedCall(
       options?.conversationId,
       options?.instanceId,
       options?.callType,
-      usage?.cachedInputTokens ?? 0,
+      (usage?.cachedInputTokens ?? 0) + (inFlight?.cachedInputTokens ?? 0),
       usage?.cacheCreationInputTokens ?? 0,
       aborted ? "aborted" : "error",
-      aborted ? null : timedOut ? "timeout" : classifyProviderError(err),
+      aborted ? (inFlight ? "in_flight" : null) : timedOut ? "timeout" : classifyProviderError(err),
     ),
   );
+}
+
+/** The usage of a model call aborted in flight: its estimated prompt, read from cache up to the conversation's cached prefix. */
+function inFlightCall(promptTokens: number, conversationId: string | undefined): NonNullable<ReturnType<typeof usageCompletedBeforeFailure>> {
+  const cached = Math.min(promptTokens, (conversationId && cachedPrefixByConversation.get(conversationId)) || 0);
+  const call = { promptTokens, completionTokens: 0, cachedInputTokens: cached, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
+  return { ...call, calls: [{ ...call, fast: false }] };
 }
 
 /**

@@ -793,7 +793,53 @@ describe("AI Gateway", () => {
       expect(entry.costUsd).toBeGreaterThan(0);
     });
 
-    it("writes NOTHING when the turn was preempted before any model call answered", async () => {
+    // An abort with a model call in flight: the provider had the prompt and
+    // billed it, but no usage came back. The row carries the provider's
+    // estimate of that prompt, marked as such.
+    it("logs a call preempted in flight as `aborted` / `in_flight`, with its estimated prompt", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      mockProviderChat.mockRejectedValue(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-cold" })).rejects.toBe(err);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("aborted");
+      expect(entry.errorKind).toBe("in_flight");
+      expect(entry.promptTokens).toBe(30_000);
+      expect(entry.costUsd).toBeGreaterThan(0);
+      // Nothing earlier in this conversation says what the cache held.
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(0);
+    });
+
+    it("counts as read from cache what the conversation's previous call left there", async () => {
+      // The previous call read 20,000 cached tokens and wrote 5,000 more: the
+      // next call of the conversation starts with that 25,000-token prefix.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 26_000, completionTokens: 50, totalTokens: 26_050, cachedInputTokens: 20_000, cacheCreationInputTokens: 5_000 },
+      }));
+      await chat(makeRequest(), { conversationId: "conv-in-flight-warm" });
+      const cold = new Error("aborted cold");
+      const warm = new Error("aborted warm");
+      for (const err of [cold, warm]) {
+        pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      }
+      const controller = new AbortController();
+      controller.abort();
+
+      mockProviderChat.mockRejectedValueOnce(cold);
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-other" })).rejects.toBe(cold);
+      const coldCost = loggedEntry().costUsd as number;
+      mockProviderChat.mockRejectedValueOnce(warm);
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-warm" })).rejects.toBe(warm);
+
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(25_000);
+      expect(loggedEntry().costUsd as number).toBeLessThan(coldCost);
+    });
+
+    it("writes NOTHING when the turn was preempted before any model call started", async () => {
       // cancel-and-restart is the routine path — it fires whenever a user sends a
       // second message before the first reply lands. A turn it stopped before
       // anything was billed has no cost to record and is no failure.

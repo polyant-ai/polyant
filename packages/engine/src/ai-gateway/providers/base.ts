@@ -172,24 +172,47 @@ interface MappedUsage {
  * only after its tools have run, so a turn aborted while a tool was running —
  * the message coordinator's cancel-and-restart, typically — had an answered,
  * billed model call that no step ever reported.
+ *
+ * A call that had started and not answered when the turn failed is pinned too,
+ * as `inFlight`, with an estimate of its prompt: aborted in flight, it had
+ * reached the provider, which processes and bills the prompt whether or not
+ * anyone reads the answer. The estimate counts about one token per four
+ * characters of what the call sent; no provider reports more for it.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
-/** The summed usage of the completed steps, and each step's own (`calls`). */
-type UsageBeforeFailure = Required<MappedUsage> & { calls: (Required<MappedUsage> & { fast: boolean })[] };
+/** The summed usage of the completed steps, each step's own (`calls`), and the call still in flight, if any. */
+type UsageBeforeFailure = Required<MappedUsage> & {
+  calls: (Required<MappedUsage> & { fast: boolean })[];
+  inFlight?: { promptTokens: number };
+};
 
-/** The usage of the model calls a failed or aborted turn completed, or null when none had answered. */
+/** The usage of the model calls a failed or aborted turn had made, or null when none had started. */
 export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** Sums each answered model call's usage (`onLanguageModelCallEnd`) and pins it to the turn's error. */
+/** About one token per four characters of everything a model call sends: instructions, messages and tools. */
+function estimatePromptTokens(event: { instructions?: unknown; messages?: unknown; tools?: unknown }): number {
+  const chars = JSON.stringify([event.instructions ?? null, event.messages ?? null, event.tools ?? null]).length;
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Sums each answered model call's usage (`onLanguageModelCallEnd`), tracks the
+ * call in flight (`onLanguageModelCallStart`), and pins both to the turn's error.
+ */
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
+  let inFlight: UsageBeforeFailure["inFlight"];
   return {
+    onLanguageModelCallStart: (event: { instructions?: unknown; messages?: unknown; tools?: unknown }) => {
+      inFlight = { promptTokens: estimatePromptTokens(event) };
+    },
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
+      inFlight = undefined;
       const usage = mapUsage(event.usage);
       const call = {
         promptTokens: usage.promptTokens ?? 0,
@@ -202,7 +225,9 @@ function completedCallsUsage() {
       calls.push({ ...call, fast: ranFast(event.providerMetadata) });
     },
     pinTo(err: unknown): void {
-      if (calls.length > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total, calls: [...calls] });
+      if ((calls.length > 0 || inFlight) && err !== null && typeof err === "object") {
+        usageBeforeFailure.set(err, { ...total, calls: [...calls], ...(inFlight ? { inFlight } : {}) });
+      }
     },
   };
 }
@@ -834,6 +859,7 @@ export function createProvider(
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
+      onLanguageModelCallStart: completed.onLanguageModelCallStart,
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
