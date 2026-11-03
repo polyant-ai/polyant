@@ -419,18 +419,30 @@ describe("AI Gateway", () => {
         expect(sent).not.toHaveProperty("effort");
       });
 
-      it("sends nothing to a model that has no off-switch at all", async () => {
-        // gpt-6-astra publishes no `none` effort: it reasons on every call, so a
-        // payload claiming to switch it off would be a parameter it rejects and a
-        // debug capture that lies about what the gateway did.
+      // A model with no off-switch reasons on every call. Sending nothing left
+      // it at its own default effort, so "off" ran at medium on every service
+      // call; off now means the lowest effort the model accepts.
+      it("runs an OpenAI model with no off-switch at its lowest effort", async () => {
         mockProviderChat.mockResolvedValue(makeChatResponse());
 
         await chat(makeRequest({ provider: "openai", model: "gpt-6-astra", thinking: false }));
 
-        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).not.toHaveProperty(
-          "reasoningEffort",
-        );
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).toMatchObject({ reasoningEffort: "low" });
       });
+
+      it("runs an always-reasoning Claude at its lowest adaptive effort", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-opus-5-5", thinking: false }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({
+          thinking: { type: "adaptive" },
+          effort: "low",
+        });
+      });
+
 
       it("leaves a model whose default is already off alone", async () => {
         // gpt-5.4 goes to zero reasoning tokens with thinking off (live-verified),
@@ -474,7 +486,7 @@ describe("AI Gateway", () => {
       expect(opts).not.toHaveProperty("chat_template_kwargs");
     });
 
-    it("omits the disable kwarg for gpt-oss when thinking is off (it has no true off)", async () => {
+    it("runs gpt-oss at its lowest effort when thinking is off (it has no true off)", async () => {
       mockNebiusChat.mockResolvedValue(makeChatResponse());
 
       await chat(
@@ -482,13 +494,8 @@ describe("AI Gateway", () => {
       );
 
       // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
-      // sending it just masks the truth. The gateway must send nothing and let
-      // the model fall back to its own reasoning default. "Nothing" is now the
-      // absent namespace rather than an empty one — an empty object reached the
-      // wire identically, but showed up in a captured debug payload as if the
-      // gateway had configured something.
-      const opts = mockNebiusChat.mock.calls[0][0].providerOptions?.nebius;
-      expect(opts ?? {}).toEqual({});
+      // that kwarg is never sent; the effort is what it honours.
+      expect(mockNebiusChat.mock.calls[0][0].providerOptions?.nebius).toEqual({ reasoningEffort: "low" });
     });
 
     it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
@@ -527,15 +534,16 @@ describe("AI Gateway", () => {
       expect(cfg).not.toHaveProperty("budgetTokens");
     });
 
-    it("omits Bedrock reasoningConfig when thinking is off", async () => {
+    it("runs gpt-oss on Bedrock, which cannot stop reasoning, at its lowest effort when thinking is off", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
       await chat(
         makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: false }),
       );
 
-      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
-      expect(opts?.bedrock).toBeUndefined();
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions.bedrock).toEqual({
+        reasoningConfig: { type: "enabled", maxReasoningEffort: "low" },
+      });
     });
 
     it.each([
@@ -554,12 +562,14 @@ describe("AI Gateway", () => {
       expect(bedrockOpts).toEqual({ additionalModelRequestFields: { thinking: { type } } });
     });
 
-    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one", async () => {
+    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one, and runs it at its lowest effort", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
       await chat(makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-opus-5-5", thinking: false }));
 
-      expect(mockBedrockChat.mock.calls[0][0].providerOptions?.bedrock).toBeUndefined();
+      const sent = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock;
+      expect(sent).not.toHaveProperty("additionalModelRequestFields");
+      expect(sent.reasoningConfig).toMatchObject({ type: "adaptive", maxReasoningEffort: "low" });
     });
 
     it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {

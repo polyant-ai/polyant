@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateTurnCostBreakdown, fastSupported, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
+import { resolveModel, estimateTurnCostBreakdown, fastSupported, isReasoningAlwaysOn, isThinkingCapable, lowestReasoningLevel, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -95,7 +95,16 @@ function resolveCallConfig(
   // Clamp the requested level to what THIS model accepts (per the catalog's
   // live-verified reasoningLevels) — a stale/out-of-range effort (e.g. xhigh on o3,
   // max on gpt-oss) would otherwise 400. Falls back to "medium" (universally valid).
-  const thinkingLevel = resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium");
+  //
+  // A model that reasons on every call (`reasoningAlwaysOn`) has no off: with
+  // thinking off it gets the ON payload at the lowest level it accepts, so
+  // "off" means "as little as possible" on every dialect instead of the
+  // model's own default effort.
+  const alwaysOn = isReasoningAlwaysOn(providerName, modelId);
+  const thinkingOn = !!request.thinking || alwaysOn;
+  const thinkingLevel = request.thinking || !alwaysOn
+    ? resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium")
+    : lowestReasoningLevel(providerName, modelId);
   const dialect = wireDialectFor(providerName);
   const thinkingCapable = isThinkingCapable(providerName, modelId);
   // Whether thinking OFF is a payload rather than an omission. It used to be an
@@ -105,11 +114,9 @@ function resolveCallConfig(
   // reason through a turn the operator switched thinking off for unless we say
   // so. The openai-compatible dialect always enters, because its builder decides
   // both directions from the same catalog data.
-  const reasoningOff = isReasoningAlwaysOn(providerName, modelId)
-    ? undefined
-    : reasoningOffFor(providerName, modelId);
-  if (thinkingCapable && (request.thinking || dialect === "openai-compatible" || reasoningOff)) {
-    const off = !request.thinking;
+  const reasoningOff = alwaysOn ? undefined : reasoningOffFor(providerName, modelId);
+  if (thinkingCapable && (thinkingOn || dialect === "openai-compatible" || reasoningOff)) {
+    const off = !thinkingOn;
     const options: Record<string, unknown> | undefined =
       dialect === "anthropic"
         ? off
@@ -127,7 +134,7 @@ function resolveCallConfig(
               ? buildCompatibleReasoningOptions({
                   provider: providerName,
                   modelId,
-                  thinking: !!request.thinking,
+                  thinking: thinkingOn,
                   level: thinkingLevel,
                 })
               : undefined;
