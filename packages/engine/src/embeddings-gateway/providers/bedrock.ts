@@ -21,6 +21,10 @@ interface BedrockCallOptions {
  * the AWS SDK default provider chain (ECS task role, EC2 IMDS, SSO, shared
  * credentials) — @ai-sdk/amazon-bedrock only reads env vars by default.
  */
+/** The AWS default credential chain, built once so it can memoize what it resolves (see the chat provider). */
+let defaultCredentialChain: ReturnType<typeof fromNodeProviderChain> | undefined;
+const defaultCredentials = () => (defaultCredentialChain ??= fromNodeProviderChain());
+
 function buildProvider(opts: BedrockCallOptions) {
   const { region } = opts;
   const apiKey = opts.apiKey?.trim();
@@ -34,7 +38,7 @@ function buildProvider(opts: BedrockCallOptions) {
     return createAmazonBedrock({ apiKey: "", accessKeyId, secretAccessKey, region });
   }
 
-  return createAmazonBedrock({ region, credentialProvider: fromNodeProviderChain() });
+  return createAmazonBedrock({ region, credentialProvider: defaultCredentials() });
 }
 
 function buildModel(opts: BedrockCallOptions) {

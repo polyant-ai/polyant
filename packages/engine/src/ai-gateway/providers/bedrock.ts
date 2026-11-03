@@ -80,6 +80,14 @@ export const bedrockStepMarker = makeStepMarker({
   isCacheCapable: (modelId) => cacheSupported("bedrock", modelId),
 });
 
+/**
+ * The AWS default credential chain, built once: it resolves credentials from
+ * files and metadata endpoints and memoizes them until they expire, which a
+ * chain built per call never gets to do.
+ */
+let defaultCredentialChain: ReturnType<typeof fromNodeProviderChain> | undefined;
+const defaultCredentials = () => (defaultCredentialChain ??= fromNodeProviderChain());
+
 export const BedrockProvider = createProvider(
   "bedrock",
   (modelId, apiKeys) => {
@@ -120,7 +128,7 @@ export const BedrockProvider = createProvider(
 
     return createAmazonBedrock({
       region,
-      credentialProvider: fromNodeProviderChain(),
+      credentialProvider: defaultCredentials(),
     })(modelId);
   },
   { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker, strictTemplate: true },
