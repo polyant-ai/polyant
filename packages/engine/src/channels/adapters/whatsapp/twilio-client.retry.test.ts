@@ -13,11 +13,12 @@ import type { AddressInfo } from "node:net";
 const fake = vi.hoisted(() => ({ base: "" }));
 
 vi.mock("twilio", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("twilio")>();
+  // `twilio` is a CommonJS `export =`; under ESM its function is the default export.
+  const actual = await importOriginal<{ default: typeof import("twilio") }>();
   const real = actual.default;
   class LocalRequestClient extends real.RequestClient {
     request<T>(opts: Parameters<InstanceType<typeof real.RequestClient>["request"]>[0]) {
-      return super.request<T>({ ...opts, uri: opts.uri.replace(/^https:\/\/[^/]+/, fake.base) } as typeof opts);
+      return super.request<T>({ ...opts, uri: opts.uri.replace(/^https:\/\/[^/]+/, fake.base) } as never);
     }
   }
   const wrapped = Object.assign(
