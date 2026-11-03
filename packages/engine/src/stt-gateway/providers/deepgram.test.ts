@@ -120,7 +120,7 @@ describe("deepgramAdapter", () => {
 
   it("times out an answer whose body never finishes arriving", async () => {
     const stalled = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"results":')); } });
-    (global.fetch as any).mockResolvedValue(new Response(stalled, { status: 200 }));
+    vi.mocked(global.fetch).mockResolvedValue(new Response(stalled, { status: 200 }));
 
     await expect(
       deepgramAdapter.transcribe({

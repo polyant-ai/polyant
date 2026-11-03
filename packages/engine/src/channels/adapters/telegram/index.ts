@@ -116,12 +116,47 @@ export class TelegramAdapter implements ChannelAdapter {
       }
     };
 
+    /** Shared handler for messages that may have text and/or attachments. */
+    const handleMessage = async (ctx: any) => {
+      // A message can come without a sender (a channel post, an anonymous admin):
+      // with an allowlist it cannot be matched, so it is dropped rather than crashing.
+      const fromId = ctx.from?.id;
+      if (allowedIds?.length && (fromId === undefined || !allowedIds.includes(String(fromId)))) {
+        return;
+      }
+      const chatId = String(ctx.chat.id);
+
+      await this.inboundOrder.run(chatId, () => prepare(ctx), async (prepared) => {
+        if (!prepared.ok) {
+          await ctx.reply(prepared.reply);
+          return;
+        }
+        const response = await onMessage({
+          channelType: "telegram",
+          channelId: chatId,
+          instanceId: this.instanceId,
+          userName: ctx.from
+            ? ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "")
+            : (ctx.chat.title ?? chatId),
+          text: prepared.text,
+          attachments: prepared.attachments.length > 0 ? prepared.attachments : undefined,
+          metadata: {
+            messageId: ctx.message.message_id,
+            chatType: ctx.chat.type,
+            ...prepared.audioMetadata,
+          },
+        });
+
+        if (response.text) await this.sendFormatted(bot, chatId, response.text);
+      });
+    };
+
     type Prepared =
       | { ok: true; text: string; attachments: Attachment[]; audioMetadata?: Record<string, unknown> }
       | { ok: false; reply: string };
 
     /** Download the files and transcribe the audio: the slow part of an inbound message. */
-    const prepare = async (ctx: any): Promise<Prepared> => {
+    const prepare = async (ctx: Parameters<typeof handleMessage>[0]): Promise<Prepared> => {
       let text: string = ctx.message.text ?? ctx.message.caption ?? "";
       const attachments: Attachment[] = [];
 
@@ -174,41 +209,6 @@ export class TelegramAdapter implements ChannelAdapter {
       }
 
       return { ok: true, text, attachments, audioMetadata };
-    };
-
-    /** Shared handler for messages that may have text and/or attachments. */
-    const handleMessage = async (ctx: any) => {
-      // A message can come without a sender (a channel post, an anonymous admin):
-      // with an allowlist it cannot be matched, so it is dropped rather than crashing.
-      const fromId = ctx.from?.id;
-      if (allowedIds?.length && (fromId === undefined || !allowedIds.includes(String(fromId)))) {
-        return;
-      }
-      const chatId = String(ctx.chat.id);
-
-      await this.inboundOrder.run(chatId, () => prepare(ctx), async (prepared) => {
-        if (!prepared.ok) {
-          await ctx.reply(prepared.reply);
-          return;
-        }
-        const response = await onMessage({
-          channelType: "telegram",
-          channelId: chatId,
-          instanceId: this.instanceId,
-          userName: ctx.from
-            ? ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "")
-            : (ctx.chat.title ?? chatId),
-          text: prepared.text,
-          attachments: prepared.attachments.length > 0 ? prepared.attachments : undefined,
-          metadata: {
-            messageId: ctx.message.message_id,
-            chatType: ctx.chat.type,
-            ...prepared.audioMetadata,
-          },
-        });
-
-        if (response.text) await this.sendFormatted(bot, chatId, response.text);
-      });
     };
 
     bot.on("message:text", handleMessage);
