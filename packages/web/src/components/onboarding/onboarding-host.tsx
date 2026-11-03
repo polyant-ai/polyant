@@ -3,12 +3,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { TourOverlay } from "@/components/onboarding/tour-overlay";
-import { Wizard } from "@/components/onboarding/wizard";
 import { useOnboarding } from "@/lib/onboarding/onboarding-context";
 import { defaultWorkspaceSlug, useTenant } from "@/lib/tenant/tenant-context";
 import { workspacePath } from "@/lib/tenant/paths";
+
+// Most visits never open the wizard: it loads when it does, instead of with every admin page.
+const Wizard = dynamic(() => import("@/components/onboarding/wizard").then((m) => m.Wizard));
 
 /**
  * Mounted once in the admin layout. On the first load that carries the person's

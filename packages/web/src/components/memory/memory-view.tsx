@@ -2,8 +2,9 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { usePagination } from "@/hooks/use-pagination";
+import { useResource } from "@/hooks/use-resource";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -57,13 +58,10 @@ export function MemoryView({
   const fmt = useFormat();
   const workspaceSlug = useWorkspaceSlug();
   const PAGE_SIZE = 20;
-  const { page, setPage, search, setSearch, debouncedSearch, totalPages, setTotal, offset } = usePagination({ pageSize: PAGE_SIZE });
-  const [memories, setMemories] = useState<Memory[]>([]);
+  const { page, setPage, search, setSearch, debouncedSearch, offset } = usePagination({ pageSize: PAGE_SIZE });
   const [instances, setInstances] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
   const [instanceFilter, setInstanceFilter] = useState(lockedInstanceId ?? "");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [failed, setFailed] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -86,43 +84,31 @@ export function MemoryView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceSlug]);
 
-  // Fetch memories
-  const fetchMemories = useCallback(async () => {
-    if (!instanceFilter) {
-      setMemories([]);
-      setTotal(0);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setFailed(false);
-    try {
-      const result = await api.memories.list({
+  // Memory is read per agent: nothing is asked until one is picked. Keyed on
+  // everything the request depends on, so an answer for an earlier agent, search
+  // or page never replaces the rows of the current one.
+  const list = useResource(
+    instanceFilter ? ["memories", workspaceSlug, instanceFilter, categoryFilter, debouncedSearch, offset] : null,
+    () =>
+      api.memories.list({
         instanceId: instanceFilter,
         search: debouncedSearch || undefined,
         category: categoryFilter || undefined,
         limit: PAGE_SIZE,
         offset,
-      });
-      setMemories(result.memories);
-      setTotal(result.total);
-    } catch (err) {
-      setFailed(true);
-      toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [instanceFilter, categoryFilter, debouncedSearch, offset, setTotal, t]);
-
+      }),
+  );
+  const memories: Memory[] = list.data?.memories ?? [];
+  const totalPages = Math.max(1, Math.ceil((list.data?.total ?? 0) / PAGE_SIZE));
+  const failed = list.error !== undefined;
   useEffect(() => {
-    fetchMemories();
-  }, [fetchMemories]);
+    if (list.error !== undefined) toast.error(getUserErrorMessage(list.error, t("common.loadFailed")));
+  }, [list.error, t]);
 
   const handleDelete = async (id: string) => {
     try {
       await api.memories.delete(id);
-      setMemories((prev) => prev.filter((m) => m.id !== id));
-      setTotal((prev) => prev - 1);
+      list.mutate((data) => ({ ...data, memories: data.memories.filter((m) => m.id !== id), total: data.total - 1 }));
       setOpenId((current) => (current === id ? null : current));
       toast.success(t("memory.deleted"));
     } catch (err) {
@@ -161,8 +147,8 @@ export function MemoryView({
         {!instanceFilter ? (
           <ListEmpty className={emptyClass} title={t("memory.selectInstancePrompt")} />
         ) : failed ? (
-          <LoadFailed onRetry={fetchMemories} />
-        ) : loading ? (
+          <LoadFailed onRetry={list.reload} />
+        ) : list.data === undefined ? (
           <ListLoading className="mt-4" />
         ) : memories.length === 0 ? (
           debouncedSearch ? (
@@ -239,7 +225,7 @@ export function MemoryView({
             : instances
         }
         defaultInstanceId={instanceFilter}
-        onCreated={fetchMemories}
+        onCreated={list.reload}
       />
     </div>
   );

@@ -2,7 +2,8 @@
 
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Image from "next/image";
@@ -30,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { downloadBlob } from "@/lib/download";
 import { isSafeImageSrc } from "@/lib/utils";
 import { api, getUserErrorMessage, type Instance, type ToolState, type ToolPluginInfo, type SkillState, type PromptSection } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 import { GeneralTab } from "./general-tab";
 import { PromptsTab } from "./prompts-tab";
 import { ToolsTab } from "./tools-tab";
@@ -38,7 +40,6 @@ import { SkillsTab } from "./skills-tab";
 import { ModelTab } from "./model-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsSection } from "./channels-section";
-import { AnalyticsTab } from "./analytics-tab";
 import { StatusTab } from "./status-tab";
 import { TriggersWebhooksTab } from "./triggers-webhooks-tab";
 import { TriggersScheduledTab } from "./triggers-scheduled-tab";
@@ -46,7 +47,6 @@ import { LogsTab } from "./logs-tab";
 import { ParamsTab } from "./params-tab";
 import { AgentConversationsTab } from "./agent-conversations-tab";
 import { AgentMemoriesTab } from "./agent-memories-tab";
-import { RoomTab } from "./room-tab";
 import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
@@ -56,6 +56,26 @@ import { agentSection, resolveAgentTab } from "@/lib/nav/agent-sections";
 import { SectionActionsSlot } from "./section-actions";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
+
+// Charts (Analytics) and markdown with code highlighting (an event in the Room)
+// are the two heaviest libraries on this page, and the section most links land
+// on uses neither: they load when their section opens.
+const AnalyticsTab = dynamic(() => import("./analytics-tab").then((m) => m.AnalyticsTab));
+const RoomTab = dynamic(() => import("./room-tab").then((m) => m.RoomTab));
+
+// Stable empties, so the status checks do not see a new list on every render.
+const NO_TOOLS: ToolState[] = [];
+const NO_PLUGINS: ToolPluginInfo[] = [];
+const NO_SKILLS: SkillState[] = [];
+const NO_PROMPTS: PromptSection[] = [];
+
+/** A refused read leaves its part empty instead of failing the page. */
+const unlessRefused = <T,>(read: Promise<T>) => read.catch(() => null);
+
+/** The body of a section whose data is still arriving. */
+function SectionLoading() {
+  return <Skeleton className="h-96 w-full" />;
+}
 
 function HeaderSaveButton() {
   const { saveAction } = usePageActions();
@@ -99,42 +119,67 @@ function InstanceDetailContent() {
   const activeTab = resolveAgentTab(searchParams.get("tab"));
   const section = agentSection(activeTab);
   const [instance, setInstance] = useState<Instance | null>(null);
-  const [tools, setTools] = useState<ToolState[]>([]);
-  // False when the role cannot read the tool list: the status page must not
-  // report a missing tool it was never allowed to see.
-  const [toolsReadable, setToolsReadable] = useState(true);
-  // How the Tools section names each plugin; fixed for the engine's lifetime.
-  const [toolPlugins, setToolPlugins] = useState<ToolPluginInfo[]>([]);
-  const [skills, setSkills] = useState<SkillState[]>([]);
-  const [prompts, setPrompts] = useState<PromptSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  const status = useStatusChecks({ instance, tools, toolsReadable, skills });
+
+  // The sections opened for this agent so far. The agent's tools and skills
+  // serve the overview, Tools and Skills; its prompts only Prompts. Each is read
+  // when one of its sections first opens and kept while the person moves on, so
+  // a link to any other section reads the agent alone.
+  const [opened, setOpened] = useState({ slug: params.slug, tabs: [activeTab] });
+  if (opened.slug !== params.slug) setOpened({ slug: params.slug, tabs: [activeTab] });
+  else if (!opened.tabs.includes(activeTab)) setOpened({ slug: params.slug, tabs: [...opened.tabs, activeTab] });
+  const wasOpened = (...tabs: string[]) =>
+    tabs.some((tab) => tab === activeTab || (opened.slug === params.slug && opened.tabs.includes(tab)));
+
+  // Tools, skills and prompts are each read with their own permission, so one
+  // the caller's role lacks leaves that part empty.
+  const config = useResource(wasOpened("overview", "tools", "skills") ? ["agent-config", params.slug] : null, () =>
+    Promise.all([unlessRefused(api.tools.list(params.slug)), unlessRefused(api.skills.list(params.slug))]),
+  );
+  const [toolsRes, skillsRes] = config.data ?? [];
+  const tools = toolsRes?.tools ?? NO_TOOLS;
+  // False when the role cannot read the tool list: the status page must not
+  // report a missing tool it was never allowed to see.
+  const toolsReadable = toolsRes !== null;
+  // How the Tools section names each plugin; fixed for the engine's lifetime.
+  const toolPlugins = toolsRes?.plugins ?? NO_PLUGINS;
+  const skills = skillsRes?.skills ?? NO_SKILLS;
+  const { mutate: mutateConfig } = config;
+  const setTools = useCallback(
+    (next: ToolState[]) => mutateConfig(([toolList, skillList]) => [toolList && { ...toolList, tools: next }, skillList]),
+    [mutateConfig],
+  );
+  const setSkills = useCallback(
+    (next: SkillState[]) => mutateConfig(([toolList, skillList]) => [toolList, skillList && { ...skillList, skills: next }]),
+    [mutateConfig],
+  );
+
+  const promptList = useResource(wasOpened("prompts") ? ["agent-prompts", params.slug] : null, () =>
+    unlessRefused(api.prompts.list(params.slug)),
+  );
+  const prompts = promptList.data?.prompts ?? NO_PROMPTS;
+  const { mutate: mutatePrompts } = promptList;
+  const setPrompts = useCallback(
+    (next: PromptSection[]) => mutatePrompts((list) => list && { ...list, prompts: next }),
+    [mutatePrompts],
+  );
+
+  // The checks only show on the overview, and they need the tools and skills.
+  const status = useStatusChecks({
+    instance: wasOpened("overview") && config.data ? instance : null,
+    tools,
+    toolsReadable,
+    skills,
+  });
 
   useEffect(() => {
-    const slug = params.slug;
-    // Only the agent decides whether the page exists. Its tools, skills and
-    // prompts are each read with their own permission, so one the caller's role
-    // lacks leaves that part empty instead of turning the agent into "not found".
-    const unlessRefused = <T,>(read: Promise<T>) => read.catch(() => null);
-    Promise.all([
-      api.instances.get(slug),
-      unlessRefused(api.tools.list(slug)),
-      unlessRefused(api.skills.list(slug)),
-      unlessRefused(api.prompts.list(slug)),
-    ])
-      .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
-        setInstance(instanceRes.instance);
-        setToolsReadable(toolsRes !== null);
-        if (toolsRes) {
-          setTools(toolsRes.tools);
-          setToolPlugins(toolsRes.plugins ?? []);
-        }
-        if (skillsRes) setSkills(skillsRes.skills);
-        if (promptsRes) setPrompts(promptsRes.prompts);
-      })
+    // Only the agent decides whether the page exists.
+    api.instances
+      .get(params.slug)
+      .then((res) => setInstance(res.instance))
       .catch(() => {
         toast.error(t("instances.detail.notFound"));
         router.push(paths.workspace("/instances"));
@@ -299,7 +344,7 @@ function InstanceDetailContent() {
       <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
         {/* Panoramica */}
         <TabsContent value="overview" data-tour="agent-overview">
-          <StatusTab instance={instance} tools={tools} skills={skills} status={status} />
+          {config.data ? <StatusTab instance={instance} tools={tools} skills={skills} status={status} /> : <SectionLoading />}
         </TabsContent>
         <TabsContent value="analytics" data-tour="agent-analytics">
           <AnalyticsTab slug={instance.slug} />
@@ -318,20 +363,28 @@ function InstanceDetailContent() {
 
         {/* Prompts, resources, knowledge, hooks and advanced parameters */}
         <TabsContent value="prompts" data-tour="agent-prompts">
-          <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
+          {promptList.data !== undefined ? (
+            <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
+          ) : (
+            <SectionLoading />
+          )}
         </TabsContent>
         <TabsContent value="tools" data-tour="agent-tools">
-          <ToolsTab
-            slug={instance.slug}
-            tools={tools}
-            skills={skills}
-            memoryEnabled={instance.memoryEnabled}
-            knowledgeEnabled={instance.knowledgeEnabled}
-            plugins={toolPlugins}
-            onToolsUpdate={setTools}
-            onSkillsUpdate={setSkills}
-            onConfigurationChanged={status.refresh}
-          />
+          {config.data ? (
+            <ToolsTab
+              slug={instance.slug}
+              tools={tools}
+              skills={skills}
+              memoryEnabled={instance.memoryEnabled}
+              knowledgeEnabled={instance.knowledgeEnabled}
+              plugins={toolPlugins}
+              onToolsUpdate={setTools}
+              onSkillsUpdate={setSkills}
+              onConfigurationChanged={status.refresh}
+            />
+          ) : (
+            <SectionLoading />
+          )}
         </TabsContent>
         {/* MCP servers: their own section, no longer the tail of the Tools page.
             `mcp-servers.controller.ts` gates it on the CHANNEL permission — an MCP
@@ -341,13 +394,17 @@ function InstanceDetailContent() {
           <McpServersTab slug={instance.slug} />
         </TabsContent>
         <TabsContent value="skills" data-tour="agent-skills">
-          <SkillsTab
-            slug={instance.slug}
-            skills={skills}
-            tools={tools}
-            onSkillsUpdate={setSkills}
-            onToolsUpdate={setTools}
-          />
+          {config.data ? (
+            <SkillsTab
+              slug={instance.slug}
+              skills={skills}
+              tools={tools}
+              onSkillsUpdate={setSkills}
+              onToolsUpdate={setTools}
+            />
+          ) : (
+            <SectionLoading />
+          )}
         </TabsContent>
         <TabsContent value="knowledge" data-tour="agent-knowledge">
           <KnowledgeTab slug={instance.slug} instance={instance} onUpdate={setInstance} />
