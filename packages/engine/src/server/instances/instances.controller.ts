@@ -19,6 +19,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
+  findInstanceIcon,
   createInstanceWithDefaults,
   updateInstance,
   deleteInstance,
@@ -132,7 +133,7 @@ function toInstanceDto(instance: Instance) {
     sttProvider: instance.sttProvider,
     embeddingDim: instance.embeddingDim,
     embeddingProvider: instance.embeddingProvider,
-    icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
+    icon: buildInstanceIconUrl(instance.slug, instance.hasIcon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
   };
@@ -280,11 +281,11 @@ export class InstancesController {
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!instance || !instance.icon) {
+    const icon = await findInstanceIcon(asInstanceSlug(slug));
+    if (!icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
-    const parsed = parseDataUri(instance.icon);
+    const parsed = parseDataUri(icon);
     if (!parsed) {
       throw new NotFoundException(`Icon for instance "${slug}" is not a valid data URI`);
     }

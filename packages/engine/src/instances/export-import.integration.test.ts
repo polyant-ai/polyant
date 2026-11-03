@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { queryClient } from "../database/client.js";
-import { createInstanceWithDefaults } from "./store.js";
+import { createInstanceWithDefaults, findInstanceBySlug, findInstanceIcon } from "./store.js";
 import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { setSecret, getAllSecretsById } from "./secrets.store.js";
 import { exportInstance } from "./export.service.js";
@@ -115,6 +115,21 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     const [row] = await queryClient<{ stt_provider: string }[]>`
       SELECT stt_provider FROM instances WHERE slug = ${result.slug}`;
     expect(row.stt_provider).toBe("disabled");
+  });
+
+  it("should_read_the_agent_without_its_icon_and_still_carry_the_icon_through_a_round_trip", async () => {
+    const icon = `data:image/png;base64,${"QUJD".repeat(1000)}`;
+    const source = await createAgent("icon");
+    await queryClient`UPDATE instances SET icon = ${icon} WHERE id = ${source.id}`;
+
+    const read = await findInstanceBySlug(source.slug);
+    expect(read).toMatchObject({ hasIcon: true });
+    expect(read).not.toHaveProperty("icon");
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.icon).toBe(icon);
+    const result = await importNewInstance(bundle, orgId);
+    expect(await findInstanceIcon(asInstanceSlug(result.slug))).toBe(icon);
   });
 
   it("should_carry_the_web_channel_state_through_a_round_trip", async () => {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, sql, inArray } from "drizzle-orm";
 import { NO_TRANSACTION, db, type DbExecutor } from "../database/client.js";
 import { seedInstancePrompts } from "./prompts.store.js";
 import { enableToolsByName, seedInstanceTools } from "./instance-tools.store.js";
@@ -112,13 +112,23 @@ export async function resolveWorkspaceIdForPrincipal(
   return row.id;
 }
 
-type InstanceRow = typeof instances.$inferSelect;
+/**
+ * The columns every agent read selects: all of `instances` except the icon, a
+ * data URI of up to 100 KB that only its own route and the export need
+ * (`findInstanceIcon`). Whether there is one is enough for everyone else.
+ */
+function selectInstanceColumns() {
+  const { icon: _icon, ...columnsWithoutIcon } = getTableColumns(instances);
+  return { ...columnsWithoutIcon, hasIcon: sql<boolean>`(${instances.icon} IS NOT NULL)` };
+}
+
+type InstanceRow = Omit<typeof instances.$inferSelect, "icon"> & { hasIcon: boolean };
 
 /**
- * An agent as the rest of the engine sees it: every column of `instances`, with
- * the branded identifiers and the closed vocabularies narrowed. Derived from the
- * table so a new column is declared once; the field documentation lives on the
- * schema columns.
+ * An agent as the rest of the engine sees it: every column of `instances` but
+ * the icon, with the branded identifiers and the closed vocabularies narrowed.
+ * Derived from the table so a new column is declared once; the field
+ * documentation lives on the schema columns.
  */
 export type Instance = Omit<InstanceRow, "id" | "slug" | "embeddingProvider"> & {
   id: InstanceUuid;
@@ -127,7 +137,7 @@ export type Instance = Omit<InstanceRow, "id" | "slug" | "embeddingProvider"> & 
   embeddingProvider: EmbeddingProvider;
 };
 
-function toInstance(row: typeof instances.$inferSelect): Instance {
+function toInstance(row: InstanceRow): Instance {
   return {
     ...row,
     id: asInstanceUuid(row.id),
@@ -149,7 +159,7 @@ function toInstance(row: typeof instances.$inferSelect): Instance {
  */
 export async function listActiveInstances(scope: TenantScope): Promise<Instance[]> {
   return db
-    .select()
+    .select(selectInstanceColumns())
     .from(instances)
     .where(and(eq(instances.status, "active"), tenantScopedAgentCondition(scope, "slug")))
     .then((rows) => rows.map(toInstance));
@@ -157,8 +167,14 @@ export async function listActiveInstances(scope: TenantScope): Promise<Instance[
 
 /** Find an instance by slug. Returns undefined if not found. */
 export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance | undefined> {
-  const rows = await db.select().from(instances).where(eq(instances.slug, slug)).limit(1);
+  const rows = await db.select(selectInstanceColumns()).from(instances).where(eq(instances.slug, slug)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
+}
+
+/** An agent's icon (a data URI), or null when it has none or does not exist. */
+export async function findInstanceIcon(slug: InstanceSlug): Promise<string | null> {
+  const [row] = await db.select({ icon: instances.icon }).from(instances).where(eq(instances.slug, slug)).limit(1);
+  return row?.icon ?? null;
 }
 
 /**
@@ -197,7 +213,7 @@ export async function findAgentHandoffTargets(
 
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
-  const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
+  const rows = await db.select(selectInstanceColumns()).from(instances).where(eq(instances.id, id)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
@@ -270,7 +286,7 @@ export async function listAllInstances(
       )`
     : undefined;
   return db
-    .select()
+    .select(selectInstanceColumns())
     .from(instances)
     // Explicit rather than leaning on `and(undefined, undefined)` collapsing to
     // `undefined`: an unconstrained listing is the system-caller path, and it
@@ -329,7 +345,7 @@ export async function createInstance(data: {
       embeddingProvider: embeddingProviderFor(data.provider),
       workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, executor, data.workspaceSlug),
     })
-    .returning();
+    .returning(selectInstanceColumns());
   return toInstance(rows[0]);
 }
 
@@ -379,7 +395,7 @@ export async function updateInstance(
       .update(instances)
       .set({ ...patch, updatedAt: sql`now()` })
       .where(eq(instances.slug, slug))
-      .returning();
+      .returning(selectInstanceColumns());
     return rows[0] ? toInstance(rows[0]) : undefined;
   }
 
@@ -397,7 +413,7 @@ export async function updateInstance(
       .update(instances)
       .set({ ...patch, updatedAt: sql`now()` })
       .where(eq(instances.slug, slug))
-      .returning();
+      .returning(selectInstanceColumns());
     if (!rows[0]) return undefined;
     if (before && !before.knowledgeEnabled) {
       await enableToolsByName(asInstanceUuid(rows[0].id), KNOWLEDGE_DEFAULT_TOOL_NAMES, tx);
@@ -486,7 +502,7 @@ export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
     // principal_secrets (encrypted OAuth tokens) are slug-keyed too.
     await tx.delete(principalSecrets).where(eq(principalSecrets.instanceId, slug));
 
-    const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
+    const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning({ id: instances.id });
     return result.length > 0;
   });
 }

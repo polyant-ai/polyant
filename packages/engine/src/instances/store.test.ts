@@ -137,6 +137,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
+  getTableColumns: vi.fn((table: object) => ({ ...table })),
 }));
 
 // ---------------------------------------------------------------------------

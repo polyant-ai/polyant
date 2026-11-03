@@ -50,7 +50,7 @@ async function resolveCached(slug: string): Promise<CachedInstance | undefined> 
         slug: inst.slug,
         name: inst.name,
         // Emit a URL, never the raw base64 data URI — see buildInstanceIconUrl.
-        icon: buildInstanceIconUrl(inst.slug, inst.icon, inst.updatedAt),
+        icon: buildInstanceIconUrl(inst.slug, inst.hasIcon, inst.updatedAt),
       },
     };
     instanceMetaCache.set(slug, entry);
