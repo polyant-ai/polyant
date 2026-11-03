@@ -18,6 +18,7 @@ import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { contactConversationId } from "./channels/outbound-conversation.js";
+import { runBackgroundJob } from "./channels/background-turns.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
@@ -523,7 +524,8 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
 /**
  * The work that follows a saved turn and that the next turn does not need:
  * the conversation title, the summary of the messages leaving the window, the
- * memory extraction. Runs in the background; failures are logged.
+ * memory extraction. Runs as one bounded background job that shutdown waits
+ * for; failures are logged.
  */
 export function afterResponseTail(opts: AfterResponseOptions): void {
   if (isAutoTask(opts.userMessage)) return;
@@ -580,13 +582,13 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
 
     // Automatic memory extraction
     if (opts.memoryEnabled !== false) {
-      extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
+      await extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
         log.error("pipeline", "Memory extraction failed", err),
       );
     }
   };
 
-  work().catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err));
+  void runBackgroundJob(() => work().catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err)));
 }
 
 // ---------------------------------------------------------------------------

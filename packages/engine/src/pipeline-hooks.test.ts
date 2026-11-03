@@ -18,6 +18,8 @@ import { runHooks, firstReplaceResponse, firstRegenerate } from "./hooks/hook-ru
 import type { HookExecutionSummary, HookFunctionDefinition } from "./hooks/hook-types.js";
 import { conversationStore } from "./conversations/index.js";
 import { traceStore } from "./analytics/trace.store.js";
+import { generateConversationTitle } from "./utils/title-generator.js";
+import { drainBackgroundTurns } from "./channels/background-turns.js";
 
 vi.mock("./hooks/hooks.store.js", () => ({ getEnabledHooks: vi.fn() }));
 vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn() }));
@@ -36,6 +38,7 @@ vi.mock("./conversations/index.js", () => ({
   },
 }));
 vi.mock("./memory/index.js", () => ({ extractMemories: vi.fn(async () => undefined) }));
+vi.mock("./utils/title-generator.js", () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
 vi.mock("./hooks/hook-runner.js", () => ({
   runHooks: vi.fn(),
   firstHalt: vi.fn(),
@@ -310,6 +313,20 @@ describe("runPipelinePost persistence gate", () => {
 
     expect(abortingFlush).toHaveBeenCalled();
     expect(conversationStore.appendMessages).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the post-response work (title, summary, memory) where shutdown waits for it", async () => {
+    let finishTitle!: () => void;
+    vi.mocked(generateConversationTitle).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishTitle = resolve)),
+    );
+
+    await runPipelinePost(postOptions(ctxWith({})));
+
+    // The turn is saved and returned; its title is still being written.
+    expect(await drainBackgroundTurns(50)).toEqual({ pending: 1 });
+    finishTitle();
+    expect(await drainBackgroundTurns(1_000)).toEqual({ pending: 0 });
   });
 
   it("fails the turn when it cannot be saved, so the reply is not delivered", async () => {

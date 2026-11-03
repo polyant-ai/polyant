@@ -8,7 +8,8 @@
  * the same message again. Once acknowledged, the sender will not retry: a turn
  * that the shutdown sequence cuts off is lost. The HTTP server's grace period
  * waits only for open requests, which these turns no longer are, so shutdown
- * waits for the work registered here as well.
+ * waits for the work registered here as well, and for the post-response work
+ * of turns already answered ({@link runBackgroundJob}).
  */
 const pending = new Set<Promise<unknown>>();
 
@@ -23,6 +24,43 @@ export function trackBackgroundTurn(work: Promise<unknown>): void {
   );
   pending.add(tracked);
   void tracked.then(() => pending.delete(tracked));
+}
+
+/**
+ * How many background jobs run at once. The post-response work of a turn (its
+ * title, its summary, its memory extraction) is up to three model calls and a
+ * run of database transactions; under load, unbounded, it competed with the
+ * turns themselves for the connection pool.
+ */
+export const MAX_CONCURRENT_BACKGROUND_JOBS = 4;
+
+const queued: Array<() => void> = [];
+let runningJobs = 0;
+
+/**
+ * Run work the engine owes after a turn has been answered: queued behind at
+ * most {@link MAX_CONCURRENT_BACKGROUND_JOBS} others, and tracked from the
+ * moment it is queued so shutdown waits for it like an acknowledged turn. The
+ * job handles its own errors; a rejection only frees its slot. The returned
+ * promise settles when the job has run.
+ */
+export function runBackgroundJob(job: () => Promise<unknown>): Promise<void> {
+  const done = new Promise<void>((resolve) => {
+    const start = () => {
+      runningJobs++;
+      void job()
+        .catch(() => undefined)
+        .finally(() => {
+          runningJobs--;
+          resolve();
+          queued.shift()?.();
+        });
+    };
+    if (runningJobs < MAX_CONCURRENT_BACKGROUND_JOBS) start();
+    else queued.push(start);
+  });
+  trackBackgroundTurn(done);
+  return done;
 }
 
 /** How much acknowledged work is still running. */
