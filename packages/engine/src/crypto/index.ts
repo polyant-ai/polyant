@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "crypto";
 import { config } from "../config.js";
 
 const ALGORITHM = "aes-256-gcm";
@@ -33,4 +33,15 @@ export function decrypt(encoded: string): string {
   const decipher = createDecipheriv(ALGORITHM, getKey(), iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(tag);
   return decipher.update(ciphertext) + decipher.final("utf-8");
+}
+
+/**
+ * A keyed, deterministic digest of a secret, for finding the row that stores it
+ * without decrypting every candidate. Keyed so that a copy of the database
+ * alone does not allow guessing a short secret offline; the key is derived from
+ * the encryption key, so it is never the one AES uses.
+ */
+export function lookupDigest(secret: string): string {
+  const key = createHmac("sha256", getKey()).update("polyant:secret-lookup-digest").digest();
+  return createHmac("sha256", key).update(secret, "utf-8").digest("hex");
 }
