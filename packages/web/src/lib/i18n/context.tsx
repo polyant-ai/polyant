@@ -89,9 +89,21 @@ export function I18nProvider({
   initialLocale: Locale;
   children: ReactNode;
 }) {
+  // The wait lives in a component with no hooks of its own: React replays a
+  // component that suspended, and a hook after a `use()` the replay skips (the
+  // catalogue is here by then) would break the replay.
+  if (!catalogFor(initialLocale)) use(loadCatalog(initialLocale));
+  return <LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>;
+}
+
+function LocaleProvider({
+  initialLocale,
+  children,
+}: {
+  initialLocale: Locale;
+  children: ReactNode;
+}) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
-  // Suspends only until the catalogue first arrives; afterwards it is read directly.
-  if (!catalogFor(locale)) use(loadCatalog(locale));
   // The last language asked for: a slower catalogue must not undo a later choice.
   const requested = useRef(locale);
 
