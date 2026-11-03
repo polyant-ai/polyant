@@ -20,8 +20,6 @@ vi.mock("./attachments/agent-storage.js", () => ({ uploadAttachment: mockUploadA
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
     appendMessages: mockAppendMessages,
-    getSystemMessageContents: vi.fn(async () => new Set<string>()),
-    updateSummary: vi.fn(async () => undefined),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
@@ -43,11 +41,11 @@ vi.mock("./hooks/hook-runner.js", () => ({
   hookProvenance: vi.fn(() => undefined),
 }));
 
-import { afterResponse, runPipelinePost, type PipelineContext } from "./pipeline.js";
+import { persistTurn, runPipelinePost, type PipelineContext } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
 
-function respond(attachments: { data: Buffer; mimeType: string }[]) {
-  afterResponse({
+function respond(attachments: { data: Buffer; mimeType: string }[]): Promise<void> {
+  return persistTurn({
     conversationId: "shop:whatsapp:+39",
     instanceId: asInstanceSlug("shop"),
     userMessage: "ecco la foto",
@@ -58,7 +56,7 @@ function respond(attachments: { data: Buffer; mimeType: string }[]) {
 
 const rolesWritten = () => mockAppendMessages.mock.calls.flatMap(([, rows]) => (rows as { role: string }[]).map((r) => r.role));
 
-describe("afterResponse — attachment storage", () => {
+describe("persistTurn — attachment storage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -67,9 +65,9 @@ describe("afterResponse — attachment storage", () => {
   it("persists the turn without the attachment when its upload fails", async () => {
     mockUploadAttachment.mockRejectedValue(Object.assign(new Error("denied on attachments/shop/shop:whatsapp:+39/a.jpg"), { name: "AccessDenied" }));
 
-    respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
+    await respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { attachments?: unknown }[]];
     expect(userRow.attachments).toBeUndefined();
   });
@@ -80,12 +78,12 @@ describe("afterResponse — attachment storage", () => {
       .mockRejectedValueOnce(new Error("timeout"))
       .mockResolvedValueOnce(stored);
 
-    respond([
+    await respond([
       { data: Buffer.from("jpeg"), mimeType: "image/jpeg" },
       { data: Buffer.from("png"), mimeType: "image/png" },
     ]);
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { attachments?: unknown }[]];
     expect(userRow.attachments).toEqual([stored]);
   });
@@ -93,9 +91,9 @@ describe("afterResponse — attachment storage", () => {
   it("does not log the S3 message, which carries the conversation id", async () => {
     mockUploadAttachment.mockRejectedValue(Object.assign(new Error("denied on attachments/shop/shop:whatsapp:+39/a.jpg"), { name: "AccessDenied" }));
 
-    respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
+    await respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
 
-    await vi.waitFor(() => expect(process.stderr.write).toHaveBeenCalled());
+    expect(process.stderr.write).toHaveBeenCalled();
     expect(JSON.stringify(vi.mocked(process.stderr.write).mock.calls)).not.toContain("+39");
   });
 });
@@ -122,12 +120,9 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
       stateBuffer: undefined,
       history: undefined,
       isFirstTurn: true,
-      hasOverflow: false,
-      droppedMessages: undefined,
-      instanceConfig: { attachmentStorageEnabled } as PipelineContext["instanceConfig"],
+      instanceConfig: { attachmentStorageEnabled, langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
       langsmith: undefined,
       userAttachments: [{ type: "image", data: Buffer.from("jpeg"), mimeType: "image/jpeg" }],
-      incomingSystemMessages: undefined,
       isAutoTaskTurn: false,
       inboundMetadata: undefined,
     };
@@ -149,14 +144,14 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
   it("does not upload an inbound attachment for an agent that has not opted in", async () => {
     await post(ctx(false));
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     expect(mockUploadAttachment).not.toHaveBeenCalled();
   });
 
   it("uploads it once the agent has opted in", async () => {
     await post(ctx(true));
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     expect(mockUploadAttachment).toHaveBeenCalledOnce();
   });
 });

@@ -139,6 +139,7 @@ beforeEach(() => {
     secrets: {},
     memoryEnabled: false,
     knowledgeEnabled: false,
+    langsmith: { enabled: false },
   });
   mockEnsureConversation.mockResolvedValue({ created: true });
   mockAppendMessages.mockResolvedValue(undefined);
@@ -361,6 +362,7 @@ describe("triggerConversation", () => {
         secrets: {},
         memoryEnabled: false,
         knowledgeEnabled: false,
+        langsmith: { enabled: false },
         thinkingEnabled: true,
         thinkingLevel: "high",
         temperature: 0.2,
@@ -402,6 +404,7 @@ describe("triggerConversation", () => {
         secrets: {},
         memoryEnabled: false,
         knowledgeEnabled: false,
+        langsmith: { enabled: false },
         debugEnabled: true,
       });
 

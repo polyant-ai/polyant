@@ -24,6 +24,17 @@ export function rowsToModelMessages(rows: readonly MessageRow[]): ModelMessage[]
   return rows.map((r) => ({ role: r.role as "user" | "assistant" | "system", content: r.content }));
 }
 
+/** What a turn reads from its conversation's row before it starts. */
+export interface ConversationTurnContext {
+  /** True when this call created the conversation. */
+  created: boolean;
+  /** One-shot webhook instructions for this turn, if any. */
+  contextPrompt: string | null;
+  summary: string | null;
+  /** created_at of the last message the summary covers; null before the first summary. */
+  summaryThrough: Date | null;
+}
+
 export interface MessageRow {
   role: string;
   content: string;
@@ -239,7 +250,6 @@ class BoundedMap<K, V> {
 const CACHE_MAX_SIZE = 1000;
 
 export class ConversationStore {
-  private summaryCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
   private titleCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
 
   /** Get conversation title. Checks in-memory cache first, falls back to DB. */
@@ -279,44 +289,89 @@ export class ConversationStore {
     this.titleCache.set(conversationId, safe);
   }
 
-  /** Get conversation summary. Checks in-memory cache first, falls back to DB. */
-  async getSummary(conversationId: string): Promise<string | null> {
-    const cached = this.summaryCache.get(conversationId);
-    if (cached !== undefined) return cached;
-
-    const rows = await db
-      .select({ summary: conversations.summary })
+  /**
+   * The conversation row a turn starts from, in one read: its one-shot context
+   * prompt, its summary and how far that summary reaches. Creates the row, or
+   * brings its channel and user up to date, only when needed — `options` absent
+   * reads without writing (automated tasks keep no conversation).
+   *
+   * Replaces an upsert that rewrote the row on every turn, followed by two more
+   * reads of the same row, and an in-process summary cache that other replicas
+   * and data deletions never saw.
+   */
+  async openConversationTurn(
+    conversationId: string,
+    instanceId: InstanceSlug,
+    options?: { channel: string; userIdentifier?: string; source: string },
+  ): Promise<ConversationTurnContext> {
+    const [row] = await db
+      .select({
+        channel: conversations.channel,
+        userIdentifier: conversations.userIdentifier,
+        contextPrompt: conversations.contextPrompt,
+        summary: conversations.summary,
+        summaryThrough: conversations.summaryThrough,
+      })
       .from(conversations)
       .where(eq(conversations.conversationId, conversationId))
       .limit(1);
 
-    const summary = rows[0]?.summary ?? null;
-    if (summary) {
-      this.summaryCache.set(conversationId, summary);
+    const userIdentifier = options?.userIdentifier ?? null;
+    if (!options || (row && row.channel === options.channel && row.userIdentifier === userIdentifier)) {
+      return {
+        created: false,
+        contextPrompt: row?.contextPrompt ?? null,
+        summary: row?.summary ?? null,
+        summaryThrough: row?.summaryThrough ?? null,
+      };
     }
-    return summary;
+
+    const [upserted] = await db
+      .insert(conversations)
+      .values({ conversationId, instanceId, channel: options.channel, source: options.source, userIdentifier })
+      .onConflictDoUpdate({
+        target: conversations.conversationId,
+        set: { channel: options.channel, userIdentifier },
+      })
+      .returning({
+        xmax: sql<string>`xmax::text`,
+        contextPrompt: conversations.contextPrompt,
+        summary: conversations.summary,
+        summaryThrough: conversations.summaryThrough,
+      });
+    return {
+      created: upserted?.xmax === "0",
+      contextPrompt: upserted?.contextPrompt ?? null,
+      summary: upserted?.summary ?? null,
+      summaryThrough: upserted?.summaryThrough ?? null,
+    };
   }
 
-  /** Update conversation summary in DB and in-memory cache. */
-  async updateSummary(conversationId: string, summary: string): Promise<void> {
-    const safe = stripNulString(summary);
-    await db
+  /**
+   * Replace the summary and move how far it reaches, only if no other turn moved
+   * it since `previousThrough` was read: two summaries computed from the same
+   * starting point cannot both land, and the loser's work is dropped instead of
+   * overwriting a summary that already covers more. True when it landed.
+   */
+  async advanceSummary(
+    conversationId: string,
+    summary: string,
+    through: Date,
+    previousThrough: Date | null,
+  ): Promise<boolean> {
+    const updated = await db
       .update(conversations)
-      .set({ summary: safe, updatedAt: new Date() })
-      .where(eq(conversations.conversationId, conversationId));
-
-    this.summaryCache.set(conversationId, safe);
-  }
-
-  /** Get context prompt for a webhook-triggered conversation. Returns null if not set. */
-  async getContextPrompt(conversationId: string): Promise<string | null> {
-    const rows = await db
-      .select({ contextPrompt: conversations.contextPrompt })
-      .from(conversations)
-      .where(eq(conversations.conversationId, conversationId))
-      .limit(1);
-
-    return rows[0]?.contextPrompt ?? null;
+      .set({ summary: stripNulString(summary), summaryThrough: through, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversations.conversationId, conversationId),
+          previousThrough
+            ? eq(conversations.summaryThrough, previousThrough)
+            : sql`${conversations.summaryThrough} IS NULL`,
+        ),
+      )
+      .returning({ id: conversations.id });
+    return updated.length > 0;
   }
 
   /**
@@ -394,6 +449,10 @@ export class ConversationStore {
       /** Exact LLM request payload (DEBUG mode only). NULL otherwise. */
       debugPayload?: LlmDebugPayload;
     }>,
+    options?: {
+      /** Other writes that must commit or roll back with these rows (the turn's state). */
+      inTransaction?: (tx: DbTransaction) => Promise<void>;
+    },
   ): Promise<void> {
     if (messages.length === 0) return;
 
@@ -403,6 +462,7 @@ export class ConversationStore {
     // stale and is missed by incremental pulls. Before this, only title/summary
     // writes moved the column — never the messages themselves.
     await db.transaction(async (tx) => {
+      await options?.inTransaction?.(tx);
       const inserted = await tx.insert(conversationMessages).values(
         messages.map((m) => ({
           ...(m.id ? { id: m.id } : {}),
@@ -446,9 +506,7 @@ export class ConversationStore {
   /**
    * Get the most recent N messages for a conversation, ordered chronologically.
    *
-   * Returns ModelMessage shape for direct use by the AI gateway. Reasoning is
-   * NOT included here — Anthropic signed-block re-injection is handled by a
-   * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
+   * Returns ModelMessage shape for direct use by the AI gateway.
    */
   async getRecentMessages(conversationId: string, limit = 15): Promise<ModelMessage[]> {
     const rows = await db
@@ -469,56 +527,97 @@ export class ConversationStore {
   }
 
   /**
-   * Return the set of distinct `system` message contents already persisted in
-   * a conversation. Used to deduplicate incoming system messages at write time:
-   * any client that replays the conversation history (the admin playground, an
-   * OpenAI-compatible client like open-webui) re-sends the same `system` block
-   * every turn, which would otherwise accumulate one duplicate row per turn and
-   * surface as a repeated context card in the conversation UI. The canonical
-   * copy stays in history (loaded by getRecentMessages), so the model still
-   * sees the context — only the duplicate write is suppressed.
+   * The messages after the millisecond `after` (all of them when null), oldest
+   * first, at most the newest `limit`. `withSteps` adds each assistant turn's steps, for the
+   * agents that replay tool results.
    */
-  async getSystemMessageContents(conversationId: string): Promise<Set<string>> {
-    const rows = await db
-      .select({ content: conversationMessages.content })
-      .from(conversationMessages)
-      .where(
-        and(
-          eq(conversationMessages.conversationId, conversationId),
-          eq(conversationMessages.role, "system"),
-        ),
-      );
-    return new Set(rows.map((r) => r.content));
-  }
-
-  /**
-   * Get the most recent N messages with full reasoning + steps detail.
-   *
-   * Used by the AI gateway's reasoning-injector to rebuild Anthropic
-   * multi-turn payloads that include the previous turn's signed thinking
-   * blocks. Returns chronologically ordered rows.
-   */
-  async getRecentMessageRows(conversationId: string, limit = 15): Promise<MessageRow[]> {
+  async getHistoryWindow(
+    conversationId: string,
+    options: { after: Date | null; limit: number; withSteps: boolean },
+  ): Promise<MessageRow[]> {
     const rows = await db
       .select({
         role: conversationMessages.role,
         content: conversationMessages.content,
-        steps: conversationMessages.steps,
-        reasoning: conversationMessages.reasoning,
         createdAt: conversationMessages.createdAt,
+        ...(options.withSteps ? { steps: conversationMessages.steps } : {}),
       })
       .from(conversationMessages)
-      .where(eq(conversationMessages.conversationId, conversationId))
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          // `after` comes back from a read at millisecond precision, the column
+          // keeps microseconds: compare by millisecond, as the fold does.
+          options.after
+            ? sql`${conversationMessages.createdAt} >= ${options.after.toISOString()}::timestamptz + interval '1 millisecond'`
+            : undefined,
+        ),
+      )
       .orderBy(desc(conversationMessages.createdAt))
-      .limit(limit);
+      .limit(options.limit);
 
     return rows.reverse().map((r) => ({
       role: r.role,
       content: r.content,
-      steps: (r.steps as StepDetail[] | null) ?? null,
-      reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
+      ...("steps" in r ? { steps: (r.steps as StepDetail[] | null) ?? null } : {}),
       createdAt: r.createdAt ?? null,
     }));
+  }
+
+  /**
+   * What memory extraction has not read yet: the newest messages after where it
+   * reached (at most `limit`), with up to `context` messages before them so a
+   * reply can be understood. One read; `memoryThrough` is where it reached.
+   */
+  async getMessagesToExtract(
+    conversationId: string,
+    options: { limit: number; context: number },
+  ): Promise<{ context: MessageRow[]; fresh: MessageRow[]; memoryThrough: Date | null }> {
+    const rows = await db
+      .select({
+        role: conversationMessages.role,
+        content: conversationMessages.content,
+        createdAt: conversationMessages.createdAt,
+        memoryThrough: sql<Date | string | null>`(SELECT ${conversations.memoryThrough} FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
+      })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId))
+      .orderBy(desc(conversationMessages.createdAt))
+      .limit(options.limit + options.context);
+
+    const raw = rows[0]?.memoryThrough ?? null;
+    const memoryThrough = raw === null ? null : new Date(raw);
+    const chronological: MessageRow[] = rows
+      .reverse()
+      .map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
+    // Read by millisecond, the precision `memoryThrough` was taken at.
+    const isFresh = (r: MessageRow) => !memoryThrough || (r.createdAt !== null && r.createdAt.getTime() > memoryThrough.getTime());
+    const firstFresh = chronological.findIndex(isFresh);
+    const fresh = firstFresh === -1 ? [] : chronological.slice(firstFresh).slice(-options.limit);
+    const contextEnd = chronological.length - fresh.length;
+    return {
+      context: chronological.slice(Math.max(0, contextEnd - options.context), contextEnd),
+      fresh,
+      memoryThrough,
+    };
+  }
+
+  /**
+   * Record that memory extraction has read up to `through`, only if no other
+   * extraction moved the mark since `previousThrough` was read.
+   */
+  async advanceMemoryThrough(conversationId: string, through: Date, previousThrough: Date | null): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ memoryThrough: through })
+      .where(
+        and(
+          eq(conversations.conversationId, conversationId),
+          previousThrough
+            ? eq(conversations.memoryThrough, previousThrough)
+            : sql`${conversations.memoryThrough} IS NULL`,
+        ),
+      );
   }
 
   /**
@@ -1272,9 +1371,7 @@ export class ConversationStore {
         .returning();
 
       // Caches are keyed by the id — drop stale entries for both old and new.
-      this.summaryCache.delete(conversationId);
       this.titleCache.delete(conversationId);
-      this.summaryCache.delete(newConversationId);
       this.titleCache.delete(newConversationId);
 
       return result.length > 0;
@@ -1335,7 +1432,6 @@ export class ConversationStore {
         .where(eq(conversations.conversationId, conversationId))
         .returning();
 
-      this.summaryCache.delete(conversationId);
       this.titleCache.delete(conversationId);
       return result.length > 0;
     });

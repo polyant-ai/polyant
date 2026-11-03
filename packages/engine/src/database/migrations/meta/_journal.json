@@ -652,6 +652,13 @@
       "when": 1793264400000,
       "tag": "0099_instance_secret_lookup_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793264500000,
+      "tag": "0100_conversation_watermarks",
+      "breakpoints": true
     }
   ]
 }

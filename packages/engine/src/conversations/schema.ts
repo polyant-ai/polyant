@@ -14,6 +14,11 @@ export const conversations = pgTable(
     source: text("source").default("user"),
     userIdentifier: text("user_identifier"),
     contextPrompt: text("context_prompt"),
+    // created_at of the last message `summary` covers: the turn's history starts
+    // right after it, so summary and history meet with no gap (migration 0099).
+    summaryThrough: timestamp("summary_through", { withTimezone: true }),
+    // created_at of the last message memory extraction has read.
+    memoryThrough: timestamp("memory_through", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     // Kept by ConversationStore.appendMessages in the statement that bumps

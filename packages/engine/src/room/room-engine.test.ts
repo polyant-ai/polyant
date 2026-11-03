@@ -145,6 +145,7 @@ const INSTANCE_CONFIG = {
   secrets: {},
   memoryEnabled: false,
   knowledgeEnabled: false,
+  langsmith: { enabled: false },
   // The agent's datetime formatting rides on the resolved config now, so the
   // room engine reads it from here instead of from the environment.
   datetime: { timezone: "UTC", locale: "en-US" },
@@ -752,6 +753,7 @@ describe("executeRoomCycle", () => {
         "test-slug",
         { openai: "sk-test" },
         "openai",
+        undefined, // LangSmith is off for this agent
       );
     });
 
