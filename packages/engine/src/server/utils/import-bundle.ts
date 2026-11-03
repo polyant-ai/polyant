@@ -4,9 +4,24 @@ import { BadRequestException } from "@nestjs/common";
 import { basename } from "path";
 import { z } from "zod";
 import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
+import { MAX_DOCUMENT_BYTES } from "../../knowledge/store.js";
 
-/** The largest document a human upload or a bundle import may carry (5 MB). */
-export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+/**
+ * The UTF-8 size of `content`, refused when the knowledge store would refuse
+ * it. An upload or an import takes a document as large as an agent's own writes
+ * may grow one, so every exported document imports back. The wording is what
+ * the panel shows.
+ */
+export function documentSizeWithinLimit(subject: string, content: string): number {
+  const sizeBytes = Buffer.byteLength(content, "utf-8");
+  if (sizeBytes > MAX_DOCUMENT_BYTES) {
+    const mb = (bytes: number) => bytes / 1024 / 1024;
+    throw new BadRequestException(
+      `${subject} (${mb(sizeBytes).toFixed(2)} MB) exceeds the ${mb(MAX_DOCUMENT_BYTES)} MB limit`,
+    );
+  }
+  return sizeBytes;
+}
 
 /** One document of a knowledge bundle, as `/export` writes it. */
 export const bundleDocumentSchema = z.object({
@@ -55,12 +70,7 @@ export function prepareImportDocuments<S extends z.ZodType<z.output<typeof bundl
     }
     const content = d.content.trim();
     if (!content) throw new BadRequestException(`Document "${requestedName}": content must not be empty`);
-    const sizeBytes = Buffer.byteLength(content, "utf-8");
-    if (sizeBytes > MAX_DOCUMENT_BYTES) {
-      throw new BadRequestException(
-        `Document "${requestedName}" (${(sizeBytes / 1024 / 1024).toFixed(2)} MB) exceeds the 5 MB limit`,
-      );
-    }
+    const sizeBytes = documentSizeWithinLimit(`Document "${requestedName}"`, content);
     return { requestedName, content, sizeBytes, mimeType: mimeFor(requestedName), document: d };
   });
 }

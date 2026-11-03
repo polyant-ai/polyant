@@ -32,9 +32,15 @@ describe("prepareImportDocuments", () => {
     );
   });
 
-  it("should_reject_a_document_over_five_megabytes", () => {
-    const big = "x".repeat(5 * 1024 * 1024 + 1);
-    expect(() => prepareImportDocuments({ documents: [doc("big.txt", big)] })).toThrow(/exceeds the 5 MB limit/);
+  it("should_accept_a_document_as_large_as_an_agent_can_grow_one", () => {
+    // An agent's own writes may grow a document to 10 MB; its export must import back.
+    const grown = "x".repeat(10 * 1024 * 1024);
+    expect(prepareImportDocuments({ documents: [doc("grown.txt", grown)] })).toHaveLength(1);
+  });
+
+  it("should_reject_a_document_over_ten_megabytes", () => {
+    const big = "x".repeat(10 * 1024 * 1024 + 1);
+    expect(() => prepareImportDocuments({ documents: [doc("big.txt", big)] })).toThrow(/exceeds the 10 MB limit/);
   });
 
   it("should_hand_back_the_extra_fields_of_a_caller_supplied_document_schema", () => {

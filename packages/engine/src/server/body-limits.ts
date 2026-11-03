@@ -8,7 +8,7 @@ import type { INestApplication } from "@nestjs/common";
  *
  * Nest's JSON parser keeps body-parser's 100 KB default, which is right for
  * every other route (public webhooks included) and wrong here: a knowledge
- * document may be 5 MB, and an agent or knowledge bundle carries many of them.
+ * document may be 10 MB, and an agent or knowledge bundle carries many of them.
  * Without this the handler's own size check never ran — the parser answered
  * 413 first.
  */
