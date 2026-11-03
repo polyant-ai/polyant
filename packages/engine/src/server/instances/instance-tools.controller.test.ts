@@ -23,8 +23,48 @@ vi.mock("../../authz/agent-tenancy.js", async (importOriginal) => {
   return { ...actual, agentsShareOrganization };
 });
 
+const store = vi.hoisted(() => ({
+  listInstanceToolRows: vi.fn(),
+  applyManualToolChanges: vi.fn(),
+  getEnabledToolNames: vi.fn(),
+}));
+vi.mock("../../instances/instance-tools.store.js", () => store);
+vi.mock("./instance-helpers.js", () => ({
+  findInstanceOrFail: vi.fn(async (slug: string) => ({ id: "agent-uuid", slug })),
+}));
+vi.mock("../../agents/tools/registry.js", () => ({
+  listAvailableTools: () => [{ name: "web_search" }, { name: "send_email" }],
+  pluginsForTools: () => [],
+}));
+
 import { BadRequestException } from "@nestjs/common";
-import { assertAgentTargetsAreSiblings } from "./instance-tools.controller.js";
+import { assertAgentTargetsAreSiblings, InstanceToolsController } from "./instance-tools.controller.js";
+
+describe("PATCH /api/instances/:slug/tools body", () => {
+  const controller = new InstanceToolsController();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    store.listInstanceToolRows.mockResolvedValue([
+      { toolId: "t-search", name: "web_search", source: "manual" },
+      { toolId: "t-email", name: "send_email", source: "manual" },
+    ]);
+  });
+
+  it.each([
+    ["an empty body", {}],
+    ["enabled as a string", { enabled: "web_search" }],
+    ["enabled with a non-string entry", { enabled: ["web_search", 7] }],
+  ])("refuses %s instead of switching every tool off", async (_label, body) => {
+    await expect(controller.updateTools("acme", body as never)).rejects.toThrow(/enabled/);
+    expect(store.applyManualToolChanges).not.toHaveBeenCalled();
+  });
+
+  it("switches off the manual tools left out of the list", async () => {
+    await controller.updateTools("acme", { enabled: ["web_search"] });
+    expect(store.applyManualToolChanges).toHaveBeenCalledWith("agent-uuid", [], ["t-email"]);
+  });
+});
 
 describe("assertAgentTargetsAreSiblings", () => {
   beforeEach(() => {

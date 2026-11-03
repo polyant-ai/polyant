@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
+import { z } from "zod";
 import {
   applyManualToolChanges,
   getEnabledToolNames,
@@ -18,6 +19,7 @@ import {
 import { listHooks } from "../../hooks/hooks.store.js";
 import { getHookRegistry } from "../../hooks/hook-registry.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { parseBody } from "../utils/parse-body.js";
 import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
 
 /**
@@ -38,6 +40,12 @@ export async function assertAgentTargetsAreSiblings(
     }
   }
 }
+
+/**
+ * The complete list of manual tools the agent keeps. Required: a missing list
+ * would read as "none" and switch every manual tool off.
+ */
+const UpdateToolsSchema = z.object({ enabled: z.array(z.string()) });
 
 /**
  * Every tool the registry offers, with whether this agent has it and why. How
@@ -88,10 +96,11 @@ export class InstanceToolsController {
   @Patch(":slug/tools")
   async updateTools(
     @Param("slug") slug: string,
-    @Body() body: { enabled: string[] },
+    @Body() rawBody: unknown,
   ) {
+    const { enabled } = parseBody(UpdateToolsSchema, rawBody);
     const instance = await findInstanceOrFail(slug);
-    const enabledSet = new Set(body.enabled);
+    const enabledSet = new Set(enabled);
 
     const currentRows = await listInstanceToolRows(instance.id);
 
