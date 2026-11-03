@@ -16,14 +16,20 @@ vi.mock("twilio", async (importOriginal) => {
   // `twilio` is a CommonJS `export =`; under ESM its function is the default export.
   const actual = await importOriginal<{ default: typeof import("twilio") }>();
   const real = actual.default;
-  class LocalRequestClient extends real.RequestClient {
-    request<T>(opts: Parameters<InstanceType<typeof real.RequestClient>["request"]>[0]) {
-      return super.request<T>({ ...opts, uri: opts.uri.replace(/^https:\/\/[^/]+/, fake.base) } as never);
-    }
-  }
+  type Request = Parameters<InstanceType<typeof real.RequestClient>["request"]>[0];
+  // Keep the client the engine configures; only send its requests to the stand-in.
+  const toFake = (client: InstanceType<typeof real.RequestClient>) => {
+    const request = client.request.bind(client);
+    client.request = (opts: Request) =>
+      request({ ...opts, uri: opts.uri.replace(/^https:\/\/[^/]+/, fake.base) } as never);
+    return client;
+  };
   const wrapped = Object.assign(
     (user: string, pass: string, options: Record<string, unknown> = {}) =>
-      real(user, pass, { ...options, httpClient: new LocalRequestClient() }),
+      real(user, pass, {
+        ...options,
+        httpClient: toFake((options.httpClient as InstanceType<typeof real.RequestClient>) ?? new real.RequestClient()),
+      }),
     real,
   );
   return { ...actual, default: wrapped };
@@ -37,8 +43,8 @@ const created: Reply = (_req, res) => {
   res.writeHead(201, { "content-type": "application/json" });
   res.end(JSON.stringify({ sid: "SM1", status: "queued" }));
 };
-const status = (code: number): Reply => (_req, res) => {
-  res.writeHead(code, { "content-type": "application/json" });
+const status = (code: number, headers: Record<string, string> = {}): Reply => (_req, res) => {
+  res.writeHead(code, { "content-type": "application/json", ...headers });
   res.end(JSON.stringify({ code: 20000 + code, message: "fake", status: code }));
 };
 /** The request reached Twilio, but the connection drops before the answer. */
@@ -89,8 +95,24 @@ describe("TwilioWhatsAppClient delivery after a transient failure", () => {
     expect(bodies).toHaveLength(2);
   });
 
-  it("delivers every chunk when one in the middle fails transiently", async () => {
-    replies = [created, status(500)];
+  it("waits the Retry-After Twilio asks for when it is within the cap", async () => {
+    replies = [status(429, { "retry-after": "1" })];
+
+    await client().sendMessage("+393331234567", "ciao");
+
+    expect(bodies).toHaveLength(2);
+  });
+
+  it("gives up at once when Retry-After asks for longer than the cap", async () => {
+    replies = [status(503, { "retry-after": "120" })];
+
+    await expect(client().sendMessage("+393331234567", "ciao")).rejects.toMatchObject({ status: 503 });
+
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("delivers every chunk when one in the middle is refused transiently", async () => {
+    replies = [created, status(503)];
 
     await client().sendMessage("+393331234567", `${"a".repeat(1500)}\n\n${"b".repeat(1500)}`);
 
@@ -110,6 +132,27 @@ describe("TwilioWhatsAppClient delivery after a transient failure", () => {
     replies = [status(400)];
 
     await expect(client().sendMessage("+393331234567", "ciao")).rejects.toMatchObject({ status: 400 });
+
+    expect(bodies).toHaveLength(1);
+  });
+
+  // Twilio may have queued the message before failing: a resend could deliver it twice.
+  it.each([500, 502, 504])("does not resend after a %i, which Twilio may have accepted", async (code) => {
+    replies = [status(code)];
+
+    await expect(client().sendMessage("+393331234567", "ciao")).rejects.toMatchObject({ status: code });
+
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("retries when Twilio could not be reached at all", async () => {
+    const port = Number(new URL(fake.base).port);
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    // Nothing listens for the first attempt; the stand-in is back for the second.
+    setTimeout(() => server.listen(port, "127.0.0.1"), 100);
+
+    await client().sendMessage("+393331234567", "ciao");
 
     expect(bodies).toHaveLength(1);
   });

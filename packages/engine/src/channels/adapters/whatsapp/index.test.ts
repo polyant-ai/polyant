@@ -27,6 +27,7 @@ vi.mock("twilio", () => {
   const client = { messages: { create: mockCreate } };
   const Twilio = vi.fn(() => client);
   (Twilio as any).validateRequest = mockValidateRequest;
+  Object.assign(Twilio, { RequestClient: class { request = vi.fn(); } });
   return { default: Twilio, Twilio };
 });
 
