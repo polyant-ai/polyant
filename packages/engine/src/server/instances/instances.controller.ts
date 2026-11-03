@@ -29,7 +29,6 @@ import {
   invalidateInstanceConfigCache,
   resolveEffectiveModelSelection,
 } from "../../instances/config-resolver.js";
-import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
   embeddingSpaceChanged,
@@ -67,11 +66,8 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 import { createLogger } from "../../utils/create-logger.js";
-import {
-  INTERMEDIATE_TEXT_POLICIES,
-  isIntermediateTextPolicy,
-  type IntermediateTextPolicy,
-} from "../../ai-gateway/intermediate-text.js";
+import { parseBody } from "../utils/parse-body.js";
+import { PatchInstanceSchema } from "./instance-patch.schema.js";
 
 const log = createLogger();
 
@@ -360,105 +356,12 @@ export class InstancesController {
   // PATCH /api/instances/:slug — update
   @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
-  async update(
-    @Param("slug") slug: string,
-    @Body() body: {
-      name?: string;
-      description?: string | null;
-      status?: string;
-      provider?: string | null;
-      model?: string | null;
-      /** Embedder provider, independent of the chat provider. Changing it wipes data. */
-      // Validated against the embedder registry (validateEmbeddingProvider), not
-      // a closed union: an embedder can be registered at boot.
-      embeddingProvider?: string;
-      /**
-       * Embedding dimension, checked against what the (new or stored) embedder
-       * can emit. Changing it wipes data like a provider switch. Omitted on a
-       * provider switch, the new provider's default is used.
-       */
-      embeddingDim?: number;
-      memoryEnabled?: boolean;
-      knowledgeEnabled?: boolean;
-      langsmithEnabled?: boolean;
-      langsmithProject?: string | null;
-      authEnabled?: boolean;
-      thinkingEnabled?: boolean;
-      thinkingLevel?: string;
-      temperature?: number | null;
-      fastMode?: boolean;
-      stateInPromptEnabled?: boolean;
-      datetimeInjectionEnabled?: boolean;
-      /**
-       * The six behaviours that used to be deployment configuration. `null`
-       * CLEARS one back to the deployment default, which is why they are
-       * nullable rather than merely optional: omitting a field leaves it alone,
-       * and sending null is a decision.
-       */
-      datetimeTimezone?: string | null;
-      datetimeLocale?: string | null;
-      dedupSimilarityThreshold?: number | null;
-      messageSoftDebounceMs?: number | null;
-      messageTypingDelayMs?: number | null;
-      messageMaxRestarts?: number | null;
-      cacheEnabled?: boolean;
-      cacheTtl?: string;
-      /** `null` clears the policy back to the behaviour from before it existed. */
-      intermediateText?: IntermediateTextPolicy | null;
-      a2aEnabled?: boolean;
-      toolResultsInHistoryEnabled?: boolean;
-      debugEnabled?: boolean;
-      attachmentStorageEnabled?: boolean;
-      sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
-      optoutEnabled?: boolean;
-      optoutStopKeywords?: string[];
-      optoutResumeKeywords?: string[];
-      optoutClosingMessage?: string | null;
-      optoutResumeMessage?: string | null;
-      optoutInjectPromptHint?: boolean;
-      webContextFieldMapping?: Record<string, string>;
-      /**
-       * Explicit acknowledgement that changing the embedding provider or dimension will
-       * permanently delete this instance's memories and knowledge base. Required
-       * when the switch would discard existing data — protects scripted callers
-       * from accidental data loss. The UI sets it after the user confirms.
-       */
-      confirmWipe?: boolean;
-    },
-  ) {
+  async update(@Param("slug") slug: string, @Body() rawBody: unknown) {
     this.validateSlug(slug);
+    const body = parseBody(PatchInstanceSchema, rawBody);
     this.validateEmbeddingProvider(body.embeddingProvider);
-    body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
-    body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
-    if (body.webContextFieldMapping !== undefined) {
-      try {
-        body.webContextFieldMapping = normalizeFieldMapping(body.webContextFieldMapping, "webContextFieldMapping");
-      } catch (err) {
-        throw new BadRequestException((err as Error).message);
-      }
-    }
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
-    }
-    // A string "false" would reach the column as true: the switch that decides
-    // whether end users' files are kept must be a boolean or nothing.
-    if (body.attachmentStorageEnabled !== undefined && typeof body.attachmentStorageEnabled !== "boolean") {
-      throw new BadRequestException("attachmentStorageEnabled must be a boolean");
-    }
-    if (body.fastMode !== undefined && typeof body.fastMode !== "boolean") {
-      throw new BadRequestException("fastMode must be a boolean");
-    }
-    if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
-      throw new BadRequestException(
-        `intermediateText must be null or one of ${INTERMEDIATE_TEXT_POLICIES.map((p) => `"${p}"`).join(", ")}`,
-      );
-    }
-    this.validateAgentSettings(body);
-    // Accept the full effort union; the ai-gateway clamps to the chosen model's
-    // catalog reasoningLevels at call time (so xhigh/max never reach a model that
-    // rejects them), and the FE only offers the model's actual subset.
-    if (body.thinkingLevel !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(body.thinkingLevel)) {
-      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high", "xhigh", "max"');
     }
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
@@ -605,93 +508,6 @@ export class InstancesController {
       throw new BadRequestException(
         `Invalid slug format. Use lowercase alphanumeric, hyphens, or underscores (e.g. "my-assistant").`,
       );
-    }
-  }
-
-  /** Validate + normalize a keyword list: non-empty trimmed strings, deduped (case-insensitive). */
-  private normalizeKeywords(keywords: string[] | undefined, field: string): string[] | undefined {
-    if (keywords === undefined) return undefined;
-    if (!Array.isArray(keywords)) throw new BadRequestException(`${field} must be an array of strings`);
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const raw of keywords) {
-      if (typeof raw !== "string") throw new BadRequestException(`${field} must contain only strings`);
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      const lower = trimmed.toLowerCase();
-      if (seen.has(lower)) continue;
-      seen.add(lower);
-      out.push(trimmed);
-    }
-    if (out.length === 0) throw new BadRequestException(`${field} must contain at least one non-empty keyword`);
-    return out;
-  }
-
-  /**
-   * The six per-agent settings, refused at the edge rather than by the database.
-   * The migration's CHECK constraints say the same thing, but a 400 naming the
-   * field is a better answer than a driver error, and the panel shows it.
-   *
-   * A timezone or a locale is validated by ASKING Intl, not by a regex: the
-   * accepted set is the runtime's, and a value it rejects would throw on every
-   * turn that formats a date — far from here, and only for that agent.
-   *
-   * `null` is the CLEAR: it drops the column and hands the agent back to the
-   * deployment default. Everything else is checked for its TYPE first, because
-   * the body is JSON and nothing upstream narrows it — a truthiness test let
-   * `""` reach Intl, and two numeric comparisons are both false when the
-   * operand is a string, so `"abc"` passed as a threshold.
-   */
-  private validateAgentSettings(body: {
-    datetimeTimezone?: string | null;
-    datetimeLocale?: string | null;
-    dedupSimilarityThreshold?: number | null;
-    messageSoftDebounceMs?: number | null;
-    messageTypingDelayMs?: number | null;
-    messageMaxRestarts?: number | null;
-  }): void {
-    const timezone = body.datetimeTimezone;
-    if (timezone !== undefined && timezone !== null) {
-      if (typeof timezone !== "string" || timezone.trim() === "") {
-        throw new BadRequestException(
-          "datetimeTimezone must be a non-empty IANA time zone name, or null to use the deployment default",
-        );
-      }
-      try {
-        new Intl.DateTimeFormat("en-US", { timeZone: timezone });
-      } catch {
-        throw new BadRequestException(`datetimeTimezone "${timezone}" is not a known IANA time zone`);
-      }
-    }
-    const locale = body.datetimeLocale;
-    if (locale !== undefined && locale !== null) {
-      if (typeof locale !== "string" || locale.trim() === "") {
-        throw new BadRequestException(
-          "datetimeLocale must be a non-empty BCP 47 locale, or null to use the deployment default",
-        );
-      }
-      try {
-        new Intl.DateTimeFormat(locale);
-      } catch {
-        throw new BadRequestException(`datetimeLocale "${locale}" is not a valid BCP 47 locale`);
-      }
-    }
-    const threshold = body.dedupSimilarityThreshold;
-    if (threshold !== undefined && threshold !== null) {
-      if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-        throw new BadRequestException("dedupSimilarityThreshold must be a number between 0 and 1");
-      }
-    }
-    // Zero is legitimate for all three — no debounce, no typing delay, no
-    // restart — so the floor is non-negative rather than positive.
-    for (const [field, value] of [
-      ["messageSoftDebounceMs", body.messageSoftDebounceMs],
-      ["messageTypingDelayMs", body.messageTypingDelayMs],
-      ["messageMaxRestarts", body.messageMaxRestarts],
-    ] as const) {
-      if (value !== undefined && value !== null && (!Number.isInteger(value) || value < 0)) {
-        throw new BadRequestException(`${field} must be a non-negative integer`);
-      }
     }
   }
 

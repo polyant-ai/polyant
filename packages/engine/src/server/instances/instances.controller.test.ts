@@ -824,6 +824,58 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Body types — a JSON value of the wrong type is a 400, never a coercion
+  // -------------------------------------------------------------------------
+  describe("update — body types", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+    });
+
+    it("does not take the string \"false\" as the confirmation that deletes memories and knowledge", async () => {
+      mockCountMemories.mockResolvedValue(1);
+      await expect(
+        controller.update("test-one", { embeddingDim: 1536, confirmWipe: "false" } as never),
+      ).rejects.toThrow(/confirmWipe/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("refuses a speech-to-text provider the runtime does not know, instead of running it as OpenAI", async () => {
+      await expect(controller.update("test-one", { sttProvider: "openia" } as never)).rejects.toThrow(/sttProvider/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["memoryEnabled", "false"],
+      ["authEnabled", 0],
+      ["name", null],
+      ["name", ""],
+      ["thinkingLevel", "extreme"],
+      ["temperature", "0.5"],
+      ["optoutStopKeywords", "STOP"],
+      ["embeddingDim", "1024"],
+    ])("rejects %s = %p, naming the field", async (field, value) => {
+      await expect(controller.update("test-one", { [field]: value } as never)).rejects.toThrow(new RegExp(field));
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts every speech-to-text setting the runtime reads", async () => {
+      for (const sttProvider of ["openai", "aws", "deepgram", "disabled"]) {
+        await controller.update("test-one", { sttProvider } as never);
+      }
+      expect(mockUpdateInstance).toHaveBeenCalledTimes(4);
+    });
+
+    it("drops a key the PATCH does not write, such as the icon that has its own validated route", async () => {
+      await controller.update("test-one", { name: "Renamed", icon: "data:image/png;base64,AAA=" } as never);
+      const written = mockUpdateInstance.mock.calls[0][1] as Record<string, unknown>;
+      expect(written.name).toBe("Renamed");
+      expect(written).not.toHaveProperty("icon");
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Models endpoint — capability hints
   // -------------------------------------------------------------------------
   describe("getModels", () => {
