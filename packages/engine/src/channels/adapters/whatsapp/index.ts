@@ -6,6 +6,7 @@ import { renderTemplateBody } from "./render-template.js";
 import type { ChannelAdapter, Attachment, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
 import { contactChannelId } from "../../outbound-conversation.js";
 import { transcribeInbound } from "../../audio-transcription.js";
+import { InboundOrder } from "../../inbound-order.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 import { resolveTwilioCredentials, type WhatsAppConfig } from "./resolve-credentials.js";
@@ -29,6 +30,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
   name = "whatsapp" as const;
   private client: TwilioWhatsAppClient | null = null;
   private onMessage: MessageHandler | null = null;
+  private readonly inboundOrder = new InboundOrder();
 
   constructor(
     private readonly instanceSlug: InstanceSlug,
@@ -53,61 +55,69 @@ export class WhatsAppAdapter implements ChannelAdapter {
     instanceId: InstanceSlug;
     media?: Array<{ url: string; contentType: string }>;
   }): Promise<string> {
-    if (!this.onMessage) throw new Error("WhatsApp adapter not initialized");
+    const onMessage = this.onMessage;
+    if (!onMessage) throw new Error("WhatsApp adapter not initialized");
 
     // Note: typing indicator is NOT fired here. The coordinator (MessageCoordinator)
     // schedules it via the channel's `sendTyping(channelId, messageSid)` method
     // after a human-like delay, coherent with cancel-and-restart semantics.
 
-    // Download media attachments from Twilio, split audio vs non-audio
-    let attachments: Attachment[] | undefined;
-    let body = params.body;
-    let audioMetadata: Record<string, unknown> | undefined;
-
-    if (params.media?.length) {
-      const downloaded = await Promise.all(
-        params.media.map((m) => this.downloadMedia(m.url, m.contentType)),
-      );
-      const valid = downloaded.filter((a): a is Attachment => a != null);
-
-      const audios = valid.filter((a) => (a.mimeType ?? "").startsWith("audio/"));
-      const nonAudios = valid.filter((a) => !(a.mimeType ?? "").startsWith("audio/"));
-
-      if (audios.length > 0) {
-        const transcribed = await transcribeInbound({
-          instanceSlug: this.instanceSlug,
-          conversationId: contactConversationId(params.instanceId, "whatsapp", params.from),
-          text: body,
-          clips: audios.flatMap((a) => (a.data ? [{ audio: a.data, mimeType: a.mimeType ?? "audio/ogg" }] : [])),
-        });
-        if (!transcribed.ok) {
-          await this.sendMessage(params.from, { text: transcribed.reply });
-          return transcribed.reply;
+    return this.inboundOrder.run(
+      params.from,
+      () => this.prepareInbound(params),
+      async (prepared) => {
+        if (!prepared.ok) {
+          await this.sendMessage(params.from, { text: prepared.reply });
+          return prepared.reply;
         }
-        body = transcribed.text;
-        audioMetadata = transcribed.metadata;
-      }
-      if (nonAudios.length > 0) attachments = nonAudios;
-    }
-
-    const response = await this.onMessage({
-      channelType: "whatsapp",
-      channelId: params.from,
-      instanceId: params.instanceId,
-      userName: params.profileName || params.from,
-      text: body,
-      attachments,
-      metadata: {
-        messageSid: params.messageSid,
-        ...audioMetadata,
+        const response = await onMessage({
+          channelType: "whatsapp",
+          channelId: params.from,
+          instanceId: params.instanceId,
+          userName: params.profileName || params.from,
+          text: prepared.body,
+          attachments: prepared.attachments,
+          metadata: {
+            messageSid: params.messageSid,
+            ...prepared.audioMetadata,
+          },
+        });
+        if (response.text) {
+          await this.sendMessage(params.from, response);
+        }
+        return response.text;
       },
+    );
+  }
+
+  /** Download the media and transcribe the audio: the slow part of an inbound message. */
+  private async prepareInbound(params: {
+    from: string;
+    body: string;
+    instanceId: InstanceSlug;
+    media?: Array<{ url: string; contentType: string }>;
+  }): Promise<
+    | { ok: true; body: string; attachments?: Attachment[]; audioMetadata?: Record<string, unknown> }
+    | { ok: false; reply: string }
+  > {
+    if (!params.media?.length) return { ok: true, body: params.body };
+
+    // Download media attachments from Twilio, split audio vs non-audio
+    const downloaded = await Promise.all(params.media.map((m) => this.downloadMedia(m.url, m.contentType)));
+    const valid = downloaded.filter((a): a is Attachment => a != null);
+    const audios = valid.filter((a) => (a.mimeType ?? "").startsWith("audio/"));
+    const nonAudios = valid.filter((a) => !(a.mimeType ?? "").startsWith("audio/"));
+    const attachments = nonAudios.length > 0 ? nonAudios : undefined;
+
+    if (audios.length === 0) return { ok: true, body: params.body, attachments };
+    const transcribed = await transcribeInbound({
+      instanceSlug: this.instanceSlug,
+      conversationId: contactConversationId(params.instanceId, "whatsapp", params.from),
+      text: params.body,
+      clips: audios.flatMap((a) => (a.data ? [{ audio: a.data, mimeType: a.mimeType ?? "audio/ogg" }] : [])),
     });
-
-    if (response.text) {
-      await this.sendMessage(params.from, response);
-    }
-
-    return response.text;
+    if (!transcribed.ok) return { ok: false, reply: transcribed.reply };
+    return { ok: true, body: transcribed.text, attachments, audioMetadata: transcribed.metadata };
   }
 
   /**
