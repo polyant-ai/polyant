@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 
 const { mockFetchMedia } = vi.hoisted(() => ({
   mockFetchMedia: vi.fn(),
@@ -138,5 +140,81 @@ describe("WhatsAppAdapter.validateSignature error observability", () => {
     expect(stderr).toHaveBeenCalled(); // debug level adds stack lines after the message line
     expect(String(stderr.mock.calls[0]![0])).toContain(COLORS.red);
     stderr.mockRestore();
+  });
+});
+
+describe("WhatsAppAdapter media download size cap", () => {
+  const MB = 1024 * 1024;
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = undefined;
+  });
+
+  /** A media host that streams `totalBytes` with no Content-Length, counting what it managed to write. */
+  async function streamingMediaHost(totalBytes: number): Promise<{ url: string; written: () => number }> {
+    let written = 0;
+    server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/pdf" });
+      const chunk = Buffer.alloc(MB);
+      const pump = (): void => {
+        while (written < totalBytes) {
+          written += chunk.length;
+          if (!res.write(chunk)) {
+            res.once("drain", pump);
+            return;
+          }
+        }
+        res.end();
+      };
+      res.on("close", () => res.removeAllListeners("drain"));
+      pump();
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${port}/media`, written: () => written };
+  }
+
+  it("drops an attachment whose body grows past the cap instead of buffering all of it", async () => {
+    const host = await streamingMediaHost(64 * MB);
+    mockFetchMedia.mockImplementation(() => fetch(host.url));
+    const onMessage = vi.fn().mockResolvedValue({ text: "" });
+    const adapter = new WhatsAppAdapter(INSTANCE_SLUG, AUTH_TOKEN_CONFIG);
+    await adapter.initialize(onMessage);
+
+    await adapter.handleInbound({
+      from: "whatsapp:+393331234567",
+      body: "see attached",
+      messageSid: "SM900",
+      instanceId: INSTANCE_SLUG,
+      media: [{ url: "https://api.twilio.com/media/ME9", contentType: "application/pdf" }],
+    });
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    // Compare a count, never the Buffer: a failure must not pretty-print 64 MB.
+    expect(onMessage.mock.calls[0]![0].attachments?.length ?? 0).toBe(0);
+    expect(onMessage.mock.calls[0]![0].text).toBe("see attached");
+    expect(host.written()).toBeLessThan(40 * MB);
+  });
+
+  it("keeps an attachment under the cap", async () => {
+    const host = await streamingMediaHost(2 * MB);
+    mockFetchMedia.mockImplementation(() => fetch(host.url));
+    const onMessage = vi.fn().mockResolvedValue({ text: "" });
+    const adapter = new WhatsAppAdapter(INSTANCE_SLUG, AUTH_TOKEN_CONFIG);
+    await adapter.initialize(onMessage);
+
+    await adapter.handleInbound({
+      from: "whatsapp:+393331234567",
+      body: "",
+      messageSid: "SM901",
+      instanceId: INSTANCE_SLUG,
+      media: [{ url: "https://api.twilio.com/media/ME10", contentType: "application/pdf" }],
+    });
+
+    const attachments = onMessage.mock.calls[0]![0].attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].data.length).toBe(2 * MB);
   });
 });

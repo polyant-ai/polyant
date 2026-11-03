@@ -12,8 +12,16 @@ import { resolveTwilioCredentials, type WhatsAppConfig } from "./resolve-credent
 import { contactConversationId } from "../../outbound-conversation.js";
 import { createLogger } from "../../../utils/create-logger.js";
 import { errMsg } from "../../../utils/error.js";
+import { readLimitedBody, ResponseTooLargeError } from "../../../utils/read-limited-body.js";
 
 const log = createLogger();
+
+/**
+ * Per-attachment download cap. The body is read in a stream and the download
+ * is abandoned as soon as it grows past this, so a large document (or ten of
+ * them in one message) cannot be buffered whole into memory.
+ */
+export const MEDIA_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
 
 export type { WhatsAppConfig };
 
@@ -105,14 +113,15 @@ export class WhatsAppAdapter implements ChannelAdapter {
   /**
    * Download a Twilio media file using Basic auth. The fetch follows Twilio's cross-host
    * 302 redirect (api.twilio.com → media CDN) while re-validating SSRF on every hop —
-   * see fetchMediaFollowingRedirects. Returns null (skip the attachment) on any failure.
+   * see fetchMediaFollowingRedirects, whose timeout also bounds the body read.
+   * Returns null (skip the attachment) on any failure or past the size cap.
    */
   private async downloadMedia(url: string, contentType: string): Promise<Attachment | null> {
     try {
       if (!this.client) return null;
       const res = await fetchMediaFollowingRedirects(url, this.client.basicAuthValue());
       if (!res || !res.ok) return null;
-      const data = Buffer.from(await res.arrayBuffer());
+      const data = await readLimitedBody(res, MEDIA_DOWNLOAD_MAX_BYTES);
       const isImage = contentType.startsWith("image/");
       // Filename from the original media URL (last path segment).
       let fileName: string | undefined;
@@ -123,7 +132,11 @@ export class WhatsAppAdapter implements ChannelAdapter {
       }
       return { type: isImage ? "image" : "file", data, mimeType: contentType, fileName };
     } catch (err) {
-      log.error("whatsapp", `Media download failed (${url})`, err);
+      if (err instanceof ResponseTooLargeError) {
+        log.warn("whatsapp", `Media is over the ${MEDIA_DOWNLOAD_MAX_BYTES}-byte download cap, skipping (${url})`);
+      } else {
+        log.error("whatsapp", `Media download failed (${url})`, err);
+      }
       return null;
     }
   }
