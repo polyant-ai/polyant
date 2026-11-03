@@ -103,6 +103,20 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     });
   });
 
+  it("should_export_an_unknown_stored_transcription_provider_as_off_and_import_it", async () => {
+    // A value written before the setting was validated: the runtime reads it as off.
+    const source = await createAgent("stt-typo");
+    await queryClient`UPDATE instances SET stt_provider = 'openia' WHERE id = ${source.id}`;
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.sttProvider).toBe("disabled");
+
+    const result = await importNewInstance(bundle, orgId);
+    const [row] = await queryClient<{ stt_provider: string }[]>`
+      SELECT stt_provider FROM instances WHERE slug = ${result.slug}`;
+    expect(row.stt_provider).toBe("disabled");
+  });
+
   it("should_carry_the_web_channel_state_through_a_round_trip", async () => {
     const webOf = async (slug: string) =>
       (await queryClient<{ enabled: boolean }[]>`

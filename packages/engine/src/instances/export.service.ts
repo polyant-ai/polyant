@@ -19,6 +19,7 @@ import { WEB_CHANNEL_TYPE } from "./channels.store.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
 import { readableSecretKeys } from "./readable-secret-keys.js";
+import { readSttSetting } from "./config-resolver.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
@@ -113,7 +114,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
-    sttProvider: instance.sttProvider,
+    sttProvider: readSttSetting(instance.sttProvider),
     embeddingProvider: instance.embeddingProvider,
     embeddingDim: instance.embeddingDim,
     optoutEnabled: instance.optoutEnabled,
