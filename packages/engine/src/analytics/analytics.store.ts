@@ -5,6 +5,7 @@ import { analyticsDb } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter, previousRange } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
+import { toModelToolName } from "../utils/model-tool-wire.js";
 
 export type { DateRange };
 
@@ -39,6 +40,8 @@ const ANSWERED = sql`FILTER (WHERE outcome = 'ok')`;
 /** The same filter where `ai_logs` is aliased (see the per-agent query). */
 const ANSWERED_AL = sql`FILTER (WHERE al.outcome = 'ok')`;
 const ANSWERED_MODEL_CALLS = sql`FILTER (WHERE outcome = 'ok' AND call_type <> 'embedding')`;
+/** Every model call, answered or not: the tier breakdown's rows, whose sums count failed calls too. */
+const MODEL_CALLS = sql`FILTER (WHERE call_type <> 'embedding')`;
 
 export interface OverviewStats {
   totalCost: number;
@@ -158,37 +161,193 @@ export interface AnalyticsData {
  */
 const ACTIVE_IN_WINDOW = (range: DateRange) => sql`AND c.last_message_at >= ${toISO(range.from)}`;
 
-// ── Overview Stats ──────────────────────────────────────────────────
+// ── ai_logs: one read per window ────────────────────────────────────
 
-async function getOverviewStats(
+/**
+ * Which grouping set an `ai_logs` row comes from: the bits of
+ * `GROUPING(DATE(created_at), provider, tier)`, one per argument that the set
+ * leaves out, the first argument the highest bit.
+ */
+const SET_TOTAL = 0b111;
+const SET_DAY = 0b011;
+const SET_MODEL = 0b101;
+const SET_TIER = 0b110;
+
+interface CurrentAiLogsRow {
+  grouping_set: number;
+  date: string | null;
+  provider: string | null;
+  model: string | null;
+  call_type: string | null;
+  tier: string | null;
+  cost: number;
+  tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  calls: number;
+  avg_duration: number;
+  model_call_rows: number;
+  model_calls: number;
+  model_avg_duration: number;
+  model_call_tokens: number;
+  model_call_cost: number;
+}
+
+interface CurrentAiLogs {
+  overview: OverviewAiRow | undefined;
+  daily: CurrentAiLogsRow[];
+  models: ModelRow[];
+  tiers: TierRow[];
+}
+
+/**
+ * The window's `ai_logs` read ONCE for the overview, the daily trend and the
+ * model and tier breakdowns. Each was its own scan of the same rows, so the
+ * dashboard read the window four times; the grouping sets aggregate one scan
+ * four ways. The tier set leaves embedder calls out with `FILTER` (an embedder
+ * has no tier), where its own query did it in `WHERE`, and a tier with only
+ * embedder rows is dropped.
+ */
+async function readCurrentAiLogs(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-): Promise<OverviewStats> {
+): Promise<CurrentAiLogs> {
   const instFilter = instanceFilter(instanceId);
   const orgInst = buildOrgScopedAgentFilterFragment(scope);
-  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
-  // The four aggregates are independent: run them together.
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const { from: prevFrom, to: prevTo } = previousRange(range);
-  const [aiStats, convStats, prevAi, prevConv] = await Promise.all([
-    // Current period — ai_logs
-    analyticsDb.execute(sql`
+  const rows = asRows<CurrentAiLogsRow>(
+    await analyticsDb.execute(sql`
       SELECT
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
-        COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
+        GROUPING(DATE(created_at), provider, tier) AS grouping_set,
+        DATE(created_at) AS date,
+        provider,
+        model,
+        call_type,
+        tier,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
+        COALESCE(SUM(total_tokens), 0)::int AS tokens,
         COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
         COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
         COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
-        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms,
-        (COUNT(*) ${ANSWERED_MODEL_CALLS})::int AS total_calls
+        (COUNT(*) ${ANSWERED})::int AS calls,
+        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration,
+        (COUNT(*) ${MODEL_CALLS})::int AS model_call_rows,
+        (COUNT(*) ${ANSWERED_MODEL_CALLS})::int AS model_calls,
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS model_avg_duration,
+        COALESCE(SUM(total_tokens) ${MODEL_CALLS}, 0)::int AS model_call_tokens,
+        COALESCE(SUM(estimated_cost_usd::float8) ${MODEL_CALLS}, 0)::float AS model_call_cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
+      GROUP BY GROUPING SETS ((), (DATE(created_at)), (provider, model, call_type), (tier))
     `),
-    // Current period — conversations
+  );
+
+  const total = rows.find((r) => r.grouping_set === SET_TOTAL);
+  return {
+    overview: total && {
+      total_cost: total.cost,
+      total_tokens: total.tokens,
+      prompt_tokens: total.prompt_tokens,
+      completion_tokens: total.completion_tokens,
+      cached_input_tokens: total.cached_input_tokens,
+      cache_creation_input_tokens: total.cache_creation_input_tokens,
+      avg_duration_ms: total.model_avg_duration,
+      total_calls: total.model_calls,
+    },
+    daily: rows.filter((r) => r.grouping_set === SET_DAY),
+    models: rows
+      .filter((r) => r.grouping_set === SET_MODEL)
+      .sort((a, b) => b.cost - a.cost)
+      .map((r) => ({
+        provider: r.provider!,
+        model: r.model!,
+        callType: r.call_type!,
+        calls: r.calls,
+        tokens: r.tokens,
+        cost: r.cost,
+        avgDuration: r.avg_duration,
+      })),
+    tiers: rows
+      .filter((r) => r.grouping_set === SET_TIER && r.model_call_rows > 0)
+      .sort((a, b) => b.model_call_cost - a.model_call_cost)
+      .map((r) => ({ tier: r.tier!, calls: r.model_calls, tokens: r.model_call_tokens, cost: r.model_call_cost })),
+  };
+}
+
+interface PreviousAiLogsRow {
+  grouping_set: number;
+  day_offset: number | null;
+  cost: number;
+  prompt_tokens: number;
+  cached_input_tokens: number;
+  model_avg_duration: number;
+}
+
+/**
+ * The previous window's `ai_logs`, read once for the overview's comparison and
+ * the cost drawn under the current one. The window is half-open, `[from, to)`:
+ * its end is the current window's start, and a row at that instant belongs to
+ * the current window only.
+ */
+async function readPreviousAiLogs(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: InstanceSlug,
+): Promise<{ overview: OverviewPrevAiRow | undefined; dailyCost: PreviousDailyCostRow[] }> {
+  const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const { from, to } = previousRange(range);
+
+  const rows = asRows<PreviousAiLogsRow>(
+    await analyticsDb.execute(sql`
+      SELECT
+        GROUPING(DATE(created_at)) AS grouping_set,
+        (DATE(created_at) - DATE(${toISO(from)}::timestamptz))::int AS day_offset,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
+        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS model_avg_duration
+      FROM ai_logs
+      WHERE created_at >= ${toISO(from)} AND created_at < ${toISO(to)}
+        ${instFilter} ${orgInst}
+      GROUP BY GROUPING SETS ((), (DATE(created_at)))
+    `),
+  );
+
+  // `GROUPING(DATE(created_at))` is 1 on the whole window's row and 0 on each day's.
+  const total = rows.find((r) => r.grouping_set === 1);
+  return {
+    overview: total && {
+      total_cost: total.cost,
+      prompt_tokens: total.prompt_tokens,
+      cached_input_tokens: total.cached_input_tokens,
+      avg_duration_ms: total.model_avg_duration,
+    },
+    dailyCost: rows
+      .filter((r) => r.grouping_set === 0)
+      .map((r) => ({ dayOffset: r.day_offset!, cost: r.cost }))
+      .sort((a, b) => a.dayOffset - b.dayOffset),
+  };
+}
+
+// ── Conversation totals ─────────────────────────────────────────────
+
+/** The overview's conversation figures, current and previous window (half-open, as above). */
+async function readConversationTotals(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: InstanceSlug,
+): Promise<[OverviewConvRow | undefined, OverviewPrevConvRow | undefined]> {
+  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
+  const { from: prevFrom, to: prevTo } = previousRange(range);
+
+  const [current, previous] = await Promise.all([
     analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
@@ -198,36 +357,17 @@ async function getOverviewStats(
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
     `),
-    // Previous period for trends — ai_logs
-    analyticsDb.execute(sql`
-      SELECT
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
-        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
-        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
-        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms
-      FROM ai_logs
-      WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
-        ${instFilter} ${orgInst}
-    `),
-    // Previous period for trends — conversations
     analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
         COALESCE(SUM(c.message_count), 0)::int AS total_messages
       FROM conversations c
-      WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at <= ${toISO(prevTo)}
+      WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at < ${toISO(prevTo)}
         ${convFilter} ${orgConv}
     `),
   ]);
-
-  return overviewFromRows(
-    asRows<OverviewAiRow>(aiStats)[0],
-    asRows<OverviewConvRow>(convStats)[0],
-    asRows<OverviewPrevAiRow>(prevAi)[0],
-    asRows<OverviewPrevConvRow>(prevConv)[0],
-  );
+  return [asRows<OverviewConvRow>(current)[0], asRows<OverviewPrevConvRow>(previous)[0]];
 }
-
 
 /** The aggregate rows an overview is composed from, current and previous period. */
 export interface OverviewAiRow {
@@ -301,43 +441,15 @@ export function overviewFromRows(
 
 // ── Daily Trends ────────────────────────────────────────────────────
 
-async function getDailyTrend(
+async function readDailyConversations(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-): Promise<DailyTrendRow[]> {
-  const instFilter = instanceFilter(instanceId);
+): Promise<{ date: string; conversations: number; messages: number }[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
-  const rows = asRows<{
-    date: string;
-    cost: number;
-    tokens: number;
-    prompt_tokens: number;
-    cached_input_tokens: number;
-  }>(
-    await analyticsDb.execute(sql`
-      SELECT
-        DATE(created_at) AS date,
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
-        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens
-      FROM ai_logs
-      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
-      GROUP BY DATE(created_at)
-      ORDER BY date
-    `),
-  );
-
-  const convRows = asRows<{
-    date: string;
-    conversations: number;
-    messages: number;
-  }>(
+  return asRows(
     await analyticsDb.execute(sql`
       SELECT
         DATE(c.created_at) AS date,
@@ -350,11 +462,16 @@ async function getDailyTrend(
       ORDER BY date
     `),
   );
+}
 
-  // Merge ai_logs and conversation data by date
+/** The day's spend from `ai_logs` beside the day's conversations, every day either has. */
+function mergeDailyTrend(
+  aiRows: readonly CurrentAiLogsRow[],
+  convRows: readonly { date: string; conversations: number; messages: number }[],
+): DailyTrendRow[] {
   const dateMap = new Map<string, DailyTrendRow>();
 
-  for (const r of rows) {
+  for (const r of aiRows) {
     const d = String(r.date);
     dateMap.set(d, {
       date: d,
@@ -386,34 +503,6 @@ async function getDailyTrend(
   }
 
   return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-}
-
-/**
- * The previous window's cost per day, drawn under the current one. Keyed by
- * the day's distance from the window's start so the two series line up day for
- * day without the panel having to know where the previous window began.
- */
-async function getPreviousDailyCost(
-  scope: TenantScope,
-  range: DateRange,
-  instanceId?: InstanceSlug,
-): Promise<PreviousDailyCostRow[]> {
-  const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
-  const { from, to } = previousRange(range);
-
-  return asRows<{ day_offset: number; cost: number }>(
-    await analyticsDb.execute(sql`
-      SELECT
-        (DATE(created_at) - DATE(${toISO(from)}::timestamptz))::int AS day_offset,
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
-      FROM ai_logs
-      WHERE created_at >= ${toISO(from)} AND created_at < ${toISO(to)}
-        ${instFilter} ${orgInst}
-      GROUP BY 1
-      ORDER BY 1
-    `),
-  ).map((r) => ({ dayOffset: r.day_offset, cost: r.cost }));
 }
 
 // ── Hourly Distribution ─────────────────────────────────────────────
@@ -477,113 +566,43 @@ async function getChannelDistribution(
   );
 }
 
-// ── Model Distribution ──────────────────────────────────────────────
-
-async function getModelDistribution(
-  scope: TenantScope,
-  range: DateRange,
-  instanceId?: InstanceSlug,
-): Promise<ModelRow[]> {
-  const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
-
-  return asRows<{
-    provider: string;
-    model: string;
-    call_type: string;
-    calls: number;
-    tokens: number;
-    cost: number;
-    avg_duration: number;
-  }>(
-    await analyticsDb.execute(sql`
-      SELECT
-        provider,
-        model,
-        call_type,
-        (COUNT(*) ${ANSWERED})::int AS calls,
-        COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration
-      FROM ai_logs
-      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
-      GROUP BY provider, model, call_type
-      ORDER BY cost DESC
-    `),
-  ).map((r) => ({
-    provider: r.provider,
-    model: r.model,
-    callType: r.call_type,
-    calls: r.calls,
-    tokens: r.tokens,
-    cost: r.cost,
-    avgDuration: r.avg_duration,
-  }));
-}
-
-// ── Tier Distribution ───────────────────────────────────────────────
-
-async function getTierDistribution(
-  scope: TenantScope,
-  range: DateRange,
-  instanceId?: InstanceSlug,
-): Promise<TierRow[]> {
-  const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(scope);
-
-  return asRows<TierRow>(
-    await analyticsDb.execute(sql`
-      SELECT
-        tier,
-        (COUNT(*) ${ANSWERED})::int AS calls,
-        COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
-      FROM ai_logs
-      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        AND call_type <> 'embedding'
-        ${instFilter} ${orgInst}
-      GROUP BY tier
-      ORDER BY cost DESC
-    `),
-  );
-}
-
 // ── Tool Usage ──────────────────────────────────────────────────────
 
+/**
+ * How often each tool ran, from the turn traces: every call the supervisor
+ * wraps leaves a `{name, duration_ms, success}` there, so the count is one
+ * small array per turn. Counting the calls in the messages' `steps` read every
+ * assistant message of the window, tool results included, to find their names.
+ *
+ * Traces store the canonical name (`plugin:tool`); the count is reported under
+ * the name the model calls (`plugin__tool`), which is the name the tool timings
+ * use too. Traces are kept as long as `ai_logs` (the analytics retention), so
+ * the counts cover the same history as the spend beside them.
+ */
 async function getToolUsage(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
 ): Promise<ToolRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
+  const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
-  // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
-  // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
-  // each step has a `toolCalls: [{toolCallId, toolName, args}]` array. We
-  // unwrap two levels: steps -> step.toolCalls -> toolName. Steps without a
-  // toolCalls array (e.g. plain "initial" text steps) are filtered out.
   return asRows<ToolRow>(
     await analyticsDb.execute(sql`
       SELECT
-        tool_call->>'toolName' AS tool,
+        tool_call->>'name' AS tool,
         COUNT(*)::int AS count
-      FROM conversation_messages cm
-      JOIN conversations c ON c.conversation_id = cm.conversation_id
-      CROSS JOIN LATERAL jsonb_array_elements(cm.steps) AS step
-      CROSS JOIN LATERAL jsonb_array_elements(step->'toolCalls') AS tool_call
-      WHERE cm.created_at >= ${toISO(range.from)} AND cm.created_at <= ${toISO(range.to)}
-        AND cm.steps IS NOT NULL
-        AND jsonb_array_length(cm.steps) > 0
-        AND jsonb_typeof(step->'toolCalls') = 'array'
-        ${ACTIVE_IN_WINDOW(range)}
-        ${convFilter} ${orgConv}
-      GROUP BY tool_call->>'toolName'
+      FROM pipeline_traces
+      CROSS JOIN LATERAL jsonb_array_elements(tool_calls) AS tool_call
+      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
+        AND tool_calls IS NOT NULL
+        AND jsonb_array_length(tool_calls) > 0
+        ${instFilter} ${orgInst}
+      GROUP BY tool_call->>'name'
       ORDER BY count DESC
       LIMIT 20
     `),
-  );
+  ).map((r) => ({ tool: toModelToolName(r.tool), count: r.count }));
 }
 
 // ── Instance Comparison (global only) ───────────────────────────────
@@ -600,20 +619,24 @@ async function getInstanceComparison(
     cost: number;
     tokens: number;
   }>(
+    // Aggregated BEFORE the join: joining first looked up the agent's name for
+    // every row of the window instead of once per agent.
     await analyticsDb.execute(sql`
-      SELECT
-        al.instance_id,
-        COALESCE(i.name, al.instance_id) AS name,
-        (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
-        COALESCE(SUM(al.estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(SUM(al.total_tokens), 0)::int AS tokens
-      FROM ai_logs al
-      LEFT JOIN instances i ON i.slug = al.instance_id
-      WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
-        AND al.instance_id IS NOT NULL
-        ${orgInst}
-      GROUP BY al.instance_id, i.name
-      ORDER BY cost DESC
+      SELECT a.instance_id, COALESCE(i.name, a.instance_id) AS name, a.conversations, a.cost, a.tokens
+      FROM (
+        SELECT
+          al.instance_id,
+          (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
+          COALESCE(SUM(al.estimated_cost_usd::float8), 0)::float AS cost,
+          COALESCE(SUM(al.total_tokens), 0)::int AS tokens
+        FROM ai_logs al
+        WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
+          AND al.instance_id IS NOT NULL
+          ${orgInst}
+        GROUP BY al.instance_id
+      ) a
+      LEFT JOIN instances i ON i.slug = a.instance_id
+      ORDER BY a.cost DESC
     `),
   ).map((r) => ({
     instanceId: asInstanceSlug(r.instance_id),
@@ -633,35 +656,33 @@ export async function getAnalytics(
   includeInstanceComparison = false,
 ): Promise<AnalyticsData> {
   const [
-    overview,
-    dailyTrend,
-    previousDailyCost,
+    current,
+    previous,
+    [convStats, prevConv],
+    dailyConversations,
     hourlyDistribution,
     channelDistribution,
-    modelDistribution,
-    tierDistribution,
     toolUsage,
     instanceComparison,
   ] = await Promise.all([
-    getOverviewStats(scope, range, instanceId),
-    getDailyTrend(scope, range, instanceId),
-    getPreviousDailyCost(scope, range, instanceId),
+    readCurrentAiLogs(scope, range, instanceId),
+    readPreviousAiLogs(scope, range, instanceId),
+    readConversationTotals(scope, range, instanceId),
+    readDailyConversations(scope, range, instanceId),
     getHourlyDistribution(scope, range, instanceId),
     getChannelDistribution(scope, range, instanceId),
-    getModelDistribution(scope, range, instanceId),
-    getTierDistribution(scope, range, instanceId),
     getToolUsage(scope, range, instanceId),
     includeInstanceComparison ? getInstanceComparison(scope, range) : Promise.resolve(undefined),
   ]);
 
   return {
-    overview,
-    dailyTrend,
-    previousDailyCost,
+    overview: overviewFromRows(current.overview, convStats, previous.overview, prevConv),
+    dailyTrend: mergeDailyTrend(current.daily, dailyConversations),
+    previousDailyCost: previous.dailyCost,
     hourlyDistribution,
     channelDistribution,
-    modelDistribution,
-    tierDistribution,
+    modelDistribution: current.models,
+    tierDistribution: current.tiers,
     toolUsage,
     ...(instanceComparison ? { instanceComparison } : {}),
   };
