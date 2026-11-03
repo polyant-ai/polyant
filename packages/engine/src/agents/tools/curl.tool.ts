@@ -2,11 +2,14 @@
 
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
+import { safeFetch, truncateBody, pickHeaders, readTextCapped, requestSignal } from "../../utils/safe-http.js";
 import { auditFailure } from "./shared/audit-failure.js";
 
 const DEFAULT_MAX_BODY_SIZE = 16_384;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_TIMEOUT_MS = 60_000;
+/** The most of a body the tool reads, whatever `maxBodySize` asks: the rest is never buffered. */
+const MAX_READ_BYTES = 1024 * 1024;
 
 /** Headers that could be abused for SSRF or host-header poisoning — stripped from user input. */
 const FORBIDDEN_HEADERS = new Set(["host", "x-forwarded-for", "x-forwarded-host", "x-original-url", "x-real-ip"]);
@@ -29,7 +32,7 @@ export default defineTool({
     "Use to fetch content from known URLs: web pages, REST APIs, JSON files, RSS feeds.\n" +
     "Do NOT use for general information searches — use `webSearch` instead.\n" +
     "Returns the HTTP status, relevant headers, and body (truncated to `maxBodySize`).\n" +
-    "Caveat: GET only, no POST/PUT. Internal/private URLs are blocked (SSRF protection). Default timeout 15s.",
+    "Caveat: GET only, no POST/PUT. Internal/private URLs are blocked (SSRF protection). Default timeout 15s, at most 60s. Reads at most 1 MiB of the body.",
   summary: {
     "en-US": "Reads a public web page or API with an HTTP GET.",
     "it-IT": "Legge una pagina web o un'API pubblica con una GET HTTP.",
@@ -69,12 +72,12 @@ export default defineTool({
         .number()
         .nullable()
         .describe(
-          `Request timeout in milliseconds (default: ${DEFAULT_TIMEOUT_MS}). Pass null for the default.`,
+          `Request timeout in milliseconds (default: ${DEFAULT_TIMEOUT_MS}, at most ${MAX_TIMEOUT_MS}). Pass null for the default.`,
         ),
     }),
   execute: async ({ url, headers, queryParams, maxBodySize, timeoutMs }: { url: string; headers: Record<string, string> | null; queryParams: Record<string, string> | null; maxBodySize: number | null; timeoutMs: number | null }, ctx) => {
       const limit = maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
-      const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const timeout = Math.min(timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
       try {
         const targetUrl = new URL(url);
@@ -93,10 +96,10 @@ export default defineTool({
         const response = await safeFetch(targetUrl, {
           method: "GET",
           headers: safeHeaders,
-          signal: AbortSignal.timeout(timeout),
+          signal: requestSignal(timeout, ctx.abortSignal),
         });
 
-        const rawBody = await response.text();
+        const { text: rawBody, complete } = await readTextCapped(response, MAX_READ_BYTES);
         const { body: trimmedBody, truncated } = truncateBody(rawBody, limit);
         const responseHeaders = pickHeaders(response.headers, INTERESTING_HEADERS);
 
@@ -117,7 +120,8 @@ export default defineTool({
           statusText: response.statusText,
           headers: responseHeaders,
           body: trimmedBody,
-          truncated,
+          truncated: truncated || !complete,
+          // The length read: the whole body unless it exceeded the read limit.
           bodyLength: rawBody.length,
         };
       } catch (err) {

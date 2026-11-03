@@ -33,13 +33,35 @@ function createMockResponse(
   body: string,
   opts?: { status?: number; statusText?: string; headers?: Record<string, string> },
 ) {
-  const headers = new Headers(opts?.headers ?? { "content-type": "text/html" });
-  return {
+  return new Response(body === "" ? null : body, {
     status: opts?.status ?? 200,
     statusText: opts?.statusText ?? "OK",
-    text: vi.fn().mockResolvedValue(body),
-    headers,
-  } as unknown as Response;
+    headers: opts?.headers ?? { "content-type": "text/html" },
+  });
+}
+
+/** A body of `chunks` × 64 KiB that counts how many chunks the reader pulled. */
+function streamedResponse(chunks: number) {
+  const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+  const stats = { pulled: 0, cancelled: false };
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (stats.pulled === chunks) return controller.close();
+      stats.pulled++;
+      controller.enqueue(chunk);
+    },
+    cancel() {
+      stats.cancelled = true;
+    },
+  });
+  return { response: new Response(body, { status: 200, headers: { "content-type": "text/plain" } }), stats };
+}
+
+/** A fetch that never answers until its signal aborts, like a server that stalls. */
+function stallUntilAborted(_url: URL, init: RequestInit): Promise<Response> {
+  return new Promise((_, reject) => {
+    init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+  });
 }
 
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
@@ -371,5 +393,51 @@ describe("curl", () => {
     expect(result.headers).toHaveProperty("x-ratelimit-remaining", "42");
     expect(result.headers).not.toHaveProperty("x-custom-ignored");
     expect(result.headers).not.toHaveProperty("set-cookie");
+  });
+
+  it("gives up the request when the turn is stopped", async () => {
+    const controller = new AbortController();
+    const stoppable = buildTool(curlTool, { ...dummyCtx, abortSignal: controller.signal }) as any;
+    mockFetch.mockImplementation(stallUntilAborted);
+
+    const pending = stoppable.execute(
+      { url: "https://api.example.com/slow", headers: null, queryParams: null, maxBodySize: null, timeoutMs: null },
+      toolCtx,
+    );
+    controller.abort(new Error("turn stopped"));
+    const result = await pending;
+
+    expect(result.status).toBeNull();
+    expect(result.error).toContain("turn stopped");
+  });
+
+  it("bounds a timeout the model chooses", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    mockFetch.mockResolvedValue(createMockResponse("ok"));
+
+    await curl.execute(
+      { url: "https://api.example.com/data", headers: null, queryParams: null, maxBodySize: null, timeoutMs: 3_600_000 },
+      toolCtx,
+    );
+
+    expect(timeout).toHaveBeenCalledOnce();
+    expect(timeout.mock.calls[0]![0]).toBeLessThanOrEqual(60_000);
+    timeout.mockRestore();
+  });
+
+  it("stops reading a huge body instead of buffering all of it", async () => {
+    // 64 MiB on the wire.
+    const { response, stats } = streamedResponse(1024);
+    mockFetch.mockResolvedValue(response);
+
+    const result = await curl.execute(
+      { url: "https://api.example.com/huge", headers: null, queryParams: null, maxBodySize: null, timeoutMs: null },
+      toolCtx,
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(result.body).toHaveLength(16_384);
+    expect(stats.pulled).toBeLessThan(64);
+    expect(stats.cancelled).toBe(true);
   });
 });
