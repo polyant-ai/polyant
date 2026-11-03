@@ -13,7 +13,9 @@ const {
   mockTriggerConversation,
   mockResolveInstanceSlug,
   mockWebhookLog,
+  mockClaimWebhookDelivery,
 } = vi.hoisted(() => ({
+  mockClaimWebhookDelivery: vi.fn(),
   mockFindByWebhookToken: vi.fn(),
   mockListEnabledDefinitions: vi.fn(),
   mockGetRoomByInstanceId: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("../../webhooks/webhook-matcher.js", () => ({ matchEvent: mockMatchEvent
 vi.mock("../../webhooks/webhook-backlog.store.js", () => ({
   insertEvent: mockInsertEvent,
 }));
+vi.mock("../../webhooks/webhook-deliveries.store.js", () => ({ claimWebhookDelivery: mockClaimWebhookDelivery }));
 vi.mock("../../webhooks/webhook-engine.js", () => ({
   triggerConversation: mockTriggerConversation,
 }));
@@ -60,6 +63,65 @@ beforeEach(() => {
 /* ── tests ──────────────────────────────────────────────────────── */
 
 describe("WebhookController", () => {
+  describe("redelivered events", () => {
+    const openSource = {
+      source: { id: "src-1", name: "Open", enabled: true, config: {} },
+      instanceId: "inst-1",
+    };
+
+    beforeEach(() => {
+      mockFindByWebhookToken.mockResolvedValue(openSource);
+      mockListEnabledDefinitions.mockResolvedValue([{ id: "def-1" }]);
+      mockResolveInstanceSlug.mockResolvedValue("acme");
+      mockMatchEvent.mockResolvedValue(null);
+      const seen = new Set<string>();
+      mockClaimWebhookDelivery.mockImplementation(async (sourceId: string, key: string) => {
+        const id = `${sourceId}:${key}`;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    });
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("processes an event redelivered with the same Idempotency-Key once", async () => {
+      expect(await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-42")).toEqual({ ok: true });
+      expect(await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-42")).toEqual({ ok: true });
+      await settle();
+
+      expect(mockMatchEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("processes two events with different keys", async () => {
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-1");
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-2");
+      await settle();
+
+      expect(mockMatchEvent).toHaveBeenCalledTimes(2);
+    });
+
+    it("processes every event that carries no key, as before", async () => {
+      await controller.receiveEvent("tok", { type: "lead" });
+      await controller.receiveEvent("tok", { type: "lead" });
+      await settle();
+
+      expect(mockMatchEvent).toHaveBeenCalledTimes(2);
+      expect(mockClaimWebhookDelivery).not.toHaveBeenCalled();
+    });
+
+    it("does not spend the key of a request it refused", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Secured", enabled: true, config: { authKey: "k" } },
+        instanceId: "inst-1",
+      });
+
+      await expect(controller.receiveEvent("tok", {}, "Bearer wrong", "evt-9")).rejects.toThrow();
+
+      expect(mockClaimWebhookDelivery).not.toHaveBeenCalled();
+    });
+  });
+
   describe("receiveEvent", () => {
     it("should return { ok: true } for an unknown token without processing", async () => {
       mockFindByWebhookToken.mockResolvedValue(null);

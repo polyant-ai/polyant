@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index, primaryKey } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
 export const eventSources = pgTable(
@@ -60,4 +60,19 @@ export const eventBacklog = pgTable(
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
   ],
+);
+
+/**
+ * One row per `Idempotency-Key` a webhook sender presented, so a redelivered
+ * event is acknowledged without being processed again on any process. The key
+ * is stored as a digest; rows older than a day are dropped as keys are claimed.
+ */
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    eventSourceId: uuid("event_source_id").notNull().references(() => eventSources.id, { onDelete: "cascade" }),
+    keyDigest: varchar("key_digest", { length: 64 }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.eventSourceId, table.keyDigest] })],
 );
