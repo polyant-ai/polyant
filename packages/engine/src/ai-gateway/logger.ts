@@ -36,7 +36,6 @@ export const aiLogs = pgTable(
     errorKind: text("error_kind"),
   },
   (table) => [
-    index("idx_ai_logs_instance_id").on(table.instanceId),
     index("idx_ai_logs_created_at").on(table.createdAt),
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
     // Conversation-list token/cost LATERAL aggregation filters by conversation_id.

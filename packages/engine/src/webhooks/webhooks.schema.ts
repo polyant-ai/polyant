@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
@@ -59,5 +60,7 @@ export const eventBacklog = pgTable(
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
+    // The cleanup deletes completed events by age.
+    index("idx_event_backlog_completed_created").on(table.createdAt).where(sql`${table.status} = 'completed'`),
   ],
 );
