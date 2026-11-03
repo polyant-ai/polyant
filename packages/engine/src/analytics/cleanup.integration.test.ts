@@ -11,7 +11,7 @@
  * may age out.
  */
 
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { lockRoomEventBacklog, resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { queryClient } from "../database/client.js";
 import { computeCutoff, runAnalyticsCleanup } from "./cleanup.js";
@@ -25,6 +25,7 @@ const NEW = "now() - interval '1 day'";
 let instanceUuid: string;
 let instanceSlug: string;
 let definitionId: string;
+let releaseBacklog: () => Promise<void>;
 
 async function teardown(): Promise<void> {
   await queryClient`DELETE FROM event_backlog WHERE instance_id IN (SELECT id FROM instances WHERE slug LIKE ${MARKER + "%"})`;
@@ -39,6 +40,8 @@ async function teardown(): Promise<void> {
 
 describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
   beforeAll(async () => {
+    // This suite keeps a `processing` row; a Room tick elsewhere would requeue it.
+    releaseBacklog = await lockRoomEventBacklog("shared");
     await teardown();
     const [{ id: orgId }] = await queryClient<{ id: string }[]>`
       INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER}, 'r', false) RETURNING id`;
@@ -58,7 +61,10 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
     definitionId = defId;
   });
 
-  afterAll(teardown);
+  afterAll(async () => {
+    await teardown();
+    await releaseBacklog();
+  });
 
   beforeEach(async () => {
     await queryClient`DELETE FROM event_backlog WHERE instance_id = ${instanceUuid}`;
@@ -85,8 +91,8 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
 
   /*
     event_backlog is the one table here with a lifecycle. `pending` is work still
-    queued and `processing` may be a zombie that resetStuckProcessingEvents()
-    recovers at boot — ageing either out by date would silently drop events the
+    queued and `processing` may be a zombie that the Room tick requeues once its
+    lease expires — ageing either out by date would silently drop events the
     system still owes an answer for.
   */
   it("should_age_out_only_COMPLETED_backlog_events", async () => {

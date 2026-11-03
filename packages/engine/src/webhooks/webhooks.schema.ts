@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
@@ -55,9 +56,12 @@ export const eventBacklog = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     reactNotes: text("react_notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Room lease owner that claimed the event while it is processing. */
+    claimedBy: text("claimed_by"),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
+    index("idx_event_backlog_processing").on(table.instanceId).where(sql`${table.status} = 'processing'`),
   ],
 );

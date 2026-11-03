@@ -12,17 +12,29 @@ const {
   mockExecuteRoomCycle,
   mockResolveInstanceSlug,
   mockRoomLog,
+  mockWithLease,
+  mockRequeue,
 } = vi.hoisted(() => ({
   mockListEnabledRooms: vi.fn(),
   mockCountPendingEvents: vi.fn(),
   mockCompactActivityLog: vi.fn(),
   mockExecuteRoomCycle: vi.fn(),
   mockResolveInstanceSlug: vi.fn(),
-  mockRoomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  mockRoomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  mockWithLease: vi.fn(),
+  mockRequeue: vi.fn(),
 }));
 
 vi.mock("./room.store.js", () => ({ listEnabledRooms: mockListEnabledRooms }));
-vi.mock("../webhooks/webhook-backlog.store.js", () => ({ countPendingByInstance: mockCountPendingEvents }));
+vi.mock("../webhooks/webhook-backlog.store.js", () => ({
+  countPendingByInstance: mockCountPendingEvents,
+  requeueEventsWithoutLiveLease: mockRequeue,
+  roomLeaseKey: (instanceId: string) => `room:${instanceId}`,
+}));
+// The lease itself is covered against a real database in room-lease.integration.test.ts.
+vi.mock("../background/work-lease.js", () => ({ withLease: mockWithLease }));
+vi.mock("../analytics/cleanup.js", () => ({ runAnalyticsCleanup: vi.fn() }));
+vi.mock("../platform/platform-settings.store.js", () => ({ resolvePlatformSettings: vi.fn(() => new Promise(() => {})) }));
 vi.mock("./activity-log.store.js", () => ({ compactActivityLog: mockCompactActivityLog }));
 vi.mock("./room-engine.js", () => ({ executeRoomCycle: mockExecuteRoomCycle }));
 vi.mock("../instances/resolve-instance-id.js", () => ({
@@ -60,6 +72,12 @@ beforeEach(() => {
   mockCompactActivityLog.mockResolvedValue(undefined);
   mockExecuteRoomCycle.mockResolvedValue(undefined);
   mockResolveInstanceSlug.mockResolvedValue("inst-a-slug");
+  mockRequeue.mockResolvedValue(0);
+  // No other process holds the lease: the body runs under a fixed owner.
+  mockWithLease.mockImplementation(async (_key: string, _opts: unknown, body: (owner: string) => Promise<void>) => {
+    await body("owner-1");
+    return true;
+  });
 });
 
 afterEach(() => {
@@ -91,7 +109,7 @@ describe("RoomScheduler", () => {
     it("should execute room cycle with human message", async () => {
       await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Help me please");
 
-      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "Help me please");
+      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "owner-1", "Help me please");
     });
 
     it("should drop human message if room is already running", async () => {
@@ -196,6 +214,39 @@ describe("RoomScheduler", () => {
 
       // Cleanup
       resolveProcess();
+    });
+
+    it("skips a room whose lease another process holds", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map([["inst-a", 2]]));
+      mockWithLease.mockImplementation(async (key: string) => !key.startsWith("room:"));
+
+      await (roomScheduler as any).tick();
+      await vi.waitFor(() => expect((roomScheduler as any).running.has("inst-a")).toBe(false));
+
+      expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
+    });
+
+    it("requeues events without a live lease on every tick, before reading the rooms", async () => {
+      const order: string[] = [];
+      mockRequeue.mockImplementation(async () => { order.push("requeue"); return 2; });
+      mockListEnabledRooms.mockImplementation(async () => { order.push("rooms"); return []; });
+
+      await (roomScheduler as any).tick();
+      await (roomScheduler as any).tick();
+
+      expect(order).toEqual(["requeue", "rooms", "requeue", "rooms"]);
+    });
+
+    it("runs the daily housekeeping only under its once-a-day lease", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map());
+      mockWithLease.mockImplementation(async () => false);
+
+      await (roomScheduler as any).tick();
+
+      expect(mockWithLease).toHaveBeenCalledWith("housekeeping:daily", { everyMs: 86_400_000 }, expect.any(Function));
+      expect(mockCompactActivityLog).not.toHaveBeenCalled();
     });
 
     it("should process different rooms in parallel", async () => {

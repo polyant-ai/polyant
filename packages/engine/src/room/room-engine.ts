@@ -31,13 +31,25 @@ function estimateTokens(text: string): number {
 // text into a prompt did it plainly — the webhook engine and <channel_identity>
 // among them. Same functions, same behaviour, one importable home.
 
+/**
+ * One cycle of a Room. `owner` is the room lease this cycle runs under: it claims the
+ * pending events in that name, and only that name completes them.
+ */
 export async function executeRoomCycle(
   room: RoomConfig,
   instanceSlug: InstanceSlug,
+  owner: string,
   humanMessage?: string,
 ): Promise<void> {
   const cycleStart = Date.now();
   const conversationId = `room:${room.instanceId}:${Date.now()}`;
+
+  // Claim first: a cycle with nothing to do reads no configuration and leaves no
+  // empty conversation behind.
+  const pendingEvents = await listAndMarkPendingEventsProcessing(room.instanceId, owner);
+  if (!humanMessage && pendingEvents.length === 0) {
+    return;
+  }
 
   // Intentionally NOT calling emitConversation here: the room engine mints a
   // fresh conversationId per cycle (timestamp-suffixed), so every tick would
@@ -45,18 +57,13 @@ export async function executeRoomCycle(
   // cycle's activity is surfaced via the LLM tap (`chat()` replay batch in
   // bus-emitter.ts) plus the room's own `room_activity_log` table, so no
   // lifecycle event is needed here.
-  const [instanceConfig, , pendingEvents] = await Promise.all([
+  const [instanceConfig] = await Promise.all([
     resolveInstanceConfig(instanceSlug),
     conversationStore.ensureConversation(conversationId, instanceSlug, {
       channel: "room",
       source: "room",
     }),
-    listAndMarkPendingEventsProcessing(room.instanceId),
   ]);
-
-  if (!humanMessage && pendingEvents.length === 0) {
-    return;
-  }
 
   // Gather interpretation prompts for the pending events' definitions
   const definitionIds = [...new Set(pendingEvents.map((e) => e.eventDefinitionId))];
@@ -193,7 +200,7 @@ export async function executeRoomCycle(
 
       // Mark events as completed with error so they don't stay stuck in "processing"
       if (pendingEventIds.length > 0) {
-        await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId).catch((e) =>
+        await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId, owner).catch((e) =>
           roomLog.error("RoomCycle", "Failed to mark events completed after error", e),
         );
       }
@@ -226,7 +233,7 @@ export async function executeRoomCycle(
 
   // Mark events as completed
   if (pendingEventIds.length > 0) {
-    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId);
+    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId, owner);
   }
 
   // Persist active conversationId so harness tools (e.g. compact_room_history) can find it

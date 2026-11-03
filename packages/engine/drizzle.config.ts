@@ -38,6 +38,7 @@ export default defineConfig({
   out: "./src/database/migrations",
   schema: [
     "./src/ai-gateway/logger.ts",
+    "./src/background/work-lease.schema.ts",
     "./src/conversations/schema.ts",
     "./src/instances/schema.ts",
     "./src/instances/skill-env.schema.ts",

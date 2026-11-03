@@ -11,7 +11,6 @@ import { db } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
-import { resetStuckProcessingEvents } from "./webhooks/webhook-backlog.store.js";
 import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
@@ -128,15 +127,9 @@ async function main() {
     // Fail knowledge documents whose ingestion died with its process, now and
     // periodically after.
     startStuckDocumentSweep(),
-    // Recover webhook events stuck in "processing" — see follow-up to #81. A fresh
-    // boot has no in-flight room cycle, so anything in PROCESSING is a zombie from a
-    // prior crash that has to be requeued.
-    nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
-      const resetEvents = await resetStuckProcessingEvents();
-      if (resetEvents > 0) {
-        log.info("webhooks", `Reset ${resetEvents} stale processing event(s) to pending`);
-      }
-    }),
+    // Room events a dead process left in processing have no boot step: another
+    // replica may be running their cycle right now. The room tick requeues them once
+    // their lease has expired.
   ]);
 
   // --- Message handlers (sync + streaming) ---
