@@ -58,7 +58,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
               },
             ],
           },
-          { instanceId: ctx.instanceId, conversationId: ctx.conversationId, callType: "service" },
+          { instanceId: ctx.instanceId, conversationId: ctx.conversationId, callType: "service", purpose: "prompt_rewrite" },
         );
 
         const newContent = response.text.trim() + "\n";

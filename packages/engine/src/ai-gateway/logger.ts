@@ -27,6 +27,8 @@ export const aiLogs = pgTable(
     conversationId: text("conversation_id"),
     instanceId: text("instance_id"),
     callType: text("call_type").notNull().default("conversation"),
+    // What a service call was for (title, summary, memory…); null on other calls.
+    purpose: text("purpose"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     // A turn that dies at the provider used to leave no row at all. Default 'ok'
     // keeps every historical row meaningful — they are all calls that returned.

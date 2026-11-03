@@ -78,7 +78,7 @@ describe("extractMemories", () => {
         tier: "fast",
         messages: [{ role: "user", content: expect.stringContaining("I live in Rome") }],
       }),
-      { conversationId: "conv-1", instanceId: "user-1", callType: "service" },
+      { conversationId: "conv-1", instanceId: "user-1", callType: "service", purpose: "memory" },
     );
     expect(mockEmbedMany).toHaveBeenCalledWith(
       ["The user lives in Rome"],

@@ -10,7 +10,7 @@ import { usageCompletedBeforeFailure } from "./providers/base.js";
 import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
 import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
-import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
+import type { AILogEntry, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter, ServicePurpose } from "./types.js";
 import { pipelineLog } from "../utils/pipeline-logger.js";
 import {
   emitFromChatResponse,
@@ -69,6 +69,7 @@ function resolveCallConfig(
       conversationId: options?.conversationId,
       instanceId: options?.instanceId,
       callType: options?.callType,
+      purpose: options?.purpose,
       providerName,
       modelId,
       agentCall: options?.agentCallMetadata,
@@ -187,6 +188,8 @@ export interface ChatCallOptions {
   conversationId?: string;
   instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
+  /** What a service call is for; set it on every service call. Recorded on the call's row and trace. */
+  purpose?: ServicePurpose;
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
    * When present, enriches the LangSmith trace with caller identity so the UI
@@ -261,7 +264,7 @@ function logAndRecordUsage(
   response.thinking = request.thinking ?? false;
   response.temperature = request.temperature;
 
-  aiLogger.log(
+  aiLogger.log(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
@@ -279,8 +282,14 @@ function logAndRecordUsage(
       options?.callType,
       response.usage.cachedInputTokens,
       response.usage.cacheCreationInputTokens,
-    )
-  );
+    ),
+    options,
+  ));
+}
+
+/** A row with the purpose of the service call it records, when the caller named one. */
+function withPurpose(entry: AILogEntry, options: ChatCallOptions | undefined): AILogEntry {
+  return options?.purpose ? { ...entry, purpose: options.purpose } : entry;
 }
 
 /** The provider's price of a usage, as the success path prices a response. */
@@ -350,7 +359,7 @@ function logFailedCall(
   const inFlight = aborted && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
   const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
   const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
-  aiLogger.log(
+  aiLogger.log(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
@@ -371,7 +380,8 @@ function logFailedCall(
       aborted ? "aborted" : "error",
       aborted ? (inFlight ? "in_flight" : null) : timedOut ? "timeout" : classifyProviderError(err),
     ),
-  );
+    options,
+  ));
 }
 
 /** The usage of a model call aborted in flight: its estimated prompt, read from cache up to the conversation's cached prefix. */

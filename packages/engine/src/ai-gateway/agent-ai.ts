@@ -17,7 +17,7 @@ import type { ChatRequest } from "./types.js";
  */
 export function agentAi(
   request: Pick<ChatRequest, "provider" | "model" | "apiKeys" | "abortSignal" | "langsmith">,
-  options: Omit<ChatCallOptions, "callType">,
+  options: Omit<ChatCallOptions, "callType" | "purpose"> & { purpose: "hook" | "tool" },
 ): HookAi {
   return {
     async chat(input) {

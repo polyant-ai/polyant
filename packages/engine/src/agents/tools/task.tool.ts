@@ -93,7 +93,7 @@ Rules:
             tools: isolatedTools,
             maxSteps: 10,
           },
-          { instanceId, conversationId, callType: "service" },
+          { instanceId, conversationId, callType: "service", purpose: "sub_task" },
         );
 
         const toolsUsed = response.steps.flatMap((s) => s.toolCalls.map((tc) => tc.toolName));

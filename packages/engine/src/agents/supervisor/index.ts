@@ -362,7 +362,7 @@ async function buildTools(opts: BuildToolsOptions) {
         // takeable here, so the store needs no per-tool authorization of its own.
         artifacts: artifactApiFor(instanceId, conversationId),
         // No `model`: a pinned model would override the tier the tool asks for.
-        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId }),
+        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId, purpose: "tool" }),
         abortSignal,
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.

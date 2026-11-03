@@ -663,6 +663,39 @@ describe("AI Gateway", () => {
     });
   });
 
+  describe("what a service call is for", () => {
+    it("records the purpose of a service call on its row, so service spend can be grouped by it", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { conversationId: "conv-1", callType: "service", purpose: "title" });
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).toMatchObject({ purpose: "title" });
+    });
+
+    it("records it on a failed service call's row too", async () => {
+      mockProviderChat.mockRejectedValue(Object.assign(new Error("no"), { statusCode: 500 }));
+      await expect(chat(makeRequest(), { callType: "service", purpose: "memory" })).rejects.toThrow();
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).toMatchObject({ purpose: "memory" });
+    });
+
+    it("passes it to the trace metadata", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ langsmith: { apiKey: "k", project: "p" } }), { callType: "service", purpose: "summary" });
+
+      expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ callType: "service", purpose: "summary" }),
+      );
+    });
+
+    it("leaves a conversation turn's row without a purpose", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest());
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).not.toHaveProperty("purpose");
+    });
+  });
+
   describe("bounds on every model call", () => {
     // Defaults from the process configuration (none of these variables is set in tests).
     const SERVICE_TOTAL_MS = 300_000;

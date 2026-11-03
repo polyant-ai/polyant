@@ -7,6 +7,22 @@ import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
+/**
+ * What a service call is for, recorded on its `ai_logs` row so service spend
+ * can be told apart: titles, summaries and memory share tier, model and
+ * conversation, and nothing else separates them.
+ */
+export type ServicePurpose =
+  | "title"
+  | "summary"
+  | "memory"
+  | "webhook_match"
+  | "prompt_rewrite"
+  | "room_compaction"
+  | "sub_task"
+  | "tool"
+  | "hook";
+
 /** Cross-turn prompt-cache TTL (Anthropic). Bedrock always uses its default 5m; OpenAI/Nebius ignore it. */
 export type CacheTtl = "5m" | "1h";
 
@@ -221,6 +237,8 @@ export interface AILogEntry {
    * count all three; call counts and response times keep to model calls.
    */
   callType?: "conversation" | "service" | "embedding";
+  /** What a service call was for (see {@link ServicePurpose}). Absent on other calls. */
+  purpose?: ServicePurpose;
   createdAt?: Date;
   /**
    * Whether the provider call returned ("ok"), died before returning ("error"),
@@ -229,7 +247,11 @@ export interface AILogEntry {
    * calls keep to "ok".
    */
   outcome?: "ok" | "error" | "aborted";
-  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null unless outcome is "error". */
+  /**
+   * The CLASS of a provider failure (never its message — see classifyProviderError).
+   * On an "aborted" row, "in_flight" when its tokens include the estimate of a
+   * model call aborted before it answered. Null otherwise.
+   */
   errorKind?: string | null;
 }
 

@@ -53,7 +53,7 @@ export default defineTool({
         system: "Summarize the following conversation in 3-5 concise sentences, preserving key facts, decisions, and open items. Respond ONLY with the summary.",
         messages: [{ role: "user", content: compactText }],
       },
-      { conversationId: room.conversationId, instanceId: ctx.instanceId, callType: "service" },
+      { conversationId: room.conversationId, instanceId: ctx.instanceId, callType: "service", purpose: "room_compaction" },
     );
 
     await conversationStore.replaceOldestMessages(

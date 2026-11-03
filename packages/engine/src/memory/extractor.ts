@@ -83,7 +83,7 @@ export async function extractMemories(
       system: buildExtractionPrompt(),
       messages: [{ role: "user", content: transcript }],
     },
-    { conversationId, instanceId, callType: "service" },
+    { conversationId, instanceId, callType: "service", purpose: "memory" },
   );
 
   // 4. Parse JSON response
