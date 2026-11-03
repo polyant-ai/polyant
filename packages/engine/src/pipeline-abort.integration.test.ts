@@ -8,7 +8,7 @@
  * row in `conversation_messages`, and none of the state its hooks wrote. The
  * unit tests check that the store functions are not CALLED; this file checks
  * that the rows are not THERE, with the real state buffer, conversation store
- * and fire-and-forget persistence. Only the hook bodies (they abort the run) and
+ * and persistence. Only the hook bodies (they abort the run) and
  * the title generator (an LLM call) are replaced. A control turn without the
  * abort proves the same setup does write both. Self-skips without a database;
  * CI_REQUIRE_DB makes an absent one a failure there.
@@ -56,7 +56,11 @@ async function teardown(): Promise<void> {
 }
 
 /** Run one post-response phase; `abortDuringHooks` aborts it from inside a hook. */
-async function finishTurn(conversationId: string, abortDuringHooks: boolean): Promise<void> {
+async function finishTurn(
+  conversationId: string,
+  abortDuringHooks: boolean,
+  assistantMessageId?: string,
+): Promise<void> {
   await conversationStore.ensureConversation(conversationId, AGENT, { channel: "web" });
   const stateBuffer = await ConversationStateBuffer.load(conversationId, AGENT);
   const controller = new AbortController();
@@ -81,7 +85,6 @@ async function finishTurn(conversationId: string, abortDuringHooks: boolean): Pr
     instanceConfig: { memoryEnabled: false, attachmentStorageEnabled: false } as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
-    incomingSystemMessages: undefined,
     isAutoTaskTurn: false,
     inboundMetadata: undefined,
   };
@@ -92,6 +95,7 @@ async function finishTurn(conversationId: string, abortDuringHooks: boolean): Pr
     messageText: "open a ticket",
     channel: "web",
     resultText: "Ticket T-1 opened.",
+    assistantMessageId,
     usage: { promptTokens: 0, completionTokens: 0 },
     durationMs: 0,
     toolBuildingMs: 0,
@@ -127,10 +131,29 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
 
     await finishTurn(conversationId, false);
 
-    await vi.waitFor(async () => expect(await messageRoles(conversationId)).toEqual(["user", "assistant"]), {
-      timeout: 5_000,
-    });
+    expect(await messageRoles(conversationId)).toEqual(["user", "assistant"]);
     expect(await storedState(conversationId)).toMatchObject({ ticket: "T-1" });
+  });
+
+  it("has written the turn by the time the post phase returns, before the reply can be sent", async () => {
+    const conversationId = `${MARKER}-${randomUUID()}`;
+
+    await finishTurn(conversationId, false);
+
+    expect(await messageRoles(conversationId)).toEqual(["user", "assistant"]);
+  });
+
+  it("fails the turn and leaves no user row without its reply when the reply cannot be written", async () => {
+    // A reply id that already exists makes the assistant insert fail.
+    const taken = `${MARKER}-${randomUUID()}`;
+    await conversationStore.ensureConversation(taken, AGENT, { channel: "web" });
+    const takenId = randomUUID();
+    await conversationStore.appendMessages(taken, [{ id: takenId, role: "user", content: "x" }]);
+    const conversationId = `${MARKER}-${randomUUID()}`;
+
+    await expect(finishTurn(conversationId, false, takenId)).rejects.toThrow();
+
+    expect(await messageRoles(conversationId)).toEqual([]);
   });
 
   it("leaves no message and no state behind when the run is aborted while its hooks run", async () => {
@@ -138,8 +161,6 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
 
     await finishTurn(conversationId, true);
 
-    // The persistence is fire-and-forget; give it the time the control needed.
-    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await messageRoles(conversationId)).toEqual([]);
     expect(await storedState(conversationId)).toBeUndefined();
   });

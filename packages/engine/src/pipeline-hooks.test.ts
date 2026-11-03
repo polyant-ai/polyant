@@ -25,7 +25,6 @@ vi.mock("./analytics/trace.store.js", () => ({ traceStore: { record: vi.fn() } }
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
     appendMessages: vi.fn(async () => undefined),
-    getSystemMessageContents: vi.fn(async () => new Set<string>()),
     updateSummary: vi.fn(async () => undefined),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
@@ -59,7 +58,6 @@ function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
     instanceConfig: {} as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
-    incomingSystemMessages: undefined,
     isAutoTaskTurn: false,
     inboundMetadata: undefined,
     ...overrides,

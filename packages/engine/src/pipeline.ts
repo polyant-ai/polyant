@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Pipeline — Extracted shared logic for message handling
 // ---------------------------------------------------------------------------
-// Houses preparePipeline, afterResponse, runPipelinePre, runPipelinePost,
+// Houses preparePipeline, persistTurn, afterResponseTail, runPipelinePre, runPipelinePost,
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
@@ -125,8 +125,6 @@ export interface PipelineContext {
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
   userAttachments: Attachment[] | undefined;
-  /** External system messages to persist alongside the user message. */
-  incomingSystemMessages: Array<{ role: string; content: string }> | undefined;
   /** Whether this turn is an automated Open WebUI task (title/tag gen) — persistence skipped. */
   isAutoTaskTurn: boolean;
   /** Raw inbound metadata (e.g. audio STT block) — forwarded to the saved user message row. */
@@ -248,10 +246,9 @@ export async function preparePipeline(
   // aborted run persists nothing, so the restarted run still sees zero rows.
   const isFirstTurn = conversationHistory.length === 0;
 
-  // NOTE: user message and incoming system messages are NOT persisted here.
-  // They are persisted in `afterResponse()` only after the pipeline succeeds,
-  // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
-  const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
+  // NOTE: the user message is NOT persisted here. `persistTurn()` writes it
+  // only after the pipeline succeeds, so that an aborted pipeline
+  // (cancel-and-restart) leaves no trace in DB.
 
   // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
   const hasOverflow = conversationHistory.length > 15;
@@ -312,7 +309,6 @@ export async function preparePipeline(
     instanceConfig,
     langsmith,
     userAttachments: msg.attachments,
-    incomingSystemMessages: incomingSystemMessages.length > 0 ? incomingSystemMessages : undefined,
     isAutoTaskTurn,
     inboundMetadata: Object.keys(msg.metadata).length > 0 ? msg.metadata : undefined,
   };
@@ -407,7 +403,13 @@ export async function runResponseGeneratedHooks(
 }
 
 // ---------------------------------------------------------------------------
-// afterResponse — fire-and-forget post-processing (extracted from ~lines 118-200)
+// After the response — split into:
+//   • persistTurn(opts):        awaited; the user and assistant rows, one transaction
+//   • afterResponseTail(opts):  in the background; title, summary, memory extraction
+//
+// The turn is saved before runPipelinePost returns, so before the channel sends
+// the reply: a reply that has no matching record is never delivered, and a
+// follow-up message always finds the previous exchange in the history.
 // ---------------------------------------------------------------------------
 
 export interface AfterResponseOptions {
@@ -435,8 +437,6 @@ export interface AfterResponseOptions {
   langsmith?: { apiKey: string; project: string };
   /** User-message attachments to upload + persist alongside the user row. */
   userAttachments?: Attachment[];
-  /** External system messages to persist before the user row. */
-  incomingSystemMessages?: Array<{ role: string; content: string }>;
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
   inboundMetadata?: Record<string, unknown>;
   /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
@@ -446,97 +446,86 @@ export interface AfterResponseOptions {
   receivedAt?: Date;
 }
 
-export function afterResponse(opts: AfterResponseOptions): void {
-  // Skip automated Open WebUI tasks entirely
+/**
+ * Persist the user message and the reply, in one transaction, and throw when
+ * that fails: the caller must then treat the turn as failed and not deliver a
+ * reply that the history does not hold. No-op for automated Open WebUI tasks.
+ */
+export async function persistTurn(opts: AfterResponseOptions): Promise<void> {
+  if (isAutoTask(opts.userMessage)) return;
+
+  // No pre-check: `uploadAttachment` answers `null` for an agent with no
+  // storage configured, which is the ordinary case. Asking first would read
+  // the same secrets twice and give the two reads a chance to disagree.
+  // A failed upload (denied bucket policy, wrong region, revoked credentials,
+  // a transient S3 error) costs that attachment its stored copy, not the
+  // turn: the reply has been produced and tools may have written, so the
+  // turn is persisted without it. Only the error's name is logged — an S3
+  // message carries the object key, and the key carries the conversation id.
+  let attachmentMetas: AttachmentMeta[] | undefined;
+  if (opts.userAttachments?.length) {
+    const results: (AttachmentMeta | null)[] = await Promise.all(
+      opts.userAttachments.map((att) =>
+        att.data
+          ? uploadAttachment(att.data, {
+              type: att.type,
+              mimeType: att.mimeType,
+              fileName: att.fileName,
+              instanceId: opts.instanceId,
+              conversationId: opts.conversationId,
+            }).catch((err: unknown) => {
+              log.warn(
+                "pipeline",
+                `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
+              );
+              return null;
+            })
+          : Promise.resolve(null),
+      ),
+    );
+    const stored = results.filter((r): r is AttachmentMeta => r != null);
+    // Undefined rather than an empty array when nothing was stored: the column
+    // is nullable and an empty array would read as "there were attachments,
+    // and none of them are here".
+    attachmentMetas = stored.length > 0 ? stored : undefined;
+  }
+
+  // Both rows are stamped by this process's clock: the user row at arrival, the
+  // reply now. Mixing in the database's clock for one of them would let a skew
+  // between the two hosts order the reply before the message it answers.
+  await conversationStore.appendMessages(opts.conversationId, [
+    {
+      role: "user",
+      content: opts.userMessage,
+      attachments: attachmentMetas,
+      metadata: opts.inboundMetadata,
+      ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
+    },
+    {
+      // Pre-generated on the streaming path so the client can correlate it with
+      // the per-message debug payload, present only when DEBUG was on.
+      ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
+      createdAt: new Date(),
+      role: "assistant",
+      content: opts.assistantResponse,
+      steps: opts.steps,
+      reasoning: opts.reasoning,
+      debugPayload: opts.debugPayload,
+      metadata: opts.provenance,
+    },
+  ]);
+}
+
+/**
+ * The work that follows a saved turn and that the next turn does not need:
+ * the conversation title, the summary of the messages leaving the window, the
+ * memory extraction. Runs in the background; failures are logged.
+ */
+export function afterResponseTail(opts: AfterResponseOptions): void {
   if (isAutoTask(opts.userMessage)) return;
 
   const work = async () => {
-    // 0. Persist external system messages + user message (deferred from pre-pipeline
-    // so that an aborted/restarted pipeline leaves no orphan rows in DB).
-    // Deduplicate against system messages already in the conversation: clients
-    // that replay history (playground, open-webui) re-send the same system block
-    // every turn, which would otherwise accumulate one duplicate row per turn
-    // (a repeated context card in the UI). Only genuinely new content is written.
-    if (opts.incomingSystemMessages?.length) {
-      const seen = await conversationStore
-        .getSystemMessageContents(opts.conversationId)
-        .catch(() => new Set<string>());
-      const novel: Array<{ role: string; content: string }> = [];
-      for (const sm of opts.incomingSystemMessages) {
-        if (seen.has(sm.content)) continue;
-        seen.add(sm.content);
-        novel.push({ role: "system", content: sm.content });
-      }
-      if (novel.length > 0) {
-        await conversationStore
-          .appendMessages(opts.conversationId, novel)
-          .catch((err) => log.error("pipeline", `Failed to persist system messages for ${opts.conversationId}`, err));
-      }
-    }
-
-    // No pre-check: `uploadAttachment` answers `null` for an agent with no
-    // storage configured, which is the ordinary case. Asking first would read
-    // the same secrets twice and give the two reads a chance to disagree.
-    // A failed upload (denied bucket policy, wrong region, revoked credentials,
-    // a transient S3 error) costs that attachment its stored copy, not the
-    // turn: the reply has been produced and tools may have written, so the
-    // turn is persisted without it. Only the error's name is logged — an S3
-    // message carries the object key, and the key carries the conversation id.
-    let attachmentMetas: AttachmentMeta[] | undefined;
-    if (opts.userAttachments?.length) {
-      const results: (AttachmentMeta | null)[] = await Promise.all(
-        opts.userAttachments.map((att) =>
-          att.data
-            ? uploadAttachment(att.data, {
-                type: att.type,
-                mimeType: att.mimeType,
-                fileName: att.fileName,
-                instanceId: opts.instanceId,
-                conversationId: opts.conversationId,
-              }).catch((err: unknown) => {
-                log.warn(
-                  "pipeline",
-                  `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
-                );
-                return null;
-              })
-            : Promise.resolve(null),
-        ),
-      );
-      const stored = results.filter((r): r is AttachmentMeta => r != null);
-      // Undefined rather than an empty array when nothing was stored: the column
-      // is nullable and an empty array would read as "there were attachments,
-      // and none of them are here".
-      attachmentMetas = stored.length > 0 ? stored : undefined;
-    }
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        role: "user",
-        content: opts.userMessage,
-        attachments: attachmentMetas,
-        metadata: opts.inboundMetadata,
-        // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
-        // and it always precedes the assistant row persisted just below.
-        ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
-      },
-    ]);
-
-    // 1. Save assistant message to PostgreSQL. The id is pre-generated on the
-    // streaming path so the client can correlate it with the per-message debug
-    // payload; the debug payload itself is present only when DEBUG was on.
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
-        role: "assistant",
-        content: opts.assistantResponse,
-        steps: opts.steps,
-        reasoning: opts.reasoning,
-        debugPayload: opts.debugPayload,
-        metadata: opts.provenance,
-      },
-    ]);
-
-    // 1.5 Generate title (only once, after first exchange)
+    // Generate title (only once, after first exchange)
     await generateConversationTitle({
       conversationId: opts.conversationId,
       instanceId: opts.instanceId,
@@ -546,7 +535,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
       content: `User: ${opts.userMessage}\nAssistant: ${opts.assistantResponse}`,
     });
 
-    // 2. Update conversation summary (only when sliding window overflows)
+    // Update conversation summary (only when sliding window overflows)
     if (opts.needsSummaryUpdate && opts.droppedMessages?.length) {
       const existing = opts.existingSummary
         ? `Previous summary: ${opts.existingSummary}\n\n`
@@ -585,7 +574,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
       }
     }
 
-    // 3. Automatic memory extraction (fire-and-forget within fire-and-forget)
+    // Automatic memory extraction
     if (opts.memoryEnabled !== false) {
       extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
         log.error("pipeline", "Memory extraction failed", err),
@@ -593,7 +582,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
     }
   };
 
-  work().catch((err: unknown) => log.error("pipeline", "afterResponse error", err));
+  work().catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err));
 }
 
 // ---------------------------------------------------------------------------
@@ -657,7 +646,7 @@ export async function runPipelinePre(
 }
 
 // ---------------------------------------------------------------------------
-// runPipelinePost — trace recording + afterResponse
+// runPipelinePost — trace recording + persistence
 // ---------------------------------------------------------------------------
 
 export interface PipelinePostOptions {
@@ -700,7 +689,7 @@ export interface PipelinePostOptions {
   abortSignal?: AbortSignal;
   /**
    * When false, skip every persistence side effect for this turn: no latency trace,
-   * no conversation-state flush, no `afterResponse` (messages, summary, memory,
+   * no conversation-state flush, no `persistTurn`/`afterResponseTail` (messages, summary, memory,
    * debug payload) and no contextPrompt clear. Set by a pre-LLM hook halt carrying
    * `persist: false` — the hook execution is still audited and its telemetry row
    * written, only the turn is ephemeral.
@@ -727,7 +716,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // and are audited, but nothing about the turn is written. Absent ⇒ persist.
   const persist = opts.persist !== false;
 
-  // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
+  // Aborted pipelines leave no trace: skip trace and persistence entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
     return { finalText: opts.resultText, hookExecutions: [] };
@@ -815,7 +804,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
 
   if (persist) {
-    afterResponse({
+    const turn: AfterResponseOptions = {
       conversationId: ctx.conversationId,
       instanceId: ctx.instanceId,
       userMessage: opts.messageText,
@@ -835,11 +824,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       // Copied to the agent's bucket only when the agent opted in. The model
       // already had them inline; this decides whether they are kept.
       userAttachments: ctx.instanceConfig.attachmentStorageEnabled ? ctx.userAttachments : undefined,
-      incomingSystemMessages: ctx.incomingSystemMessages,
       inboundMetadata: ctx.inboundMetadata,
       provenance,
       receivedAt: new Date(ctx.pipelineStart),
-    });
+    };
+    await persistTurn(turn);
+    afterResponseTail(turn);
 
     // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
     // subsequent inbound turns don't see stale webhook-trigger instructions.
