@@ -15,11 +15,17 @@ import { resolveInstanceConfig } from "../instances/config-resolver.js";
 
 const memoryLog = createLogger();
 
-function buildExtractionPrompt(): string {
-  const now = new Date();
-  const dateStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const dayName = dayNames[now.getDay()];
+/**
+ * The extraction prompt, dated in the agent's timezone: the model turns
+ * "tomorrow" into a date from it, so the date and its weekday must be the
+ * agent's day, not the UTC date paired with the server's weekday.
+ */
+function buildExtractionPrompt(now: Date, timeZone: string): string {
+  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone, ...options });
+  const ymd = part({ year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const field = (type: string) => ymd.find((p) => p.type === type)?.value;
+  const dateStr = `${field("year")}-${field("month")}-${field("day")}`; // YYYY-MM-DD
+  const dayName = part({ weekday: "long" }).format(now);
 
   return `You are a memory extraction system. Your task is to extract important facts, preferences, decisions, and events from a conversation.
 
@@ -85,6 +91,10 @@ export async function extractMemories(
   const earlierText = renderTranscript(context);
   const transcript = [...(earlierText ? ["EARLIER MESSAGES:", earlierText, ""] : []), "NEW MESSAGES:", newText].join("\n");
 
+  // From the 30s-cached config every turn already reads, not a fresh row read:
+  // the agent's timezone dates the prompt, its threshold deduplicates the facts.
+  const { datetime, dedupSimilarityThreshold } = await resolveInstanceConfig(instanceId);
+
   // 3. Call LLM for extraction (uses configured provider, tier fast)
   const response = await chat(
     {
@@ -92,7 +102,7 @@ export async function extractMemories(
       provider,
       apiKeys,
       langsmith,
-      system: buildExtractionPrompt(),
+      system: buildExtractionPrompt(new Date(), datetime.timezone),
       messages: [{ role: "user", content: transcript }],
     },
     { conversationId, instanceId, callType: "service" },
@@ -136,10 +146,8 @@ export async function extractMemories(
   //    path that doesn't block the user-facing response, in exchange for zero
   //    intra-batch conflicts. Cross-conversation conflicts on the same instance
   //    are still possible and handled by the retry loop in `upsertMemory`.
-  // Resolved ONCE per extraction, not per fact: it is a property of the agent,
-  // and the facts of one run all belong to the same one.
-  // From the 30s-cached config every turn already reads, not a fresh row read.
-  const { dedupSimilarityThreshold } = await resolveInstanceConfig(instanceId);
+  // The threshold is resolved ONCE per extraction, not per fact: it is a
+  // property of the agent, and the facts of one run all belong to the same one.
 
   const results: UpsertResult[] = [];
   for (let i = 0; i < facts.length; i++) {

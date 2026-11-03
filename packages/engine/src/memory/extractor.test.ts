@@ -39,8 +39,12 @@ import { extractMemories } from "./extractor.js";
 
 // The dedup threshold is the agent's, resolved ONCE per extraction from its
 // cached config. Mocked so the suite stays about extraction rather than the lookup.
+const agentConfig = vi.hoisted(() => ({
+  dedupSimilarityThreshold: 0.8,
+  datetime: { timezone: "UTC", locale: "en-US" },
+}));
 vi.mock("../instances/config-resolver.js", () => ({
-  resolveInstanceConfig: async () => ({ dedupSimilarityThreshold: 0.8 }),
+  resolveInstanceConfig: async () => agentConfig,
 }));
 
 describe("extractMemories", () => {
@@ -306,6 +310,26 @@ describe("extractMemories", () => {
     }));
 
     expect(results).toHaveLength(2);
+  });
+});
+
+describe("extractMemories — today's date", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    agentConfig.datetime = { timezone: "UTC", locale: "en-US" };
+  });
+
+  it("dates the extraction in the agent's timezone, with a weekday that matches the date", async () => {
+    // 23:30 UTC on Monday 2 November is already Tuesday 3 November in Rome.
+    vi.useFakeTimers({ now: new Date("2026-11-02T23:30:00.000Z"), toFake: ["Date"] });
+    agentConfig.datetime = { timezone: "Europe/Rome", locale: "it-IT" };
+    mockUnreadMessages.mockResolvedValue([{ role: "user", content: "see you tomorrow", createdAt: new Date() }]);
+    mockChat.mockResolvedValue({ text: "[]" });
+
+    await extractMemories("conv-1", asInstanceSlug("user-1"));
+
+    const [{ system }] = mockChat.mock.calls[0] as [{ system: string }];
+    expect(system).toContain("TODAY'S DATE: 2026-11-03 (Tuesday)");
   });
 });
 
