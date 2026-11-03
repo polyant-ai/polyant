@@ -102,7 +102,15 @@ export class InstanceToolsController {
     const instance = await findInstanceOrFail(slug);
     const enabledSet = new Set(enabled);
 
-    const currentRows = await listInstanceToolRows(instance.id);
+    // The request speaks only for the tools the running release offers, the
+    // ones the view lists, and the agent's `agent:*` handoffs. A row of a tool
+    // it does not offer stays as it is: the boot sync keeps such a row while an
+    // agent references it (a newer release's tool, after a rollback), and a save
+    // must neither refuse over it nor switch it off.
+    const offered = new Set(listAvailableTools().map((t) => t.name));
+    const currentRows = (await listInstanceToolRows(instance.id)).filter(
+      (r) => offered.has(r.name) || agentToolTarget(r.name) !== null,
+    );
 
     const currentByName = new Map(currentRows.map((r) => [r.name, r]));
 

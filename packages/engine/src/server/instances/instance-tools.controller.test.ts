@@ -64,6 +64,20 @@ describe("PATCH /api/instances/:slug/tools body", () => {
     await controller.updateTools("acme", { enabled: ["web_search"] });
     expect(store.applyManualToolChanges).toHaveBeenCalledWith("agent-uuid", [], ["t-email"]);
   });
+
+  it("leaves alone the tools the running release does not offer", async () => {
+    // Rows the boot sync keeps because an agent still references them (a tool
+    // of a newer release, after a rollback): the panel never lists them, so a
+    // save from it must neither refuse nor switch them off.
+    store.listInstanceToolRows.mockResolvedValue([
+      { toolId: "t-search", name: "web_search", source: "manual" },
+      { toolId: "t-email", name: "send_email", source: "manual" },
+      { toolId: "t-newer-global", name: "newer_global_tool", source: "global" },
+      { toolId: "t-newer-manual", name: "newer_manual_tool", source: "manual" },
+    ]);
+    await controller.updateTools("acme", { enabled: ["web_search"] });
+    expect(store.applyManualToolChanges).toHaveBeenCalledWith("agent-uuid", [], ["t-email"]);
+  });
 });
 
 describe("assertAgentTargetsAreSiblings", () => {
