@@ -8,10 +8,17 @@ import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
+import { chatStreamSchema } from "./chat-completion.schema.js";
+import { parseBody } from "../utils/parse-body.js";
 import { createLogger } from "../../utils/create-logger.js";
 import { errMsg } from "../../utils/error.js";
 
 const log = createLogger();
+
+/** The body both stream routes take; the URL slug replaces its `model`. */
+function parseStreamBody(body: unknown): Omit<ChatCompletionRequest, "model"> {
+  return parseBody(chatStreamSchema, body);
+}
 
 /**
  * Native typed-SSE streaming: `chat/stream` is the Web channel's endpoint (public, key-gated), `playground/stream` is the panel's own (session-gated).
@@ -51,10 +58,11 @@ export class InstanceChatStreamController {
   @Post(":slug/chat/stream")
   async stream(
     @Param("slug") slug: string,
-    @Body() body: ChatCompletionRequest,
+    @Body() rawBody: unknown,
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    const body = parseStreamBody(rawBody);
     // Before the first await: see TurnStreamRelay for what a disconnect does.
     const relay = new TurnStreamRelay(res);
 
@@ -78,15 +86,16 @@ export class InstanceChatStreamController {
   @Post(":slug/playground/stream")
   async playground(
     @Param("slug") slug: string,
-    @Body() body: ChatCompletionRequest,
+    @Body() rawBody: unknown,
     @Res() res: Response,
   ): Promise<void> {
+    const body = parseStreamBody(rawBody);
     const relay = new TurnStreamRelay(res);
     // Panel turns carry no call context.
     await this.pipe(slug, { ...body, context: undefined }, res, relay);
   }
 
-  private async pipe(slug: string, body: ChatCompletionRequest, res: Response, relay: TurnStreamRelay): Promise<void> {
+  private async pipe(slug: string, body: Omit<ChatCompletionRequest, "model">, res: Response, relay: TurnStreamRelay): Promise<void> {
     // Force the model field to the URL slug — the playground already passes
     // it but we ignore any client-side override to keep the route authoritative.
     const request: ChatCompletionRequest = { ...body, model: slug, stream: true };
