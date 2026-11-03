@@ -56,6 +56,9 @@ import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
 
+/** The scheduler's private tick and in-process set, as the tests below drive them. */
+const internals = roomScheduler as unknown as { tick(): Promise<void>; running: Set<string> };
+
 const ROOM_A = {
   id: "room-a",
   instanceId: asInstanceUuid("inst-a"),
@@ -116,7 +119,7 @@ describe("RoomScheduler", () => {
       let finish!: () => void;
       mockExecuteRoomCycle.mockImplementation(() => new Promise<void>((r) => { finish = r; }));
 
-      await (roomScheduler as any).tick();
+      await internals.tick();
       await vi.waitFor(() => expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1));
       roomScheduler.shutdown();
       expect(pendingBackgroundTurns()).toBeGreaterThan(0);
@@ -216,7 +219,7 @@ describe("RoomScheduler", () => {
       mockExecuteRoomCycle.mockResolvedValue(undefined);
 
       // Access private tick() method
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
     });
@@ -225,7 +228,7 @@ describe("RoomScheduler", () => {
       mockListEnabledRooms.mockResolvedValue([ROOM_A]);
       mockCountPendingEvents.mockResolvedValue(new Map());
 
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
     });
@@ -245,7 +248,7 @@ describe("RoomScheduler", () => {
       await tick1;
 
       // Second tick — room A still running, should be skipped
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       // Only 1 call: the second tick skipped room A
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
@@ -259,8 +262,8 @@ describe("RoomScheduler", () => {
       mockCountPendingEvents.mockResolvedValue(new Map([["inst-a", 2]]));
       mockWithLease.mockImplementation(async (key: string) => !key.startsWith("room:"));
 
-      await (roomScheduler as any).tick();
-      await vi.waitFor(() => expect((roomScheduler as any).running.has("inst-a")).toBe(false));
+      await internals.tick();
+      await vi.waitFor(() => expect(internals.running.has("inst-a")).toBe(false));
 
       expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
     });

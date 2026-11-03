@@ -141,6 +141,7 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
       last_conversation_id: "Run history, naming a conversation of the source.",
       consecutive_errors: "Run history.",
       total_runs: "Run history.",
+      lease_expires_at: "Run state: the lease of a run in progress in the source's process.",
     },
   },
 };
