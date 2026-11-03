@@ -8,6 +8,41 @@ import type { TemplateDefinition } from "./render-template.js";
 const TYPING_INDICATOR_ENDPOINT = "https://messaging.twilio.com/v2/Indicators/Typing.json";
 const CONTENT_API_ENDPOINT = "https://content.twilio.com/v1/Content";
 
+/** Waits before the second and third attempt of a send that failed transiently. */
+const SEND_RETRY_DELAYS_MS = [300, 1_200];
+
+/**
+ * Network errors raised before any byte of the request left: the message
+ * cannot have reached Twilio. A reset or a timeout after sending is left out,
+ * since the message may already be queued and a resend would deliver it twice.
+ */
+const NOT_SENT_ERROR_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
+
+/**
+ * A send worth repeating: Twilio rate-limited it (429), failed on its side
+ * (5xx), or was never reached. The Messages API takes no idempotency key, so a
+ * 5xx that Twilio had in fact accepted can still deliver twice; losing the
+ * reply is the worse outcome.
+ */
+function isTransientSendError(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status === 429 || status >= 500;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && NOT_SENT_ERROR_CODES.has(code);
+}
+
+async function withSendRetry<T>(send: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (err) {
+      const delay = SEND_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isTransientSendError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 /**
  * The two credential shapes Twilio accepts for one account. `apiKey` is a
  * revocable key pair; it can drive every REST call but CANNOT validate an
@@ -78,15 +113,19 @@ export class TwilioWhatsAppClient {
     const chunks = body.length > 0 ? splitMessage(body, CHANNEL_MAX_LENGTH.whatsapp) : [""];
     const mediaUrl = opts?.mediaUrl?.length ? opts.mediaUrl : undefined;
 
+    // Each chunk is retried on its own, so a transient failure in the middle
+    // neither loses the rest nor resends the chunks already delivered.
     for (let i = 0; i < chunks.length; i++) {
       const isFirst = i === 0;
-      await this.client.messages.create({
-        from: `whatsapp:${this.fromNumber}`,
-        to: `whatsapp:${cleanTo}`,
-        body: chunks[i],
-        // Media goes with the first chunk only to avoid duplicate deliveries.
-        ...(isFirst && mediaUrl ? { mediaUrl } : {}),
-      });
+      await withSendRetry(() =>
+        this.client.messages.create({
+          from: `whatsapp:${this.fromNumber}`,
+          to: `whatsapp:${cleanTo}`,
+          body: chunks[i],
+          // Media goes with the first chunk only to avoid duplicate deliveries.
+          ...(isFirst && mediaUrl ? { mediaUrl } : {}),
+        }),
+      );
     }
   }
 
@@ -96,12 +135,14 @@ export class TwilioWhatsAppClient {
     variables: Record<string, string>,
   ): Promise<string> {
     const cleanTo = to.replace(/^whatsapp:/, "");
-    const res = await this.client.messages.create({
-      from: `whatsapp:${this.fromNumber}`,
-      to: `whatsapp:${cleanTo}`,
-      contentSid,
-      contentVariables: JSON.stringify(variables),
-    });
+    const res = await withSendRetry(() =>
+      this.client.messages.create({
+        from: `whatsapp:${this.fromNumber}`,
+        to: `whatsapp:${cleanTo}`,
+        contentSid,
+        contentVariables: JSON.stringify(variables),
+      }),
+    );
     return res.sid;
   }
 
