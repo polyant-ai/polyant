@@ -191,7 +191,13 @@ following happen. Run one replica, or accept these effects:
   redeliveries are dropped by the replica that saw the first copy; a retry that
   reaches another replica runs the agent again.
 - **Rate limits apply per replica.** Each replica counts requests on its own, so
-  the effective limit is the configured one times the number of replicas.
+  the effective limit is the configured one times the number of replicas. That
+  includes the limit on password checks at sign-in.
+- **Permission and agent changes reach other replicas late.** Each replica
+  caches what it read: role bindings for up to 60 seconds, the Platform Admin
+  flag for up to 5 minutes, and an agent's settings, API key and Web channel
+  switch for up to 30 seconds. The replica that saved a change applies it at
+  once; the others apply it when their copy expires.
 - **A scheduled task that overruns its deadline can run twice.** Each run is
   claimed in the database, so a task normally runs once however many replicas
   there are. When a run outlasts its run deadline, the reaper frees the claim,
