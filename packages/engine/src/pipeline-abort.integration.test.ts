@@ -21,6 +21,8 @@ import type { HookEvent, HookEventPayload, HookExecutionSummary, HookRunContext 
 const hookBehaviour = vi.hoisted(() => ({
   responseGenerated: undefined as undefined | ((ctx: HookRunContext) => void),
   responseSent: undefined as undefined | ((payload: HookEventPayload, ctx: HookRunContext) => void | Promise<void>),
+  conversationStart: undefined as undefined | ((ctx: HookRunContext) => HookExecutionSummary[]),
+  messageReceived: undefined as undefined | ((payload: HookEventPayload) => void),
 }));
 
 vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
@@ -32,6 +34,8 @@ vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
       payload: HookEventPayload,
       ctx: HookRunContext,
     ): Promise<HookExecutionSummary[]> => {
+      if (event === "conversation_start") return hookBehaviour.conversationStart?.(ctx) ?? [];
+      if (event === "message_received") hookBehaviour.messageReceived?.(payload);
       if (event === "response_generated") hookBehaviour.responseGenerated?.(ctx);
       if (event === "response_sent") await hookBehaviour.responseSent?.(payload, ctx);
       return [];
@@ -110,8 +114,11 @@ async function finishTurn(
  * A turn as the channel handler runs it, with a canned reply standing in for
  * the model: the real context preparation, then the real post phase.
  */
+const seenHistories: Array<{ text: string; history: unknown[] }> = [];
+
 async function cannedTurn(msg: IncomingMessage, signal: AbortSignal): Promise<{ text: string }> {
   const pre = await runPipelinePre(msg, undefined, signal);
+  seenHistories.push({ text: pre.messageText, history: pre.ctx.history ?? [] });
   const { finalText } = await runPipelinePost({
     ctx: pre.ctx,
     contextPrepMs: pre.contextPrepMs,
@@ -158,6 +165,9 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
   afterEach(() => {
     hookBehaviour.responseGenerated = undefined;
     hookBehaviour.responseSent = undefined;
+    hookBehaviour.conversationStart = undefined;
+    hookBehaviour.messageReceived = undefined;
+    seenHistories.length = 0;
   });
 
   it("writes the turn's messages and the hook's state when nothing aborts it", async () => {
@@ -260,5 +270,42 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
     finishHook();
     const { ctx } = await next;
     expect(ctx.stateBuffer?.snapshot()).toMatchObject({ delivered: true });
+  });
+
+  it("runs conversation_start once per burst, and the restarted run keeps what it produced", async () => {
+    const channelId = randomUUID();
+    const conversationId = `${AGENT}:whatsapp:${channelId}`;
+    const coordinator = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 30, typingDelayMs: 10_000, maxRestarts: 3 }),
+      handler: cannedTurn,
+      sendOutbound: async () => undefined,
+    });
+    const fragment = (text: string): IncomingMessage => ({ channelType: "whatsapp", channelId, instanceId: AGENT, text, metadata: {} });
+    let lookups = 0;
+    hookBehaviour.conversationStart = (ctx) => {
+      lookups++;
+      ctx.state?.set("contact", "C-42");
+      return [
+        { hookId: "h", event: "conversation_start", actionType: "function", toolName: "lookup", success: true, durationMs: 1, injectContext: "Known contact C-42" },
+      ];
+    };
+    // The second fragment arrives while the first run is still before the model: it restarts the turn.
+    let injected = false;
+    hookBehaviour.messageReceived = () => {
+      if (injected) return;
+      injected = true;
+      void coordinator.onMessage(fragment("b"));
+    };
+
+    await coordinator.onMessage(fragment("a"));
+    await vi.waitFor(async () => expect(await messages(conversationId)).toEqual(["user:a\nb", "assistant:R(a\nb)"]), {
+      timeout: 5_000,
+    });
+
+    expect(lookups).toBe(1);
+    const restarted = seenHistories.find((h) => h.text === "a\nb");
+    expect(restarted?.history).toContainEqual({ role: "system", content: "Known contact C-42" });
+    expect(await storedState(conversationId)).toMatchObject({ contact: "C-42" });
+    coordinator.shutdown();
   });
 });

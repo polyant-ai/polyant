@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { randomUUID } from "node:crypto";
 import { createLogger, shouldLog } from "../utils/create-logger.js";
-import type { IncomingMessage, OutgoingMessage } from "./types.js";
+import type { IncomingMessage, OutgoingMessage, TurnBurst } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
 import { trackBackgroundTurn } from "./background-turns.js";
 import { contactConversationId } from "./outbound-conversation.js";
@@ -105,6 +106,10 @@ interface ConversationState {
   uncancellable: boolean;
   /** Serialization chain for pipeline runs on the same conversation. */
   flushChain: Promise<unknown>;
+  /** Shared by every run of this burst (see `IncomingMessage.burst`). */
+  burst: TurnBurst;
+  /** What the burst did, logged once when it closes. */
+  stats: { fragments: number; runs: number; restarts: number; startedAt: number; lastFragmentAt: number; gapsMs: number[] };
   /**
    * Ends the burst's entry in the background-turn tracker. The adapter has
    * already acknowledged these fragments, so shutdown waits for the burst —
@@ -175,6 +180,10 @@ export class MessageCoordinator {
 
     // Append fragment to the burst
     state.buffer.push(msg.text);
+    const now = Date.now();
+    state.stats.fragments++;
+    state.stats.gapsMs.push(now - state.stats.lastFragmentAt);
+    state.stats.lastFragmentAt = now;
     const sid = extractMessageSid(msg);
     if (sid) state.lastSid = sid;
     if (msg.attachments?.length) state.attachments.push(...msg.attachments);
@@ -185,6 +194,7 @@ export class MessageCoordinator {
         state.currentAbort.abort();
         state.currentAbort = null;
         state.restartCount++;
+        state.stats.restarts++;
         // Fragments under processing are restored into the buffer by the flushChain
         // catch branch (see doFlush). We just re-arm the pipeline timer here.
         this.armPipelineTimer(key);
@@ -245,6 +255,8 @@ export class MessageCoordinator {
       restartCount: 0,
       uncancellable: false,
       flushChain: Promise.resolve(),
+      burst: { id: randomUUID() },
+      stats: { fragments: 1, runs: 0, restarts: 0, startedAt: Date.now(), lastFragmentAt: Date.now(), gapsMs: [] },
       settle,
     };
     this.states.set(key, state);
@@ -318,6 +330,7 @@ export class MessageCoordinator {
         }
 
         state.uncancellable = false;
+        state.stats.runs++;
         // Asked right before each tool and right before the turn is saved: a
         // cancelled run does neither, and one that does either is not cancelled.
         // The check and the flag share one tick, so no fragment falls in between.
@@ -332,6 +345,7 @@ export class MessageCoordinator {
           attachments: burstAttachments,
           toolGate: pointOfNoReturn,
           commitGate: pointOfNoReturn,
+          burst: state.burst,
         };
         return this.doFlush(key, state, combined, signal, fragments, burstAttachments);
       })
@@ -411,6 +425,8 @@ export class MessageCoordinator {
     state.uncancellable = false;
     state.typingSent = false;
     state.lastSid = undefined;
+    // A completed run saved the first turn: no later run treats it as one.
+    state.burst.conversationStart = undefined;
 
     if (state.buffer.length > 0) {
       this.armPipelineTimer(key);
@@ -420,6 +436,21 @@ export class MessageCoordinator {
       if (state.pipelineTimer) clearTimeout(state.pipelineTimer);
       this.states.delete(key);
       state.settle();
+      this.logBurst(state);
     }
+  }
+
+  /**
+   * One line per burst, the data `softDebounceMs` and `maxRestarts` are chosen
+   * from: how many fragments, how far apart, how many runs and restarts. Stable
+   * identifiers only, never the contact's address.
+   */
+  private logBurst(state: ConversationState): void {
+    const { fragments, runs, restarts, startedAt, gapsMs } = state.stats;
+    log.info(
+      "coordinator",
+      `burst closed for ${state.seed.instanceId}/${state.seed.channelType} (${state.burst.id}): ` +
+        `fragments=${fragments} runs=${runs} restarts=${restarts} gapsMs=[${gapsMs.join(",")}] spanMs=${Date.now() - startedAt}`,
+    );
   }
 }

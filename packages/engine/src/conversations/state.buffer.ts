@@ -67,6 +67,12 @@ export interface ConversationStateApi {
   readonly channel: ChannelStateIdentity | undefined;
 }
 
+/** Buffered writes not flushed yet: the keys set (with their values) and the keys removed. */
+export interface StateChanges {
+  set: Record<string, unknown>;
+  removed: string[];
+}
+
 /** Strip non-JSON values and surface a tool bug early rather than at flush time. */
 function toJsonValue(key: string, value: unknown): unknown {
   let serialized: string | undefined;
@@ -174,6 +180,27 @@ export class ConversationStateBuffer {
         return readChannel();
       },
     };
+  }
+
+  /** The writes buffered so far, as a copy another run's buffer can apply. */
+  pendingChanges(): StateChanges {
+    const set: Record<string, unknown> = {};
+    for (const key of this.dirty) set[key] = structuredClone(this.data[key]);
+    return { set, removed: [...this.removed] };
+  }
+
+  /** Apply writes captured from another run of the same turn ({@link pendingChanges}). */
+  applyChanges(changes: StateChanges): void {
+    for (const [key, value] of Object.entries(changes.set)) {
+      this.data[key] = structuredClone(value);
+      this.dirty.add(key);
+      this.removed.delete(key);
+    }
+    for (const key of changes.removed) {
+      delete this.data[key];
+      this.dirty.delete(key);
+      this.removed.add(key);
+    }
   }
 
   /** Snapshot for read-only prompt injection (defensive copy). */

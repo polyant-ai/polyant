@@ -657,7 +657,21 @@ export async function runPipelinePre(
   if (hookPayload) {
     const hookCtx = buildHookRunContext(ctx, abortSignal);
     if (ctx.isFirstTurn) {
-      hookExecutions.push(...(await runHooks("conversation_start", hookPayload, hookCtx)));
+      // A run the coordinator restarted is still the first turn (the cancelled
+      // run saved nothing), but its conversation_start hooks already ran: reuse
+      // what they produced — injected context, halt, state writes — instead of
+      // repeating their external calls.
+      const carried = msg.burst?.conversationStart;
+      if (carried) {
+        hookExecutions.push(...carried.summaries);
+        if (carried.state) ctx.stateBuffer?.applyChanges(carried.state);
+      } else {
+        const summaries = await runHooks("conversation_start", hookPayload, hookCtx);
+        hookExecutions.push(...summaries);
+        if (msg.burst && !abortSignal?.aborted) {
+          msg.burst.conversationStart = { summaries, state: ctx.stateBuffer?.pendingChanges() };
+        }
+      }
     }
     hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
   }
