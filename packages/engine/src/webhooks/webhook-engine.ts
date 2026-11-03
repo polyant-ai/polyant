@@ -262,7 +262,6 @@ export async function triggerConversation(
     instanceConfig,
     titleContent: `Webhook trigger: ${definition.name}\nAssistant: ${finalText.slice(0, 300)}`,
     titleContext: "This is a webhook-triggered outbound conversation.",
-    log: webhookLog,
   });
 
   recordDirectTurnTrace({ conversationId, instanceSlug, channel: channelLabel, contextPrepMs, cycleStart, result });

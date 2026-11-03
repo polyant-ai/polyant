@@ -22,7 +22,6 @@ import { postProcessDirectTurn } from "./direct-turn.js";
 import { drainBackgroundTurns } from "../channels/background-turns.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import type { InstanceConfig } from "../instances/config-resolver.js";
-import { createLogger } from "../utils/create-logger.js";
 
 describe("postProcessDirectTurn", () => {
   it("runs the title and the memory with the agent's tracing, as work shutdown waits for", async () => {
@@ -41,7 +40,6 @@ describe("postProcessDirectTurn", () => {
       instanceConfig,
       titleContent: "Room cycle",
       titleContext: "This is a room conversation.",
-      log: createLogger(),
     });
 
     expect(await drainBackgroundTurns(50)).toEqual({ pending: 1 });

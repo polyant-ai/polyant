@@ -252,7 +252,7 @@ export async function executeRoomCycle(
     conversationStore.updateTitle(conversationId, `Room · ${triggers.join(" + ")}`),
   ]);
 
-  postProcessDirectTurn({ conversationId, instanceSlug, instanceConfig, log: roomLog });
+  postProcessDirectTurn({ conversationId, instanceSlug, instanceConfig });
 
   const now = new Date();
   const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });

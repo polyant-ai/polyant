@@ -184,8 +184,8 @@ export function persistDirectReply(conversationId: string, outcome: DirectTurnOu
  * After the reply: the conversation title, then memory extraction when
  * enabled — the same bounded, shutdown-tracked work the pipeline runs after a
  * saved turn, with the same inputs (LangSmith included). Without `titleContent`
- * no title is generated (the engine wrote its own). `log` is unused: the
- * shared work logs its own failures.
+ * no title is generated (the engine wrote its own). The shared work logs its
+ * own failures.
  */
 export function postProcessDirectTurn(input: {
   conversationId: string;
@@ -193,7 +193,6 @@ export function postProcessDirectTurn(input: {
   instanceConfig: InstanceConfig;
   titleContent?: string;
   titleContext?: string;
-  log: Logger;
 }): void {
   afterResponseTail({
     conversationId: input.conversationId,
