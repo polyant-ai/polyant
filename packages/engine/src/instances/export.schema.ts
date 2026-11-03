@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
+import { scheduleConfigSchema } from "../scheduled-tasks/schedule-utils.js";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -100,7 +101,8 @@ export const exportScheduledTaskSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   enabled: z.boolean(),
-  schedule: z.object({ type: z.string() }).passthrough(), // ScheduleConfig union
+  // The rule every schedule writer shares: a bundle cannot carry a schedule the API would refuse.
+  schedule: scheduleConfigSchema,
   prompt: z.string(),
   outboundChannel: z.string().nullable(),
   outboundTarget: z.string().nullable(),

@@ -180,6 +180,9 @@ class SchedulerService {
     }
 
     try {
+      // A schedule no next run can be computed from fails here, before the run is paid for.
+      computeNextRun(task.schedule as ScheduleConfig);
+
       scheduledTaskLog.info("SchedulerService", `executing task "${task.name}" (${task.id})`);
 
       // Activity-stream emit: surface the "task is starting" signal BEFORE the

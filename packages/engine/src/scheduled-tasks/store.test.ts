@@ -283,6 +283,22 @@ describe("scheduled-tasks/store", () => {
       expect(setArgs.lastError).toBe("give up");
     });
 
+    it("disables on the first failure a task whose stored schedule yields no next run, without retrying", async () => {
+      wireGetById({ ...BASE_TASK, consecutiveErrors: 0, maxRetries: 3 });
+      mockComputeNextRun.mockImplementationOnce(() => {
+        throw new RangeError("Interval schedule has an invalid everyMs: 0");
+      });
+      const updateChain = createChainMock([{ id: TASK_ID }]);
+      mockDb.update.mockReturnValue(updateChain as never);
+
+      await markFailed(TASK_ID, "Interval schedule has an invalid everyMs: 0", new Date());
+
+      const setArgs = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
+      expect(setArgs.enabled).toBe(false);
+      expect(setArgs.nextRunAt).toBeNull();
+      expect(mockComputeRetryDelay).not.toHaveBeenCalled();
+    });
+
     it("is a no-op (no update) when the task does not exist", async () => {
       wireGetById(undefined);
 

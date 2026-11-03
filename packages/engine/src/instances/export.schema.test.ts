@@ -183,5 +183,22 @@ it("preserves a custom scheduled-task deadline and defaults older bundles to nul
   expect(exportScheduledTaskSchema.parse({ ...legacyTask, maxRunMs: 45_000 }).maxRunMs).toBe(45_000);
 });
 
+it.each([0, -5, 59_999])("refuses a bundle whose scheduled task runs every %s ms", (everyMs) => {
+  const task = {
+    name: "digest",
+    description: null,
+    enabled: true,
+    schedule: { type: "interval", everyMs },
+    prompt: "Summarize",
+    outboundChannel: null,
+    outboundTarget: null,
+    keepHistory: false,
+    deleteAfterRun: false,
+    maxRetries: 3,
+    createdBy: null,
+  };
+  expect(exportScheduledTaskSchema.safeParse(task).success).toBe(false);
+});
+
 // stripSensitiveKeys now has its own module + test file: see
 // channel-config-sanitize.ts / channel-config-sanitize.test.ts.

@@ -304,12 +304,21 @@ export async function markFailed(id: string, error: string, claim: RunClaim): Pr
   if (!task) return false;
 
   const newConsecutive = task.consecutiveErrors + 1;
-  const shouldDisable = newConsecutive >= MAX_CONSECUTIVE_ERRORS;
-
   const schedule = task.schedule as ScheduleConfig;
   const now = new Date();
 
-  // For retries, use backoff delay; otherwise compute normal next run
+  // A stored schedule no next run can be computed from (written before the writers
+  // validated it) disables the task: retrying it would fail the same way.
+  let scheduledNext: Date | null = null;
+  let scheduleBroken = false;
+  try {
+    scheduledNext = computeNextRun(schedule, now);
+  } catch {
+    scheduleBroken = true;
+  }
+  const shouldDisable = scheduleBroken || newConsecutive >= MAX_CONSECUTIVE_ERRORS;
+
+  // For retries, use backoff delay; otherwise the normal next run
   let nextRunAt: Date | null;
   if (shouldDisable) {
     nextRunAt = null;
@@ -318,7 +327,7 @@ export async function markFailed(id: string, error: string, claim: RunClaim): Pr
     nextRunAt = new Date(now.getTime() + computeRetryDelay(newConsecutive - 1));
   } else {
     // Past max retries for this run, advance to normal next schedule
-    nextRunAt = computeNextRun(schedule, now);
+    nextRunAt = scheduledNext;
   }
 
   const rows = await db
