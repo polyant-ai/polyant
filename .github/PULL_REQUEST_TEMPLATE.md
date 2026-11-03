@@ -1,32 +1,23 @@
-## Summary
+## Change
 
-<!-- What does this PR change and why? -->
+<!-- What changes for users or operators, and why. Link the issue when there is one. -->
 
-## Type of change
+## Verification
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactor / cleanup
-- [ ] Documentation
-- [ ] CI / infrastructure
+<!-- Commands run and their results. UI changes: what was checked in the browser. Name anything that could not run and why. -->
 
-## Testing
+## Make it good
 
-<!-- How did you verify this works? -->
+<!-- What the simplification pass changed, or why nothing needed changing. Existing code reused or generalized. Net production lines added/removed. -->
 
-- [ ] `npm run typecheck` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run test:unit` passes
-- [ ] Manually tested: <!-- describe steps -->
+## Impact
 
-## Sign-off
+<!-- One line each. "none: <reason>" is a valid answer. -->
+- Collateral:
+- Ecosystem:
 
-- [ ] All commits are signed off (DCO) with `git commit -s`
+## Remaining debt and risks
 
-## Breaking changes
+<!-- What is knowingly left, with the issue that tracks it. "none" is a valid answer. -->
 
-<!-- List any breaking API or config changes, or write "None". -->
-
-## Related issues
-
-<!-- Closes #... -->
+Reviewed-commit: <!-- full SHA of the head the checks above ran on -->
