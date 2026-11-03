@@ -50,6 +50,14 @@ function stripNulString(s: string): string {
 /** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
 
+/**
+ * Matching messages the conversation search reads from the full-text index
+ * before falling back to testing each conversation (see `searchConversations`).
+ * The threshold is deployment-wide: revisit it when the message table grows by
+ * an order of magnitude.
+ */
+const SEARCH_PROBE_LIMIT = 5000;
+
 const WRAPPING_QUOTES_RE = /^["'“”‘’«»`]+|["'“”‘’«»`]+$/g;
 const SPEAKER_LABEL_RE = /^(?:user|utente|assistant|assistente)\s*:\s*/i;
 
@@ -934,6 +942,16 @@ export class ConversationStore {
   /**
    * Search conversations by message content (FTS), by conversation id or by
    * contact substring (case-insensitive). Returns conversation-level results.
+   *
+   * The message match starts from the full-text index: one probe reads up to
+   * `SEARCH_PROBE_LIMIT + 1` matching messages of the whole deployment. When it
+   * gets them all, the search runs on that short list of conversations. Testing
+   * every conversation of the organization against its messages instead cost
+   * seconds on a large organization, and most for the rarest terms (names,
+   * numbers). A term with more matches keeps the per-conversation test.
+   *
+   * Either way the page is ranked and cut before the snippet and the AI usage
+   * are read for its rows; `id` breaks ties so pages neither repeat nor skip.
    */
   async searchConversations(
     query: string,
@@ -954,18 +972,40 @@ export class ConversationStore {
       ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter} ${contactFilter}`
       : sql`${orgFilter} ${contactFilter}`;
 
+    const probe = (await db.execute(sql`
+      SELECT cm.conversation_id FROM conversation_messages cm
+      WHERE cm.search_vector @@ ${tsQuery}
+      LIMIT ${SEARCH_PROBE_LIMIT + 1}
+    `)) as unknown as Array<{ conversation_id: string }>;
+    const messageMatch = probe.length <= SEARCH_PROBE_LIMIT
+      ? sql`c.conversation_id = ANY(${sql.param([...new Set(probe.map((r) => r.conversation_id))])}::text[])`
+      : sql`EXISTS (
+          SELECT 1 FROM conversation_messages cmx
+          WHERE cmx.conversation_id = c.conversation_id
+            AND cmx.search_vector @@ ${tsQuery}
+        )`;
     const matchFilter = sql`(
       c.conversation_id ILIKE ${idPattern}
       OR c.user_identifier ILIKE ${idPattern}
-      OR EXISTS (
-        SELECT 1 FROM conversation_messages cmx
-        WHERE cmx.conversation_id = c.conversation_id
-          AND cmx.search_vector @@ ${tsQuery}
-      )
+      OR ${messageMatch}
     )`;
 
     const [rows, countResult] = await Promise.all([
       db.execute(sql`
+        WITH page AS (
+          SELECT
+            c.id,
+            c.updated_at,
+            COUNT(cm.id)::int AS match_count,
+            MAX(ts_rank(cm.search_vector, ${tsQuery})) AS rank
+          FROM conversations c
+          LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
+            AND cm.search_vector @@ ${tsQuery}
+          WHERE ${matchFilter} ${instanceFilter}
+          GROUP BY c.id
+          ORDER BY rank DESC NULLS LAST, c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -975,7 +1015,7 @@ export class ConversationStore {
           c.user_identifier,
           c.instance_id,
           i.name AS instance_name,
-          COUNT(cm.id)::int AS match_count,
+          p.match_count,
           (SELECT cm2.content FROM conversation_messages cm2
            WHERE cm2.conversation_id = c.conversation_id
              AND cm2.search_vector @@ ${tsQuery}
@@ -993,10 +1033,9 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
-        LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
-          AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
                  SUM(al.estimated_cost_usd::float8) AS total_cost,
@@ -1009,10 +1048,7 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        WHERE ${matchFilter} ${instanceFilter}
-        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
-        ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC NULLS LAST, c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.rank DESC NULLS LAST, p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
         SELECT COUNT(*)::int AS total
