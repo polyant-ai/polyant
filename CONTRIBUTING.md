@@ -174,39 +174,13 @@ Examples:
 - `fix(channels): handle Telegram webhook reconnection`
 - `docs(readme): update quick start for Docker setup`
 
-### Sign your work (DCO)
-
-Polyant uses the [Developer Certificate of Origin](https://developercertificate.org/)
-for contributions, instead of a Contributor License Agreement.
-
-Every commit must include a `Signed-off-by` line. Sign your commits with:
-
-    git commit -s -m "feat: my change"
-
-This appends a line like:
-
-    Signed-off-by: Your Name <your.email@example.com>
-
-The `-s` flag uses your `git config user.name` and `user.email`. If you forgot
-to sign a previous commit, amend it with:
-
-    git commit --amend -s --no-edit
-
-Or rebase to add sign-off to a range of commits:
-
-    git rebase -i --exec "git commit --amend -s --no-edit" main
-
-The DCO check is enforced by GitHub Actions on every pull request. PRs without
-sign-off cannot be merged.
-
 ### Pull Request process
 
 1. Open a PR against `develop` with a clear title (Conventional Commits format). CI runs on both `main` and `develop`.
 2. Fill in the PR description: what changes, why, and how to test.
 3. CI must pass (lint + typecheck + tests).
-4. All commits must be signed off (see DCO section above).
-5. At least one maintainer review is required before merge.
-6. PRs are squash-merged to keep history clean.
+4. At least one maintainer review is required before merge.
+5. PRs are squash-merged to keep history clean.
 
 ## Code Conventions
 
