@@ -101,14 +101,6 @@ export class BufferedInsertQueue<T> {
     if (this.buffer.length >= this.batchAt) void this.flush();
   }
 
-  /** The newest buffered row matching `predicate`, for patching it before it is written. */
-  findLast(predicate: (row: T) => boolean): T | undefined {
-    for (let i = this.buffer.length - 1; i >= 0; i--) {
-      if (predicate(this.buffer[i]!)) return this.buffer[i];
-    }
-    return undefined;
-  }
-
   /** Write the buffer. While another flush is running, returns that one instead of starting a second. */
   flush(): Promise<void> {
     if (this.inFlight) {
