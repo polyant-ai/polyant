@@ -221,6 +221,33 @@ describe.skipIf(!DB_AVAILABLE)("room cycles across replicas (integration)", () =
     expect(await statuses()).toEqual([{ status: "processing", claimed_by: "current-owner" }]);
   });
 
+  it("a message from the Room's contact during another replica's cycle is answered by the next cycle", async () => {
+    await addEvents(1);
+    let finish!: () => void;
+    hold.promise = new Promise((resolve) => { finish = resolve; });
+    const a = new RoomScheduler();
+    const b = new RoomScheduler();
+    await tickOf(a);
+    await vi.waitFor(() => expect(cycles).toHaveLength(1));
+
+    const room = { id: "r", instanceId: asInstanceUuid(instanceId), enabled: true, prompt: "", outboundChannel: null,
+      outboundTarget: null, conversationId: null } as unknown as RoomConfig;
+    await b.triggerImmediate(room, MARKER + "-agent" as never, "are you there?");
+    expect(cycles).toHaveLength(1);
+
+    finish();
+    await idle(a);
+    hold.promise = null;
+    await tickOf(b);
+    await idle(b);
+
+    expect(cycles).toHaveLength(2);
+    const rows = await queryClient<Array<{ status: string; text: string | null }>>`
+      SELECT status, raw_payload->>'text' AS text FROM event_backlog
+      WHERE instance_id = ${instanceId} AND event_definition_id IS NULL`;
+    expect(rows).toEqual([{ status: "completed", text: "are you there?" }]);
+  });
+
   it("the daily housekeeping runs once across replicas and later boots", async () => {
     await queryClient`DELETE FROM work_leases WHERE key = 'housekeeping:daily'`;
     mockCleanup.mockClear();

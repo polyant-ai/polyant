@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { listEnabledRooms, type RoomConfig } from "./room.store.js";
-import { countPendingByInstance, requeueEventsWithoutLiveLease, roomLeaseKey } from "../webhooks/webhook-backlog.store.js";
+import {
+  countPendingByInstance,
+  queueHumanMessage,
+  requeueEventsWithoutLiveLease,
+  roomLeaseKey,
+} from "../webhooks/webhook-backlog.store.js";
 import { compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
 import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
@@ -96,10 +101,8 @@ class RoomScheduler {
    * Run one cycle of `room` while holding its lease, so no other process runs one at
    * the same time. Returns false when another process holds it.
    */
-  private async cycle(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage?: string): Promise<boolean> {
-    return withLease(roomLeaseKey(room.instanceId), {}, (owner) =>
-      executeRoomCycle(room, instanceSlug, owner, humanMessage),
-    );
+  private async cycle(room: RoomConfig, instanceSlug: InstanceSlug): Promise<boolean> {
+    return withLease(roomLeaseKey(room.instanceId), {}, (owner) => executeRoomCycle(room, instanceSlug, owner));
   }
 
   private async processRoom(room: RoomConfig): Promise<void> {
@@ -113,23 +116,40 @@ class RoomScheduler {
     }
   }
 
-  async triggerImmediate(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage: string): Promise<void> {
-    if (this.running.has(room.instanceId)) {
-      roomLog.warn("Scheduler", `room for ${instanceSlug} already running, dropping human message`);
-      return;
-    }
-
-    this.running.add(room.instanceId);
+  /**
+   * A message from the Room's contact: queue it for the Room, then run a cycle now
+   * unless one is already running here or elsewhere, in which case the next tick
+   * takes it.
+   *
+   * Queuing it is an action taken on the message, as a tool call is: `toolGate` is
+   * the inbound channel's veto, asked first. A run the channel has already cancelled
+   * queues nothing (the run that replaces it carries this text), and one that queues
+   * is no longer cancelled, so a burst of fragments reaches the Room once.
+   */
+  async triggerImmediate(
+    room: RoomConfig,
+    instanceSlug: InstanceSlug,
+    humanMessage: string,
+    toolGate?: (name: string) => boolean,
+  ): Promise<void> {
     try {
-      if (!(await this.cycle(room, instanceSlug, humanMessage))) {
-        roomLog.warn("Scheduler", `room for ${instanceSlug} is cycling in another process, dropping human message`);
+      if (toolGate && !toolGate("room")) return;
+      if (!(await queueHumanMessage(room.instanceId, humanMessage))) {
+        roomLog.warn("Scheduler", `room for ${instanceSlug} has a full backlog, dropping human message`);
+        return;
+      }
+
+      if (this.running.has(room.instanceId)) return;
+      this.running.add(room.instanceId);
+      try {
+        await this.cycle(room, instanceSlug);
+      } finally {
+        this.running.delete(room.instanceId);
       }
     } catch (err) {
       // Catch and log so the unhandled rejection cannot propagate to the webhook handler.
       // If the caller receives an error it may retry, causing double execution.
       roomLog.error("Scheduler", `triggerImmediate failed for ${instanceSlug}`, err);
-    } finally {
-      this.running.delete(room.instanceId);
     }
   }
 

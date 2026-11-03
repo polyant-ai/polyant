@@ -17,7 +17,8 @@ export const BACKLOG_STATUS = {
 export interface BacklogEvent {
   id: string;
   instanceId: InstanceUuid;
-  eventDefinitionId: string;
+  /** Null for a message from the Room's contact (see `queueHumanMessage`). */
+  eventDefinitionId: string | null;
   rawPayload: Record<string, unknown>;
   matchedAt: Date | null;
   status: string;
@@ -34,7 +35,7 @@ const BACKLOG_CAP = 100;
  */
 export async function insertEvent(
   instanceId: InstanceUuid,
-  eventDefinitionId: string,
+  eventDefinitionId: string | null,
   rawPayload: Record<string, unknown>,
 ): Promise<string | null> {
   const rows = await db.execute<{ id: string }>(sql`
@@ -47,6 +48,15 @@ export async function insertEvent(
     RETURNING id
   `);
   return rows.length > 0 ? rows[0].id : null;
+}
+
+/**
+ * Queue a message from the Room's contact for the Room's next cycle, as an event
+ * with no definition. A message that arrives while a cycle runs waits for the next
+ * one instead of being dropped, and survives a restart like any other event.
+ */
+export function queueHumanMessage(instanceId: InstanceUuid, text: string): Promise<string | null> {
+  return insertEvent(instanceId, null, { text });
 }
 
 /** The work-lease key a Room's cycle holds; the events it claims carry the lease's owner. */

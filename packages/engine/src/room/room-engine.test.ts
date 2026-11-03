@@ -126,6 +126,11 @@ import { asInstanceUuid } from "../instances/identifiers.js";
 
 const OWNER = "lease-owner-1";
 
+/** A message from the Room's contact, queued as an event with no definition. */
+function humanEvent(text: string, id = "msg-1") {
+  return { id, eventDefinitionId: null, rawPayload: { text }, matchedAt: new Date(), createdAt: new Date() };
+}
+
 function makeRoom(overrides: Partial<RoomConfig> = {}): RoomConfig {
   return {
     id: "room-1",
@@ -238,7 +243,8 @@ describe("executeRoomCycle", () => {
         },
       ]);
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "are you open?");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("are you open?")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       expect(mockSupervise).not.toHaveBeenCalled();
       expect(mockChannelManager.sendOutbound).toHaveBeenCalledWith(
@@ -266,7 +272,8 @@ describe("executeRoomCycle", () => {
         return [];
       });
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "hello");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("hello")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       // Post-LLM: supervise WAS called (not short-circuited by a halt).
       expect(mockSupervise).toHaveBeenCalledTimes(1);
@@ -323,7 +330,8 @@ describe("executeRoomCycle", () => {
         return [];
       });
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "hello");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("hello")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       expect(order).toEqual([
         "append:user",
@@ -346,7 +354,8 @@ describe("executeRoomCycle", () => {
         ];
       });
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "hello");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("hello")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       expect(order).toEqual(["append:user", "hook:message_received", "flush", "send", "append:assistant"]);
     });
@@ -421,12 +430,30 @@ describe("executeRoomCycle", () => {
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
 
+    it("joins the queued messages of the Room's contact into one human message, outside the events", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        humanEvent("first", "msg-1"),
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { a: 1 }, matchedAt: new Date(), createdAt: new Date() },
+        humanEvent("second", "msg-2"),
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([]) as never);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
+
+      const message = mockSupervise.mock.calls[0][0].message as string;
+      expect(message).toContain("## Pending Events (1)");
+      expect(message).not.toContain("Event ID: msg-1");
+      expect(message).toMatch(/## Human Message\n<human_message[^>]*>first\nsecond</);
+      expect(mockMarkEventsCompleted).toHaveBeenCalledWith(["msg-1", "evt-1", "msg-2"], expect.any(String), "inst-1", OWNER);
+    });
+
     it("should proceed when there is a human message even without pending events", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "Hello, can you help?");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Hello, can you help?")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
@@ -514,7 +541,8 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "Please check the latest tickets");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Please check the latest tickets")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Human Message");
@@ -543,7 +571,8 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "Human says hello");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Human says hello")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       // Synthetic user message should be appended BEFORE supervise call
       const appendCalls = mockConversationStore.appendMessages.mock.calls;
@@ -723,7 +752,8 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER, "Help me");
+      mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Help me")]);
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
       expect(mockAppendDailyLog).toHaveBeenCalledWith(
         "inst-1",

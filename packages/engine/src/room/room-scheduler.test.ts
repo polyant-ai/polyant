@@ -14,6 +14,7 @@ const {
   mockRoomLog,
   mockWithLease,
   mockRequeue,
+  mockQueueHumanMessage,
 } = vi.hoisted(() => ({
   mockListEnabledRooms: vi.fn(),
   mockCountPendingEvents: vi.fn(),
@@ -23,12 +24,14 @@ const {
   mockRoomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockWithLease: vi.fn(),
   mockRequeue: vi.fn(),
+  mockQueueHumanMessage: vi.fn(),
 }));
 
 vi.mock("./room.store.js", () => ({ listEnabledRooms: mockListEnabledRooms }));
 vi.mock("../webhooks/webhook-backlog.store.js", () => ({
   countPendingByInstance: mockCountPendingEvents,
   requeueEventsWithoutLiveLease: mockRequeue,
+  queueHumanMessage: mockQueueHumanMessage,
   roomLeaseKey: (instanceId: string) => `room:${instanceId}`,
 }));
 // The lease itself is covered against a real database in room-lease.integration.test.ts.
@@ -73,6 +76,7 @@ beforeEach(() => {
   mockExecuteRoomCycle.mockResolvedValue(undefined);
   mockResolveInstanceSlug.mockResolvedValue("inst-a-slug");
   mockRequeue.mockResolvedValue(0);
+  mockQueueHumanMessage.mockResolvedValue("msg-1");
   // No other process holds the lease: the body runs under a fixed owner.
   mockWithLease.mockImplementation(async (_key: string, _opts: unknown, body: (owner: string) => Promise<void>) => {
     await body("owner-1");
@@ -106,31 +110,47 @@ describe("RoomScheduler", () => {
   });
 
   describe("triggerImmediate", () => {
-    it("should execute room cycle with human message", async () => {
+    it("queues the human message and runs a cycle for it", async () => {
       await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Help me please");
 
-      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "owner-1", "Help me please");
+      expect(mockQueueHumanMessage).toHaveBeenCalledWith("inst-a", "Help me please");
+      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "owner-1");
     });
 
-    it("should drop human message if room is already running", async () => {
-      // Simulate a long-running cycle that never resolves
+    it("queues a message that arrives during a cycle for the next one instead of dropping it", async () => {
       let resolveFirst!: () => void;
       mockExecuteRoomCycle.mockImplementationOnce(
         () => new Promise<void>((r) => { resolveFirst = r; }),
       );
 
-      // Start first cycle (will hang)
       const firstCycle = roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "First message");
-
-      // Try to trigger again while first is still running — should be dropped
+      await vi.waitFor(() => expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1));
       await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Second message");
 
-      expect(mockRoomLog.warn).toHaveBeenCalledWith("Scheduler", expect.stringContaining("already running"));
+      expect(mockQueueHumanMessage.mock.calls.map((c) => c[1])).toEqual(["First message", "Second message"]);
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
 
-      // Cleanup: resolve the hanging promise
       resolveFirst();
       await firstCycle;
+    });
+
+    it("queues nothing and starts no cycle when the channel has already cancelled the run", async () => {
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "a", () => false);
+
+      expect(mockQueueHumanMessage).not.toHaveBeenCalled();
+      expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
+    });
+
+    it("asks the channel's gate before queuing, so the run is no longer cancelled once it has", async () => {
+      const order: string[] = [];
+      mockQueueHumanMessage.mockImplementation(async () => { order.push("queue"); return "msg-1"; });
+
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "a", () => {
+        order.push("gate");
+        return true;
+      });
+
+      expect(order).toEqual(["gate", "queue"]);
     });
 
     it("should swallow errors, log them, and release room lock (#94)", async () => {

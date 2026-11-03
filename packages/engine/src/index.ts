@@ -157,7 +157,8 @@ async function main() {
         roomCheck.outboundChannel === msg.channelType &&
         roomCheck.outboundTarget === msg.channelId
       ) {
-        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text);
+        // The cycle sends by itself; the channel's tool gate keeps a burst from queuing twice.
+        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text, msg.toolGate);
         return { text: "" };
       }
     }

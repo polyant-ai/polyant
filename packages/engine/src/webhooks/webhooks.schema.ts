@@ -49,7 +49,8 @@ export const eventBacklog = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
-    eventDefinitionId: uuid("event_definition_id").notNull().references(() => eventDefinitions.id, { onDelete: "cascade" }),
+    /** Null for a message from the Room's contact, queued with its text as the payload. */
+    eventDefinitionId: uuid("event_definition_id").references(() => eventDefinitions.id, { onDelete: "cascade" }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
