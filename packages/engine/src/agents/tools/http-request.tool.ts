@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
+import { safeFetch, truncateBody, pickHeaders, readTextCapped, requestSignal } from "../../utils/safe-http.js";
 import { createLogger } from "../../utils/create-logger.js";
 
 const log = createLogger();
@@ -264,11 +264,14 @@ export default defineTool({
           method,
           headers,
           body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+          signal: requestSignal(DEFAULT_TIMEOUT_MS, ctx.abortSignal),
         });
 
-        const rawBody = await response.text();
-        const { body: trimmedBody, truncated } = truncateBody(rawBody, MAX_BODY_SIZE);
+        // UTF-8 needs at most 4 bytes a character: this reads enough for
+        // MAX_BODY_SIZE characters and never buffers the rest.
+        const { text: rawBody, complete } = await readTextCapped(response, 4 * MAX_BODY_SIZE);
+        const { body: trimmedBody, truncated: cut } = truncateBody(rawBody, MAX_BODY_SIZE);
+        const truncated = cut || !complete;
 
         let parsedBody: unknown;
         try {

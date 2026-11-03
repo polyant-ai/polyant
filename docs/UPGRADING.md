@@ -293,9 +293,12 @@ tool; once it is, the tool works again with nothing to re-enable. An export bund
 names a tool by its old name enables the new one on import.
 
 The integration-specific `verifyDocument` tool was removed without a
-replacement. The first boot removes it, and every other tool that no loaded
-plugin provides, from the agents that had it enabled, and logs the names of
-those tools once.
+replacement. Versions up to 1.3.5 removed it at the first boot, together with
+every other tool that no loaded tool or plugin provides, from the agents that
+had it enabled. Later versions keep the enablement of a tool the running
+release does not provide, so a rollback or an older replica cannot take a tool
+away from the agents; the agent simply does not get the tool while it is
+missing.
 
 An installation that already booted a version without the extracted tools and
 without this migration has lost those enablements: the migration finds no old

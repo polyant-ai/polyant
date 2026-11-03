@@ -90,6 +90,43 @@ export const pairedFetch: PairedFetch = async (url, init = {}) => {
 };
 
 /**
+ * The signal for one outbound request: the request's own timeout, and the
+ * turn's abort when the caller has one, so a stopped turn stops its requests.
+ */
+export function requestSignal(timeoutMs: number, abortSignal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return abortSignal ? AbortSignal.any([timeout, abortSignal]) : timeout;
+}
+
+/**
+ * Read a response body as UTF-8 text, at most `maxBytes` of it. Past the
+ * limit the stream is cancelled, so a huge or endless body costs at most
+ * `maxBytes` of memory instead of all of it. `complete` is false when the
+ * body was cut.
+ */
+export async function readTextCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<{ text: string; complete: boolean }> {
+  if (!response.body) return { text: "", complete: true };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let room = maxBytes;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return { text: text + decoder.decode(), complete: true };
+    if (value.byteLength > room) {
+      text += decoder.decode(value.subarray(0, room));
+      await reader.cancel().catch(() => undefined);
+      return { text, complete: false };
+    }
+    room -= value.byteLength;
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
+/**
  * Truncate a response body to a maximum number of characters.
  */
 export function truncateBody(

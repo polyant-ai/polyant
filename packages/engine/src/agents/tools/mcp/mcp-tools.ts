@@ -4,7 +4,7 @@ import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout, type McpConnection } from "./mcp-connect.js";
-import { acquireMcpConnection, retireMcpConnection } from "./mcp-client-pool.js";
+import { acquireMcpConnection } from "./mcp-client-pool.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
@@ -117,6 +117,7 @@ export async function buildMcpTools(opts: {
 }): Promise<McpBuildResult> {
   const tools: Record<string, Tool> = {};
   const clients: Array<{ close: () => Promise<void> }> = [];
+  const leases: Array<{ release: () => void }> = [];
   const servers = await listEnabledMcpServers(opts.instanceUuid);
 
   for (const server of servers) {
@@ -162,18 +163,6 @@ export async function buildMcpTools(opts: {
         });
       }
     }
-    // Re-check the URL on every connect, resolved addresses included. The
-    // write-time check in the controller approved this URL once; the name behind
-    // it can have been repointed at an internal host since (see
-    // `assertSafeMcpUrlResolved`). A rejection skips the server for this turn —
-    // same degradation as an unreachable one.
-    try {
-      await assertSafeMcpUrlResolved(server.url);
-    } catch (e) {
-      mcpLog.error("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
-      continue;
-    }
-
     const allowList = (server.config as { allowList?: string[] }).allowList;
     const transport = provider
       ? { type: "http" as const, url: server.url, authProvider: provider }
@@ -181,18 +170,34 @@ export async function buildMcpTools(opts: {
 
     try {
       const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
+      // Re-check the URL on every connect, resolved addresses included. The
+      // write-time check in the controller approved this URL once; the name
+      // behind it can have been repointed at an internal host since (see
+      // `assertSafeMcpUrlResolved`). A rejection skips the server — same
+      // degradation as an unreachable one. A turn served by a pooled connection
+      // opens nothing, so it resolves nothing; the pool's renewal re-checks.
+      const connect = async (abortSignal?: AbortSignal) => {
+        try {
+          await assertSafeMcpUrlResolved(server.url);
+        } catch (e) {
+          mcpLog.error("mcp", `server '${server.slug}': URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
+          throw e;
+        }
+        return connectWithTimeout(transport, mcpConnectTimeoutMs, abortSignal);
+      };
       // Per-conversation OAuth tokens belong to this conversation: that client
       // lives for the turn. Every other server shares a pooled connection across turns.
       let toolSet: McpConnection["toolSet"];
       let onCallError: (() => void) | undefined;
       if (!pooled) {
-        const connection = await connectWithTimeout(transport, mcpConnectTimeoutMs, opts.abortSignal);
+        const connection = await connect(opts.abortSignal);
         toolSet = connection.toolSet;
         clients.push(connection.client);
       } else {
-        const pooled = acquireMcpConnection(server, transport, mcpConnectTimeoutMs);
-        toolSet = (await untilAborted(pooled, opts.abortSignal)).toolSet;
-        onCallError = () => retireMcpConnection(server.id, pooled);
+        const lease = acquireMcpConnection(server, () => connect());
+        leases.push(lease);
+        toolSet = (await untilAborted(lease.connection, opts.abortSignal)).toolSet;
+        onCallError = lease.retire;
       }
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
@@ -215,6 +220,7 @@ export async function buildMcpTools(opts: {
   return {
     tools,
     close: async () => {
+      for (const lease of leases) lease.release();
       await Promise.allSettled(clients.map((c) => c.close()));
     },
   };

@@ -8,7 +8,9 @@
  *   - a namespaced plugin tool ENABLED on an instance is preserved (no FK wipe);
  *   - a namespaced tool referenced by NOBODY is pruned;
  *   - virtual `agent:*` rows are never touched;
- *   - flat core rows absent from the registry are still pruned.
+ *   - a flat core tool absent from the registry but enabled on an instance keeps
+ *     its row and the enablement (a rollback or an older replica must not wipe it);
+ *   - unreferenced flat core rows absent from the registry are still pruned.
  *
  * Self-skips when no migrated database is reachable (so a bare `npm test`
  * without a DB stays green). Run it for real with a database up:
@@ -36,8 +38,9 @@ const ORPHAN = "itestsync:orphan"; // namespaced, not enabled → pruned
 const KEPT = "itestsync:kept"; // namespaced, enabled on the instance → kept
 const SKILL_LINKED = "itestsync:skillLinked"; // namespaced, linked only by a skill → kept
 const AGENT = "agent:itestsync-fake"; // virtual agent row → kept
-const FLAT_GONE = "itestSyncFlatGone"; // flat, absent from registry → pruned
-const ALL_NAMES = [CORE, ORPHAN, KEPT, SKILL_LINKED, AGENT, FLAT_GONE];
+const FLAT_GONE = "itestSyncFlatGone"; // flat, absent from registry, unreferenced → pruned
+const FLAT_ENABLED = "itestSyncFlatEnabled"; // flat, absent from registry, enabled → kept
+const ALL_NAMES = [CORE, ORPHAN, KEPT, SKILL_LINKED, AGENT, FLAT_GONE, FLAT_ENABLED];
 const SKILL_SLUG = "itest-tools-sync-skill";
 
 /** Seed instance + catalog rows at module load (top-level await) so `it.skipIf`
@@ -79,11 +82,16 @@ async function setup(): Promise<InstanceUuid> {
       { name: SKILL_LINKED, description: "plugin tool a skill links" },
       { name: AGENT, description: "virtual agent row", category: "agent" },
       { name: FLAT_GONE, description: "removed core tool" },
+      { name: FLAT_ENABLED, description: "core tool a newer release added" },
     ])
     .returning({ id: tools.id, name: tools.name });
 
   const keptId = seeded.find((r) => r.name === KEPT)!.id;
-  await db.insert(instanceTools).values({ instanceId: instanceUuid, toolId: keptId, source: "manual" });
+  const flatEnabledId = seeded.find((r) => r.name === FLAT_ENABLED)!.id;
+  await db.insert(instanceTools).values([
+    { instanceId: instanceUuid, toolId: keptId, source: "manual" },
+    { instanceId: instanceUuid, toolId: flatEnabledId, source: "manual" },
+  ]);
   // A renamed tool whose plugin is not installed yet, linked by a skill but
   // enabled on no agent: the prune used to delete it, and the link with it.
   const [skill] = await db
@@ -130,6 +138,20 @@ describe("syncToolsToDb (integration): namespaced-orphan pruning", () => {
       expect(remaining.has(SKILL_LINKED)).toBe(true); // linked by a skill → preserved
       expect(remaining.has(AGENT)).toBe(true); // virtual agent row untouched
       expect(remaining.has(CORE)).toBe(true); // in registry → upserted
+    },
+  );
+
+  it.skipIf(!instanceUuid)(
+    "keeps a core tool the running release does not know while an agent has it enabled",
+    async () => {
+      await syncToolsToDb();
+
+      const enabled = await db
+        .select({ name: tools.name })
+        .from(instanceTools)
+        .innerJoin(tools, eq(tools.id, instanceTools.toolId))
+        .where(eq(instanceTools.instanceId, instanceUuid!));
+      expect(enabled.map((r) => r.name).sort()).toEqual([FLAT_ENABLED, KEPT].sort());
     },
   );
 });

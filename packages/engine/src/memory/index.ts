@@ -35,7 +35,6 @@ export type { HybridSearchResult } from "./hybrid-search.js";
 export { extractMemories } from "./extractor.js";
 
 export {
-  getAllMemories,
   deleteMemoryForInstance,
   deleteAllMemories,
   countMemories,

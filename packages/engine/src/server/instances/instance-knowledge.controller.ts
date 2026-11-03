@@ -30,7 +30,7 @@ import {
 import { processDocument } from "../../knowledge/ingestion.js";
 import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
 import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
-import { MAX_DOCUMENT_BYTES, prepareImportDocuments } from "../utils/import-bundle.js";
+import { documentSizeWithinLimit, prepareImportDocuments } from "../utils/import-bundle.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { DEFAULT_KNOWLEDGE_DOC_CAP, resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
 import { parsePagination } from "../utils/parse-pagination.js";
@@ -160,13 +160,7 @@ export class InstanceKnowledgeController {
 
     const content = body.content.trim();
 
-    // Enforce 5 MB file size limit
-    const sizeBytes = Buffer.byteLength(content, "utf-8");
-    if (sizeBytes > MAX_DOCUMENT_BYTES) {
-      throw new BadRequestException(
-        `File size (${(sizeBytes / 1024 / 1024).toFixed(2)} MB) exceeds the 5 MB limit`,
-      );
-    }
+    const sizeBytes = documentSizeWithinLimit("File size", content);
 
     // Verify the embedding provider is configured before accepting the upload.
     // The gateway resolves provider-specific credentials (OpenAI key or Bedrock region).

@@ -36,9 +36,8 @@ vi.mock("./registry.js", () => ({
 // Build a chainable tx mock that captures calls
 const mockOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
 const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
-// `tx.delete(tools).where(...).returning(...)` — the pruned rows. Default: none.
-const mockDeleteReturning = vi.fn().mockResolvedValue([]);
-const mockDeleteWhere = vi.fn().mockReturnValue({ returning: mockDeleteReturning });
+// `tx.delete(tools).where(...)` — the prune.
+const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 // `tx.selectDistinct({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
 const mockSelectFrom = vi.fn().mockResolvedValue([]);
 
@@ -90,8 +89,7 @@ beforeEach(() => {
   mockOnConflictDoUpdate.mockResolvedValue(undefined);
   mockValues.mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
   mockTx.insert.mockReturnValue({ values: mockValues });
-  mockDeleteReturning.mockResolvedValue([]);
-  mockDeleteWhere.mockReturnValue({ returning: mockDeleteReturning });
+  mockDeleteWhere.mockResolvedValue(undefined);
   mockTx.delete.mockReturnValue({ where: mockDeleteWhere });
   mockSelectFrom.mockResolvedValue([]);
   mockTx.select.mockReturnValue({ from: mockSelectFrom });
@@ -179,21 +177,17 @@ describe("syncToolsToDb", () => {
     expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
   });
 
-  it("prunes namespaced orphans but keeps flat + agent:* branches in the delete filter", async () => {
-    // Namespaced plugin rows absent from the registry AND not enabled anywhere
-    // are now pruned, but the delete must still (a) match flat rows via `%:%`
-    // negation and (b) exclude virtual `agent:*` rows from the namespaced branch.
+  it("keeps virtual agent:* rows out of the prune", async () => {
     const registry = new Map([["coreTool", toolDef("coreTool")]]);
     mockGetToolRegistry.mockReturnValue(registry);
 
     await syncToolsToDb();
 
     const likePatterns = vi.mocked(like).mock.calls.map((c) => c[1]);
-    expect(likePatterns).toContain("%:%"); // namespaced-name discriminator
-    expect(likePatterns).toContain("agent:%"); // virtual agent rows excluded from the prune
+    expect(likePatterns).toContain("agent:%");
   });
 
-  it("reads enabled tool ids so referenced namespaced rows are never pruned", async () => {
+  it("reads enabled and skill-linked tool ids so referenced rows are never pruned", async () => {
     const registry = new Map([["coreTool", toolDef("coreTool")]]);
     mockGetToolRegistry.mockReturnValue(registry);
 
@@ -203,36 +197,6 @@ describe("syncToolsToDb", () => {
     // run before the delete.
     expect(mockTx.selectDistinct).toHaveBeenCalledTimes(2);
     expect(mockSelectFrom).toHaveBeenCalledTimes(2);
-  });
-
-  it("warns at boot with the names of pruned tools that agents had enabled", async () => {
-    // The cascade erases the enablement, so this warning is the only trace an
-    // operator gets of which tools the agents lost.
-    mockGetToolRegistry.mockReturnValue(new Map([["coreTool", toolDef("coreTool")]]));
-    mockSelectFrom.mockResolvedValueOnce([{ id: "id-verify" }]).mockResolvedValueOnce([]);
-    mockDeleteReturning.mockResolvedValue([
-      { id: "id-verify", name: "verifyDocument" },
-      { id: "id-unused", name: "neverEnabled" },
-    ]);
-    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-
-    await syncToolsToDb();
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain("verifyDocument");
-    expect(warn.mock.calls[0]![0]).not.toContain("neverEnabled");
-    warn.mockRestore();
-  });
-
-  it("stays silent when no pruned tool was enabled anywhere", async () => {
-    mockGetToolRegistry.mockReturnValue(new Map([["coreTool", toolDef("coreTool")]]));
-    mockDeleteReturning.mockResolvedValue([{ id: "id-unused", name: "neverEnabled" }]);
-    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-
-    await syncToolsToDb();
-
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it("sets isGlobal=false for all tools (GLOBAL_TOOLS is now empty)", async () => {

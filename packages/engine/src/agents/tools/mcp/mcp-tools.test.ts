@@ -24,6 +24,13 @@ vi.mock("./mcp-oauth-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./mcp-oauth-provider.js")>()),
   makeMcpOAuthProvider: () => ({ pendingAuthorizeUrl: "https://gh.test/authorize" }),
 }));
+// The real guard, observed: a turn served by a pooled connection must not resolve the host again.
+const urlGuard = vi.hoisted(() => ({ resolved: vi.fn() }));
+vi.mock("./mcp-url-guard.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./mcp-url-guard.js")>();
+  urlGuard.resolved.mockImplementation(actual.assertSafeMcpUrlResolved);
+  return { ...actual, assertSafeMcpUrlResolved: urlGuard.resolved };
+});
 // Keep the real config: registry.ts, imported transitively via this module,
 // depends on it for postgres/etc.
 vi.mock("../../../config.js", async (importOriginal) => {
@@ -86,6 +93,28 @@ describe("buildMcpTools", () => {
       expect(mcpPoolSize()).toBe(1);
     });
 
+    it("should_check_the_url_only_when_a_connection_is_opened", async () => {
+      servers.push(staticServer("s1"));
+      createMCPClient.mockResolvedValue(okClient());
+      urlGuard.resolved.mockClear();
+
+      for (const c of ["c1", "c2", "c3"]) await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: c });
+
+      expect(urlGuard.resolved).toHaveBeenCalledOnce();
+    });
+
+    it("should_skip_the_server_when_the_url_check_rejects_the_connect", async () => {
+      servers.push(staticServer("s1"));
+      createMCPClient.mockResolvedValue(okClient());
+      urlGuard.resolved.mockRejectedValueOnce(new Error("resolves to a private address"));
+
+      const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+      expect(tools).toEqual({});
+      expect(createMCPClient).not.toHaveBeenCalled();
+      expect(mcpPoolSize()).toBe(0);
+    });
+
     it("should_reconnect_when_the_server_record_changes", async () => {
       servers.push(staticServer("s1", "old-token"));
       createMCPClient.mockResolvedValue(okClient());
@@ -122,6 +151,123 @@ describe("buildMcpTools", () => {
         vi.setSystemTime(Date.now() + 2_000);
         await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c3" });
         expect(createMCPClient).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should_renew_an_old_connection_without_making_the_turn_wait_for_the_reconnect", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        servers.push(staticServer("s1"));
+        const first = okClient();
+        createMCPClient.mockResolvedValueOnce(first);
+        await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" })).close();
+
+        // The reconnect hangs: the turn must still get the tools of the current connection.
+        let openSecond!: (c: ReturnType<typeof okClient>) => void;
+        createMCPClient.mockReturnValueOnce(new Promise((resolve) => { openSecond = resolve; }));
+        vi.setSystemTime(Date.now() + 61_000);
+        const during = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
+        expect(Object.keys(during.tools)).toContain("mcp__gh__create_issue");
+        expect(createMCPClient).toHaveBeenCalledTimes(2);
+
+        // Once the new connection is open, the old one closes when its last turn ends.
+        const second = okClient();
+        openSecond(second);
+        await new Promise((r) => setImmediate(r));
+        expect(first.close).not.toHaveBeenCalled();
+        await during.close();
+        expect(first.close).toHaveBeenCalledOnce();
+
+        await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c3" })).close();
+        expect(createMCPClient).toHaveBeenCalledTimes(2);
+        expect(second.close).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should_keep_a_single_open_client_per_server_across_many_renewals", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        servers.push(staticServer("s1"));
+        const clients: ReturnType<typeof okClient>[] = [];
+        createMCPClient.mockImplementation(async () => {
+          const c = okClient();
+          clients.push(c);
+          return c;
+        });
+        for (let minute = 0; minute < 10; minute++) {
+          await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: `c${minute}` })).close();
+          await new Promise((r) => setImmediate(r));
+          vi.setSystemTime(Date.now() + 61_000);
+        }
+        const open = clients.filter((c) => c.close.mock.calls.length === 0);
+        expect(clients.length).toBeGreaterThan(5);
+        expect(open).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should_drop_the_connection_when_a_renewal_fails_so_the_next_turn_reconnects_in_line", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        servers.push(staticServer("s1"));
+        const first = okClient();
+        createMCPClient.mockResolvedValueOnce(first);
+        await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" })).close();
+
+        createMCPClient.mockRejectedValueOnce(new Error("server gone"));
+        vi.setSystemTime(Date.now() + 61_000);
+        await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" })).close();
+        await vi.waitFor(() => expect(first.close).toHaveBeenCalledOnce());
+        expect(mcpPoolSize()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should_close_a_dropped_connection_as_soon_as_no_turn_holds_it", async () => {
+      servers.push(staticServer("s1"));
+      const client = okClient(async () => { throw new Error("session expired"); });
+      createMCPClient.mockResolvedValue(client);
+      const turn = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+      await expect(turn.tools["mcp__gh__create_issue"]!.execute!({}, {} as never)).rejects.toThrow("session expired");
+      // The turn that saw the failure still holds it: another of its calls may be in flight.
+      expect(client.close).not.toHaveBeenCalled();
+      await turn.close();
+      await vi.waitFor(() => expect(client.close).toHaveBeenCalledOnce());
+    });
+
+    it("should_close_dropped_connections_still_held_by_a_turn_at_shutdown", async () => {
+      servers.push(staticServer("s1"));
+      const client = okClient(async () => { throw new Error("session expired"); });
+      createMCPClient.mockResolvedValue(client);
+      const turn = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+      await expect(turn.tools["mcp__gh__create_issue"]!.execute!({}, {} as never)).rejects.toThrow("session expired");
+
+      await closeMcpClientPool();
+
+      expect(client.close).toHaveBeenCalledOnce();
+    });
+
+    it("should_drop_and_close_an_entry_no_turn_has_used_for_a_while", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+      try {
+        servers.push(staticServer("s1"));
+        const client = okClient();
+        createMCPClient.mockResolvedValue(client);
+        await (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" })).close();
+        expect(mcpPoolSize()).toBe(1);
+
+        // The server was disabled: no turn asks for it again.
+        await vi.advanceTimersByTimeAsync(60_000 + 2 * 5 * 60_000);
+
+        expect(mcpPoolSize()).toBe(0);
+        expect(client.close).toHaveBeenCalledOnce();
       } finally {
         vi.useRealTimers();
       }

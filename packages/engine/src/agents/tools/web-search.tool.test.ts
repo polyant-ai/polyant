@@ -266,6 +266,24 @@ describe("webSearch tool", () => {
 
   // ── DuckDuckGo adapter ────────────────────────────────────────────────
 
+  it("gives up the search request when the turn is stopped", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
+      new Promise((_, reject) => {
+        init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true });
+      }),
+    );
+    const controller = new AbortController();
+    const pending = webSearchTool.execute(
+      { query: INPUT_QUERY, maxResults: null, searchDepth: null },
+      { ...makeCtx({ search_provider: "duckduckgo" }), abortSignal: controller.signal },
+    ) as Promise<{ results: unknown[]; error?: string }>;
+    controller.abort(new Error("turn stopped"));
+    const out = await pending;
+
+    expect(out.results).toEqual([]);
+    expect(out.error).toContain("turn stopped");
+  });
+
   describe("duckduckgo adapter", () => {
     it("extracts Abstract + RelatedTopics into normalized results", async () => {
       const payload = {
