@@ -1,24 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { listEnabledRooms, type RoomConfig } from "./room.store.js";
-import { countPendingByInstance } from "../webhooks/webhook-backlog.store.js";
+import {
+  countPendingByInstance,
+  queueHumanMessage,
+  requeueEventsWithoutLiveLease,
+  roomLeaseKey,
+} from "../webhooks/webhook-backlog.store.js";
 import { compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
 import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { withLease } from "../background/work-lease.js";
+import { trackBackgroundTurn } from "../channels/background-turns.js";
 import { createLogger } from "../utils/create-logger.js";
 
 const roomLog = createLogger();
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** One lease for the whole installation: the daily housekeeping runs once, not once per replica. */
+const HOUSEKEEPING_LEASE_KEY = "housekeeping:daily";
 
 class RoomScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Rooms whose cycle runs in this process; the room's lease keeps out every other process. */
   private running = new Set<string>();
-  private lastHousekeeping: Date = new Date(0);
   private started = false;
 
   start(): void {
@@ -31,7 +40,13 @@ class RoomScheduler {
   }
 
   private async tick(): Promise<void> {
-    const now = new Date();
+    // Events a cycle claimed and no live lease backs any more (the cycle ended without
+    // completing them, or its process died) go back to pending before anything is read.
+    const requeued = await requeueEventsWithoutLiveLease();
+    if (requeued > 0) {
+      roomLog.info("Scheduler", `requeued ${requeued} event(s) left by a cycle that no longer holds its room`);
+    }
+
     const [rooms, pendingCounts] = await Promise.all([
       listEnabledRooms(),
       countPendingByInstance(),
@@ -49,22 +64,24 @@ class RoomScheduler {
       );
     }
 
-    // Daily housekeeping: compact activity logs + purge expired analytics rows.
-    if (now.getTime() - this.lastHousekeeping.getTime() > HOUSEKEEPING_INTERVAL_MS) {
-      this.lastHousekeeping = now;
-      for (const room of rooms) {
+    this.housekeeping(rooms).catch((err) => roomLog.error("Scheduler", "daily housekeeping failed", err));
+  }
+
+  /** Daily housekeeping: compact activity logs + purge expired analytics rows. */
+  private async housekeeping(rooms: RoomConfig[]): Promise<void> {
+    await withLease(HOUSEKEEPING_LEASE_KEY, { everyMs: HOUSEKEEPING_INTERVAL_MS }, async () => {
+      const compactions = rooms.map((room) =>
         compactActivityLog(room.instanceId).catch((err) =>
           roomLog.error("Scheduler", `compaction error ${room.instanceId}`, err),
-        );
-      }
+        ),
+      );
 
       // Retention for every traffic-driven table: ai_logs, pipeline_traces,
       // tool_audit_logs, hook_executions, scheduled_task_runs and the COMPLETED
       // half of event_backlog. The window is the installation's own policy,
       // resolved per run — once a day, so the read costs nothing and an
       // administrator who shortens it does not wait for a restart.
-      // Fire-and-forget; failures are logged.
-      resolvePlatformSettings()
+      const cleanup = resolvePlatformSettings()
         .then(({ analyticsRetentionDays }) => runAnalyticsCleanup(analyticsRetentionDays))
         .then((result) => {
           roomLog.info(
@@ -76,7 +93,20 @@ class RoomScheduler {
           );
         })
         .catch((err) => roomLog.error("Scheduler", "analytics cleanup failed", err));
-    }
+
+      await Promise.all([...compactions, cleanup]);
+    });
+  }
+
+  /**
+   * Run one cycle of `room` while holding its lease, so no other process runs one at
+   * the same time. Returns false when another process holds it.
+   */
+  private async cycle(room: RoomConfig, instanceSlug: InstanceSlug): Promise<boolean> {
+    // Shutdown waits for it within its grace period, like an acknowledged channel turn.
+    const cycle = withLease(roomLeaseKey(room.instanceId), {}, (owner) => executeRoomCycle(room, instanceSlug, owner));
+    trackBackgroundTurn(cycle);
+    return cycle;
   }
 
   private async processRoom(room: RoomConfig): Promise<void> {
@@ -84,27 +114,46 @@ class RoomScheduler {
       const slug = await resolveInstanceSlug(room.instanceId);
       if (!slug) return;
 
-      await executeRoomCycle(room, slug);
+      await this.cycle(room, slug);
     } finally {
       this.running.delete(room.instanceId);
     }
   }
 
-  async triggerImmediate(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage: string): Promise<void> {
-    if (this.running.has(room.instanceId)) {
-      roomLog.warn("Scheduler", `room for ${instanceSlug} already running, dropping human message`);
-      return;
-    }
-
-    this.running.add(room.instanceId);
+  /**
+   * A message from the Room's contact: queue it for the Room, then run a cycle now
+   * unless one is already running here or elsewhere, in which case the next tick
+   * takes it.
+   *
+   * Queuing it is an action taken on the message, as a tool call is: `toolGate` is
+   * the inbound channel's veto, asked first. A run the channel has already cancelled
+   * queues nothing (the run that replaces it carries this text), and one that queues
+   * is no longer cancelled, so a burst of fragments reaches the Room once.
+   */
+  async triggerImmediate(
+    room: RoomConfig,
+    instanceSlug: InstanceSlug,
+    humanMessage: string,
+    toolGate?: (name: string) => boolean,
+  ): Promise<void> {
     try {
-      await executeRoomCycle(room, instanceSlug, humanMessage);
+      if (toolGate && !toolGate("room")) return;
+      if (!(await queueHumanMessage(room.instanceId, humanMessage))) {
+        roomLog.warn("Scheduler", `room for ${instanceSlug} has a full backlog, dropping human message`);
+        return;
+      }
+
+      if (this.running.has(room.instanceId)) return;
+      this.running.add(room.instanceId);
+      try {
+        await this.cycle(room, instanceSlug);
+      } finally {
+        this.running.delete(room.instanceId);
+      }
     } catch (err) {
       // Catch and log so the unhandled rejection cannot propagate to the webhook handler.
       // If the caller receives an error it may retry, causing double execution.
       roomLog.error("Scheduler", `triggerImmediate failed for ${instanceSlug}`, err);
-    } finally {
-      this.running.delete(room.instanceId);
     }
   }
 

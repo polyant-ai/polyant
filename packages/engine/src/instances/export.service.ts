@@ -136,7 +136,6 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
           prompt: roomConfig.prompt,
           outboundChannel: roomConfig.outboundChannel,
           outboundTarget: roomConfig.outboundTarget,
-          evalIntervalMinutes: roomConfig.evalIntervalMinutes,
         }
       : null,
     eventSources: eventSourcesWithDefs.map((es) => ({

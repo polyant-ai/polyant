@@ -14,9 +14,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
-import { eq } from "drizzle-orm";
-import { db } from "../database/client.js";
-import { scheduledTasks } from "./schema.js";
 import * as store from "./store.js";
 import * as runLog from "./run-log.store.js";
 
@@ -36,7 +33,7 @@ async function newTask(schedule: Parameters<typeof store.create>[0]["schedule"] 
 }
 
 async function claim(id: string): Promise<Date> {
-  const claimed = await store.markRunning(id);
+  const claimed = await store.markRunning(id, { leaseTtlMs: 60_000 });
   if (!claimed) throw new Error("expected the claim to succeed");
   return claimed;
 }
@@ -138,20 +135,7 @@ describe.skipIf(!DB_AVAILABLE)("scheduled task run claims (integration)", () => 
     expect(await store.getById(id)).toBeUndefined();
   });
 
-  it("a scheduled claim refuses a task another replica already ran", async () => {
-    const id = await newTask({ type: "interval", everyMs: 60 * 60_000 });
-    await db.update(scheduledTasks).set({ nextRunAt: new Date(Date.now() - 1_000) }).where(eq(scheduledTasks.id, id));
-    // Both replicas read the task as due. One claims it, runs it and completes,
-    // which moves next_run_at an hour ahead; then the other's claim lands.
-    const first = await store.markRunning(id, { dueBy: new Date() });
-    expect(first).toBeInstanceOf(Date);
-    await store.markCompleted(id, "conversation-1", first);
-
-    expect(await store.markRunning(id, { dueBy: new Date() })).toBeNull();
-    // A manual run is not bound to the schedule.
-    expect(await store.markRunning(id)).toBeInstanceOf(Date);
-  });
-  it("startup recovery does not clear a claim made after the one it read", async () => {
+  it("recovery does not clear a claim made after the one it read", async () => {
     const id = await newTask();
     const runA = await claim(id);
     const seen = await readClaim(id);
@@ -165,7 +149,7 @@ describe.skipIf(!DB_AVAILABLE)("scheduled task run claims (integration)", () => 
     expect((await store.getById(id))?.lastRunStatus).toBe("running");
   });
 
-  it("startup recovery clears the claim it read", async () => {
+  it("recovery clears the claim it read", async () => {
     const id = await newTask();
     await claim(id);
     const seen = await readClaim(id);

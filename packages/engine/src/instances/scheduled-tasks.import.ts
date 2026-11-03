@@ -11,7 +11,7 @@ export async function importScheduledTasks(
   tasks: NonNullable<ExportInstanceData["scheduledTasks"]>,
 ): Promise<void> {
   for (const task of tasks) {
-    const schedule = task.schedule as import("../scheduled-tasks/schema.js").ScheduleConfig;
+    const { schedule } = task;
     const nextRunAt = task.enabled ? computeNextRun(schedule) : null;
 
     await tx.insert(scheduledTasks).values({

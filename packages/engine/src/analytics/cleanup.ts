@@ -83,7 +83,7 @@ export const deleteOldScheduledTaskRuns = (cutoff: Date): Promise<number> =>
  * Only COMPLETED backlog events age out.
  *
  * `pending` is work still queued, and `processing` may be a zombie from a prior
- * crash that `resetStuckProcessingEvents()` recovers at boot — deleting either
+ * crash that the Room tick requeues once its lease expires — deleting either
  * by age would silently drop events the system still owes an answer for.
  */
 export async function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {

@@ -198,6 +198,10 @@ following happen. Run one replica, or accept these effects:
   flag for up to 5 minutes, and an agent's settings, API key and Web channel
   switch for up to 30 seconds. The replica that saved a change applies it at
   once; the others apply it when their copy expires.
+- **A reply to a webhook-triggered message can go to the Room.** When a webhook
+  trigger writes to a contact who is also a Room's outbound target, the replica
+  that ran it keeps that contact's replies out of the Room for a day. A reply
+  that reaches another replica goes to the Room.
 - **A scheduled task that overruns its deadline can run twice.** Each run is
   claimed in the database, so a task normally runs once however many replicas
   there are. When a run outlasts its run deadline, the reaper frees the claim,

@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
-  (migration `0099`).
+  (migration `0102`).
 
 ### Changed
 
@@ -34,6 +34,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lifetime unless they ask for another.
 - `{{toolCatalog}}` lists the equipped tools by name; their descriptions are
   already in the tool definitions the model receives.
+- A scheduled task's schedule follows one rule wherever it is written: the API,
+  the `scheduleTask` tool and a bundle import. An interval is an integer of at
+  least 60000 ms, an anchor is a date, and fields the type does not have are
+  dropped; anything else answers 400 naming the field (`schedule.everyMs`), and
+  a bundle carrying such a task no longer imports. A task saved earlier with an
+  interval of zero or less is disabled on its next run instead of stopping the
+  engine.
+- The scheduler claims due tasks in one statement, the longest overdue first, so
+  replicas ticking together share them. The boot no longer runs or reschedules
+  overdue tasks: the tick serves them. A running task holds a lease that its
+  process renews; when the process dies, any replica's tick clears the run within
+  the installation's orphan grace (never less than a minute), closes it in the run
+  log as interrupted and counts no failure (migration `0105`).
+- Shutdown waits for Room cycles and scheduled-task runs already started, within
+  the same grace period as acknowledged channel turns.
+- A Room cycle titles its conversation from what it handled instead of asking the
+  model for a title.
+
+### Removed
+
+- A Room's `evalIntervalMinutes`, which nothing read: the Room cycles on every
+  tick that finds pending work. The API, the bundle and the Room form drop it;
+  older bundles that carry it still import. The column stays until a later
+  release.
 
 ### Fixed
 
@@ -56,6 +80,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each.
 - A model call its caller cancels (a follow-up message preempting a turn) is
   logged as one debug line instead of two error lines.
+- Room cycles across replicas. A cycle holds a lease on its Room (migration
+  `0103`), so two engine processes no longer run cycles of the same Room side by
+  side or leave empty conversations behind. Events claimed by a cycle that ended
+  without completing them, or whose process died, go back to pending on the next
+  tick once its lease has expired; the boot no longer puts back the events of a
+  cycle another process is running. The daily housekeeping runs once per
+  installation instead of once per process start.
+- A message from a Room's contact that arrives while a cycle runs is queued for
+  the next cycle instead of being dropped (migration `0104`), and a burst of
+  fragments on WhatsApp or Telegram reaches the Room once.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
 
 ## [1.3.5] - 2026-11-02

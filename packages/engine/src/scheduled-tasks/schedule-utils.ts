@@ -1,7 +1,48 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Cron } from "croner";
+import { z } from "zod";
 import type { ScheduleConfig } from "./schema.js";
+
+/**
+ * The shortest interval a schedule may declare. The scheduler ticks every 30 s, so a
+ * shorter interval asks for more than it can deliver; zero or negative never advances.
+ */
+export const MIN_INTERVAL_MS = 60_000;
+
+const isDate = (value: string) => !Number.isNaN(Date.parse(value));
+
+/**
+ * The one rule for a schedule, applied wherever one is written: the HTTP API, the
+ * `scheduleTask` tool and a snapshot import. Unknown fields are dropped.
+ */
+export const scheduleConfigSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("cron"),
+    expression: z.string().min(1),
+    timezone: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("interval"),
+    everyMs: z.number().int().min(MIN_INTERVAL_MS),
+    anchorAt: z.string().refine(isDate, "must be a date").optional(),
+  }),
+  z.object({
+    type: z.literal("one-shot"),
+    // An ISO timestamp, or a relative "+20m" the writer resolves before saving.
+    runAt: z.string().min(1),
+  }),
+]);
+
+/** Validate a schedule from outside; the error names the first field at fault. */
+export function parseSchedule(raw: unknown): { schedule: ScheduleConfig } | { error: string } {
+  const parsed = scheduleConfigSchema.safeParse(raw);
+  if (parsed.success) return { schedule: parsed.data };
+  const issue = parsed.error.issues[0];
+  const field = ["schedule", ...issue.path].join(".");
+  if (issue.path[0] === "everyMs") return { error: `Field '${field}' must be an integer of at least ${MIN_INTERVAL_MS} ms.` };
+  return { error: `Field '${field}' is invalid: ${issue.message}.` };
+}
 
 /**
  * Compute the next run time for a schedule configuration.
@@ -20,13 +61,20 @@ export function computeNextRun(schedule: ScheduleConfig, lastRunAt?: Date): Date
     }
 
     case "interval": {
-      const anchor = schedule.anchorAt ? new Date(schedule.anchorAt) : (lastRunAt ?? now);
-      let next = new Date(anchor.getTime() + schedule.everyMs);
-      // Advance to the future if next is in the past
-      while (next.getTime() <= now.getTime()) {
-        next = new Date(next.getTime() + schedule.everyMs);
+      // A stored row is not re-validated against the writers' minimum, but a value the
+      // arithmetic cannot step with fails the task instead of the caller.
+      const { everyMs } = schedule;
+      if (!Number.isFinite(everyMs) || everyMs <= 0) {
+        throw new RangeError(`Interval schedule has an invalid everyMs: ${String(everyMs)}`);
       }
-      return next;
+      const anchor = schedule.anchorAt ? new Date(schedule.anchorAt) : (lastRunAt ?? now);
+      if (Number.isNaN(anchor.getTime())) {
+        throw new RangeError(`Interval schedule has an invalid anchorAt: ${String(schedule.anchorAt)}`);
+      }
+      // The first occurrence after now, in one step however far behind the anchor is.
+      const first = anchor.getTime() + everyMs;
+      if (first > now.getTime()) return new Date(first);
+      return new Date(first + (Math.floor((now.getTime() - first) / everyMs) + 1) * everyMs);
     }
 
     case "one-shot": {

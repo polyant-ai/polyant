@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
@@ -48,16 +49,20 @@ export const eventBacklog = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
-    eventDefinitionId: uuid("event_definition_id").notNull().references(() => eventDefinitions.id, { onDelete: "cascade" }),
+    /** Null for a message from the Room's contact, queued with its text as the payload. */
+    eventDefinitionId: uuid("event_definition_id").references(() => eventDefinitions.id, { onDelete: "cascade" }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     reactNotes: text("react_notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Room lease owner that claimed the event while it is processing. */
+    claimedBy: text("claimed_by"),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
+    index("idx_event_backlog_processing").on(table.instanceId).where(sql`${table.status} = 'processing'`),
   ],
 );

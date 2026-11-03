@@ -673,6 +673,27 @@
       "when": 1793264700000,
       "tag": "0102_ai_logs_purpose",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793264800000,
+      "tag": "0103_work_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793264900000,
+      "tag": "0104_room_human_message_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793265000000,
+      "tag": "0105_scheduled_task_run_lease",
+      "breakpoints": true
     }
   ]
 }

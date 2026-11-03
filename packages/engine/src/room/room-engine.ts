@@ -6,7 +6,7 @@ import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
-import { listAndMarkPendingEventsProcessing, markEventsCompleted } from "../webhooks/webhook-backlog.store.js";
+import { listAndMarkPendingEventsProcessing, markEventsCompleted, type BacklogEvent } from "../webhooks/webhook-backlog.store.js";
 import { appendDailyLog } from "./activity-log.store.js";
 import type { RoomConfig } from "./room.store.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
@@ -31,13 +31,31 @@ function estimateTokens(text: string): number {
 // text into a prompt did it plainly — the webhook engine and <channel_identity>
 // among them. Same functions, same behaviour, one importable home.
 
+/**
+ * One cycle of a Room. `owner` is the room lease this cycle runs under: it claims the
+ * pending events in that name, and only that name completes them. Messages from the
+ * Room's contact are pending events too, with no definition, and reach the model as
+ * one human message.
+ */
 export async function executeRoomCycle(
   room: RoomConfig,
   instanceSlug: InstanceSlug,
-  humanMessage?: string,
+  owner: string,
 ): Promise<void> {
   const cycleStart = Date.now();
   const conversationId = `room:${room.instanceId}:${Date.now()}`;
+
+  // Claim first: a cycle with nothing to do reads no configuration and leaves no
+  // empty conversation behind.
+  const claimed = await listAndMarkPendingEventsProcessing(room.instanceId, owner);
+  if (claimed.length === 0) {
+    return;
+  }
+  const pendingEvents = claimed.filter(
+    (e): e is BacklogEvent & { eventDefinitionId: string } => e.eventDefinitionId !== null,
+  );
+  const humanTexts = claimed.filter((e) => e.eventDefinitionId === null).map((e) => String(e.rawPayload.text ?? ""));
+  const humanMessage = humanTexts.length > 0 ? humanTexts.join("\n") : undefined;
 
   // Intentionally NOT calling emitConversation here: the room engine mints a
   // fresh conversationId per cycle (timestamp-suffixed), so every tick would
@@ -45,18 +63,13 @@ export async function executeRoomCycle(
   // cycle's activity is surfaced via the LLM tap (`chat()` replay batch in
   // bus-emitter.ts) plus the room's own `room_activity_log` table, so no
   // lifecycle event is needed here.
-  const [instanceConfig, , pendingEvents] = await Promise.all([
+  const [instanceConfig] = await Promise.all([
     resolveInstanceConfig(instanceSlug),
     conversationStore.ensureConversation(conversationId, instanceSlug, {
       channel: "room",
       source: "room",
     }),
-    listAndMarkPendingEventsProcessing(room.instanceId),
   ]);
-
-  if (!humanMessage && pendingEvents.length === 0) {
-    return;
-  }
 
   // Gather interpretation prompts for the pending events' definitions
   const definitionIds = [...new Set(pendingEvents.map((e) => e.eventDefinitionId))];
@@ -90,15 +103,12 @@ export async function executeRoomCycle(
     ]),
   );
 
-  // Get conversation history
-  const history = await conversationStore.getRecentMessages(conversationId, 50);
-
   // Build context usage estimate. `room.prompt` is counted here because it is
   // sent as a system section (see `roomPrompt` on the supervise() call below).
+  // The conversation is new to this cycle, so it has no history to count or send.
   const contextParts = [room.prompt, ...definitionPrompts.map((d) => d.interpretationPrompt)];
   const eventsText = pendingEvents.map((e) => renderedPayloads.get(e.id) ?? "").join("\n");
-  const historyText = history.map((m) => String(m.content)).join("\n");
-  const totalEstimate = estimateTokens([...contextParts, eventsText, historyText].join("\n"));
+  const totalEstimate = estimateTokens([...contextParts, eventsText].join("\n"));
   const maxTokens = 128_000;
 
   // Build the synthetic message
@@ -151,7 +161,8 @@ export async function executeRoomCycle(
     { role: "user", content: messageToSupervise },
   ]);
 
-  const pendingEventIds = pendingEvents.map((e) => e.id);
+  // The human messages are completed with the events: the cycle answered them.
+  const pendingEventIds = claimed.map((e) => e.id);
 
   // Conversation state buffer (commit-on-success), mirroring the inbound + webhook
   // pipelines: room tools and hook functions share one buffer via `ctx.state`;
@@ -180,7 +191,7 @@ export async function executeRoomCycle(
     log: roomLog,
     scope: "RoomCycle",
     supervisorExtras: {
-      conversationHistory: history,
+      conversationHistory: [],
       // The Room mandate the operator edits in the panel. It used to reach
       // only the token estimate below, so a saved prompt looked delivered and
       // was not (#380).
@@ -193,7 +204,7 @@ export async function executeRoomCycle(
 
       // Mark events as completed with error so they don't stay stuck in "processing"
       if (pendingEventIds.length > 0) {
-        await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId).catch((e) =>
+        await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId, owner).catch((e) =>
           roomLog.error("RoomCycle", "Failed to mark events completed after error", e),
         );
       }
@@ -226,26 +237,25 @@ export async function executeRoomCycle(
 
   // Mark events as completed
   if (pendingEventIds.length > 0) {
-    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId);
+    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId, owner);
   }
 
-  // Persist active conversationId so harness tools (e.g. compact_room_history) can find it
-  await setRoomConversationId(room.instanceId, conversationId);
-
-  postProcessDirectTurn({
-    conversationId,
-    instanceSlug,
-    instanceConfig,
-    titleContent: `Events: ${pendingEvents.length}${humanMessage ? ", Human message received" : ""}\nAssistant: ${finalText.slice(0, 300)}`,
-    titleContext: "This is a Room event processing conversation.",
-    log: roomLog,
-  });
-
-  const now = new Date();
-  const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
   const triggers: string[] = [];
   if (pendingEvents.length > 0) triggers.push(`${pendingEvents.length} event(s)`);
   if (humanMessage) triggers.push("human message");
+
+  // Persist active conversationId so harness tools (e.g. compact_room_history) can find it.
+  // Every cycle has a conversation of its own, so its title says what the cycle handled
+  // instead of costing a model call.
+  await Promise.all([
+    setRoomConversationId(room.instanceId, conversationId),
+    conversationStore.updateTitle(conversationId, `Room · ${triggers.join(" + ")}`),
+  ]);
+
+  postProcessDirectTurn({ conversationId, instanceSlug, instanceConfig, log: roomLog });
+
+  const now = new Date();
+  const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
   const logContent = `———— ${timestamp} | ${triggers.join(" + ")} ————\n${finalText.slice(0, 1000)}`;
 
   try {
