@@ -181,25 +181,30 @@ export function persistDirectReply(conversationId: string, outcome: DirectTurnOu
   ]);
 }
 
-/** Fire-and-forget after the reply: the conversation title, then memory extraction when enabled. */
+/**
+ * Fire-and-forget after the reply: the conversation title, then memory extraction when
+ * enabled. Without `titleContent` no title is generated (the engine wrote its own).
+ */
 export function postProcessDirectTurn(input: {
   conversationId: string;
   instanceSlug: InstanceSlug;
   instanceConfig: InstanceConfig;
-  titleContent: string;
-  titleContext: string;
+  titleContent?: string;
+  titleContext?: string;
   log: Logger;
 }): void {
   const { instanceConfig: cfg, log } = input;
   const run = async () => {
-    await generateConversationTitle({
-      conversationId: input.conversationId,
-      instanceId: input.instanceSlug,
-      provider: cfg.provider,
-      apiKeys: cfg.apiKeys,
-      content: input.titleContent,
-      context: input.titleContext,
-    });
+    if (input.titleContent !== undefined) {
+      await generateConversationTitle({
+        conversationId: input.conversationId,
+        instanceId: input.instanceSlug,
+        provider: cfg.provider,
+        apiKeys: cfg.apiKeys,
+        content: input.titleContent,
+        context: input.titleContext,
+      });
+    }
 
     if (cfg.memoryEnabled !== false) {
       extractMemories(input.conversationId, input.instanceSlug, cfg.apiKeys, cfg.provider).catch((err) =>

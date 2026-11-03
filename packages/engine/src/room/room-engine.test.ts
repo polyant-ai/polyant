@@ -808,6 +808,24 @@ describe("executeRoomCycle", () => {
       );
     });
 
+    it("titles the cycle's conversation by what it handled, with no model call and no history read", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+        humanEvent("hello"),
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([]) as never);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockConversationStore.updateTitle).toHaveBeenCalledWith(
+        expect.stringMatching(/^room:inst-1:\d+$/),
+        "Room · 1 event(s) + human message",
+      );
+      expect(mockGenerateTitle).not.toHaveBeenCalled();
+      expect(mockConversationStore.getRecentMessages).not.toHaveBeenCalled();
+    });
+
     it("should NOT call extractMemories when memoryEnabled is false", async () => {
       mockResolveInstanceConfig.mockResolvedValue({ ...INSTANCE_CONFIG, memoryEnabled: false });
       mockConversationStore.getTitle.mockResolvedValue("Existing Title");

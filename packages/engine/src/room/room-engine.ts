@@ -103,15 +103,12 @@ export async function executeRoomCycle(
     ]),
   );
 
-  // Get conversation history
-  const history = await conversationStore.getRecentMessages(conversationId, 50);
-
   // Build context usage estimate. `room.prompt` is counted here because it is
   // sent as a system section (see `roomPrompt` on the supervise() call below).
+  // The conversation is new to this cycle, so it has no history to count or send.
   const contextParts = [room.prompt, ...definitionPrompts.map((d) => d.interpretationPrompt)];
   const eventsText = pendingEvents.map((e) => renderedPayloads.get(e.id) ?? "").join("\n");
-  const historyText = history.map((m) => String(m.content)).join("\n");
-  const totalEstimate = estimateTokens([...contextParts, eventsText, historyText].join("\n"));
+  const totalEstimate = estimateTokens([...contextParts, eventsText].join("\n"));
   const maxTokens = 128_000;
 
   // Build the synthetic message
@@ -194,7 +191,7 @@ export async function executeRoomCycle(
     log: roomLog,
     scope: "RoomCycle",
     supervisorExtras: {
-      conversationHistory: history,
+      conversationHistory: [],
       // The Room mandate the operator edits in the panel. It used to reach
       // only the token estimate below, so a saved prompt looked delivered and
       // was not (#380).
@@ -243,23 +240,22 @@ export async function executeRoomCycle(
     await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId, owner);
   }
 
-  // Persist active conversationId so harness tools (e.g. compact_room_history) can find it
-  await setRoomConversationId(room.instanceId, conversationId);
-
-  postProcessDirectTurn({
-    conversationId,
-    instanceSlug,
-    instanceConfig,
-    titleContent: `Events: ${pendingEvents.length}${humanMessage ? ", Human message received" : ""}\nAssistant: ${finalText.slice(0, 300)}`,
-    titleContext: "This is a Room event processing conversation.",
-    log: roomLog,
-  });
-
-  const now = new Date();
-  const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
   const triggers: string[] = [];
   if (pendingEvents.length > 0) triggers.push(`${pendingEvents.length} event(s)`);
   if (humanMessage) triggers.push("human message");
+
+  // Persist active conversationId so harness tools (e.g. compact_room_history) can find it.
+  // Every cycle has a conversation of its own, so its title says what the cycle handled
+  // instead of costing a model call.
+  await Promise.all([
+    setRoomConversationId(room.instanceId, conversationId),
+    conversationStore.updateTitle(conversationId, `Room · ${triggers.join(" + ")}`),
+  ]);
+
+  postProcessDirectTurn({ conversationId, instanceSlug, instanceConfig, log: roomLog });
+
+  const now = new Date();
+  const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
   const logContent = `———— ${timestamp} | ${triggers.join(" + ")} ————\n${finalText.slice(0, 1000)}`;
 
   try {
