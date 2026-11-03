@@ -450,16 +450,6 @@ export interface AfterResponseOptions {
   debugPayload?: LlmDebugPayload;
   /** Pre-generated assistant message UUID (streaming path) — keeps the persisted id stable. */
   assistantMessageId?: string;
-  /** The summary the turn read, which a fold extends. */
-  existingSummary?: string;
-  /** The oldest messages of the history, to fold into the summary. */
-  summaryFold?: SummaryFold;
-  memoryEnabled?: boolean;
-  /** The agent's resolved datetime formatting, for the summary's "as of" stamp. */
-  datetime?: InstanceConfig["datetime"];
-  provider?: string;
-  apiKeys?: InstanceConfig["apiKeys"];
-  langsmith?: { apiKey: string; project: string };
   /** User-message attachments to upload + persist alongside the user row. */
   userAttachments?: Attachment[];
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
@@ -542,24 +532,41 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
   ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
 }
 
+/** What the work after a saved turn needs; see {@link afterResponseTail}. */
+export interface TurnTailOptions {
+  conversationId: string;
+  instanceId: InstanceSlug;
+  /** The agent's config: provider, keys, LangSmith, memory switch, timezone. */
+  instanceConfig: InstanceConfig;
+  /** What the conversation title is generated from, and an optional hint for it. */
+  titleContent: string;
+  titleContext?: string;
+  /** The summary the turn read, which a fold extends. */
+  existingSummary?: string;
+  /** The oldest messages of the history, to fold into the summary. */
+  summaryFold?: SummaryFold;
+}
+
 /**
  * The work that follows a saved turn and that the next turn does not need:
  * the conversation title, the summary of the messages leaving the window, the
- * memory extraction. Runs as one bounded background job that shutdown waits
- * for; failures are logged.
+ * memory extraction. Shared by every engine that saves a turn (the pipeline,
+ * Room and webhook turns). Runs as one bounded background job that shutdown
+ * waits for; failures are logged.
  */
-export function afterResponseTail(opts: AfterResponseOptions): void {
-  if (isAutoTask(opts.userMessage)) return;
-
+export function afterResponseTail(opts: TurnTailOptions): void {
+  const cfg = opts.instanceConfig;
+  const langsmith = buildLangsmithConfig(cfg);
   const work = async () => {
     // Generate title (only once, after first exchange)
     await generateConversationTitle({
       conversationId: opts.conversationId,
       instanceId: opts.instanceId,
-      provider: opts.provider,
-      apiKeys: opts.apiKeys,
-      langsmith: opts.langsmith,
-      content: `User: ${opts.userMessage}\nAssistant: ${opts.assistantResponse}`,
+      provider: cfg.provider,
+      apiKeys: cfg.apiKeys,
+      langsmith,
+      content: opts.titleContent,
+      context: opts.titleContext,
     });
 
     // Fold the oldest messages of the history into the summary, once per block.
@@ -575,7 +582,7 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
         })
         .join("\n");
       try {
-        const datetime = opts.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+        const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
         const now = new Date().toLocaleString(datetime.locale, {
           timeZone: datetime.timezone,
           dateStyle: "full",
@@ -583,9 +590,9 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
         });
         const summaryResponse = await chat({
           tier: "fast",
-          provider: opts.provider,
-          apiKeys: opts.apiKeys,
-          langsmith: opts.langsmith,
+          provider: cfg.provider,
+          apiKeys: cfg.apiKeys,
+          langsmith,
           system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
           messages: [{
             role: "user",
@@ -605,8 +612,8 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
     }
 
     // Automatic memory extraction
-    if (opts.memoryEnabled !== false) {
-      await extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
+    if (cfg.memoryEnabled !== false) {
+      await extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
         log.error("pipeline", "Memory extraction failed", err),
       );
     }
@@ -800,13 +807,6 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       reasoning: opts.reasoning,
       debugPayload: opts.debugPayload,
       assistantMessageId: opts.assistantMessageId,
-      existingSummary: ctx.conversationSummary,
-      summaryFold: ctx.summaryFold,
-      memoryEnabled: ctx.instanceConfig.memoryEnabled,
-      datetime: ctx.instanceConfig.datetime,
-      provider: ctx.instanceConfig.provider,
-      apiKeys: ctx.instanceConfig.apiKeys,
-      langsmith: ctx.langsmith,
       // Copied to the agent's bucket only when the agent opted in. The model
       // already had them inline; this decides whether they are kept.
       userAttachments: ctx.instanceConfig.attachmentStorageEnabled ? ctx.userAttachments : undefined,
@@ -848,9 +848,16 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
         parentTraceId: agentCall?.parentTraceId,
         ...sttFields,
       });
-    }
 
-    afterResponseTail(turn);
+      afterResponseTail({
+        conversationId: ctx.conversationId,
+        instanceId: ctx.instanceId,
+        instanceConfig: ctx.instanceConfig,
+        titleContent: `User: ${opts.messageText}\nAssistant: ${finalText}`,
+        existingSummary: ctx.conversationSummary,
+        summaryFold: ctx.summaryFold,
+      });
+    }
 
     // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
     // subsequent inbound turns don't see stale webhook-trigger instructions.

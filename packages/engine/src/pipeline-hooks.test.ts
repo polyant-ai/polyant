@@ -58,7 +58,7 @@ function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
     stateBuffer: undefined,
     history: undefined,
     isFirstTurn: true,
-    instanceConfig: {} as PipelineContext["instanceConfig"],
+    instanceConfig: { langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
     isAutoTaskTurn: false,

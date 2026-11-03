@@ -120,7 +120,7 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
       stateBuffer: undefined,
       history: undefined,
       isFirstTurn: true,
-      instanceConfig: { attachmentStorageEnabled } as PipelineContext["instanceConfig"],
+      instanceConfig: { attachmentStorageEnabled, langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
       langsmith: undefined,
       userAttachments: [{ type: "image", data: Buffer.from("jpeg"), mimeType: "image/jpeg" }],
       isAutoTaskTurn: false,

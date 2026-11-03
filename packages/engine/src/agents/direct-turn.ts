@@ -6,8 +6,7 @@ import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import type { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { conversationStore } from "../conversations/index.js";
 import { traceStore } from "../analytics/trace.store.js";
-import { extractMemories } from "../memory/extractor.js";
-import { generateConversationTitle } from "../utils/title-generator.js";
+import { afterResponseTail } from "../pipeline.js";
 import type { InstanceConfig } from "../instances/config-resolver.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 import type { Logger } from "../utils/create-logger.js";
@@ -181,7 +180,12 @@ export function persistDirectReply(conversationId: string, outcome: DirectTurnOu
   ]);
 }
 
-/** Fire-and-forget after the reply: the conversation title, then memory extraction when enabled. */
+/**
+ * After the reply: the conversation title, then memory extraction when
+ * enabled — the same bounded, shutdown-tracked work the pipeline runs after a
+ * saved turn, with the same inputs (LangSmith included). `log` is unused: the
+ * shared work logs its own failures.
+ */
 export function postProcessDirectTurn(input: {
   conversationId: string;
   instanceSlug: InstanceSlug;
@@ -190,24 +194,13 @@ export function postProcessDirectTurn(input: {
   titleContext: string;
   log: Logger;
 }): void {
-  const { instanceConfig: cfg, log } = input;
-  const run = async () => {
-    await generateConversationTitle({
-      conversationId: input.conversationId,
-      instanceId: input.instanceSlug,
-      provider: cfg.provider,
-      apiKeys: cfg.apiKeys,
-      content: input.titleContent,
-      context: input.titleContext,
-    });
-
-    if (cfg.memoryEnabled !== false) {
-      extractMemories(input.conversationId, input.instanceSlug, cfg.apiKeys, cfg.provider).catch((err) =>
-        log.error("PostProcess", "Memory extraction failed", err),
-      );
-    }
-  };
-  run().catch((err) => log.error("PostProcess", "post-processing error", err));
+  afterResponseTail({
+    conversationId: input.conversationId,
+    instanceId: input.instanceSlug,
+    instanceConfig: input.instanceConfig,
+    titleContent: input.titleContent,
+    titleContext: input.titleContext,
+  });
 }
 
 /** Record the pipeline trace of a direct turn. */

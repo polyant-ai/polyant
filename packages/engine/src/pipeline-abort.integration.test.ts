@@ -84,7 +84,7 @@ async function finishTurn(
     stateBuffer,
     history: undefined,
     isFirstTurn: true,
-    instanceConfig: { memoryEnabled: false, attachmentStorageEnabled: false } as PipelineContext["instanceConfig"],
+    instanceConfig: { memoryEnabled: false, attachmentStorageEnabled: false, langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
     isAutoTaskTurn: false,
