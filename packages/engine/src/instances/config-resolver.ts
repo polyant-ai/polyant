@@ -76,7 +76,7 @@ export interface InstanceConfig {
   dedupSimilarityThreshold: number;
   messageTimings: MessageTimingSettings;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
-  cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  cacheConfig: { enabled: boolean; ttl: CacheTtl; userTurn: boolean };
   /** What becomes of text written alongside a tool call; null = unset, the pre-policy behaviour. */
   intermediateText: IntermediateTextPolicy | null;
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
@@ -174,7 +174,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       datetime: resolveDatetimeSettings(UNSET_AGENT_SETTINGS),
       dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
       messageTimings: resolveMessageTimings(UNSET_AGENT_SETTINGS),
-      cacheConfig: { enabled: true, ttl: "1h" },
+      cacheConfig: { enabled: true, ttl: "1h", userTurn: false },
       intermediateText: null,
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
@@ -268,6 +268,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     cacheConfig: {
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
+      userTurn: instance.cacheUserTurn,
     },
     intermediateText: isIntermediateTextPolicy(instance.intermediateText) ? instance.intermediateText : null,
     a2aEnabled: instance.a2aEnabled,

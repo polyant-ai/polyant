@@ -72,10 +72,12 @@ export interface ChatRequest {
    * Per-instance prompt-cache control. `enabled: false` skips ALL cache markers
    * (Anthropic `cacheControl` / Bedrock `cachePoint`), so the provider never pays
    * a cache write; `ttl` selects the cross-turn Anthropic breakpoint TTL. Undefined
-   * = enabled + 1h (backward compatible). No effect on OpenAI (automatic caching,
-   * no marker) or Nebius (no cache API).
+   * = enabled + 1h (backward compatible). `userTurn` also marks the current user
+   * turn on the first step of a multi-step turn (undefined = off; see
+   * `makeStepMarker`). No effect on OpenAI (automatic caching, no marker) or
+   * Nebius (no cache API).
    */
-  cacheConfig?: { enabled: boolean; ttl: CacheTtl };
+  cacheConfig?: { enabled: boolean; ttl: CacheTtl; userTurn?: boolean };
   /**
    * What becomes of text written in a step that also calls a tool (see
    * `intermediate-text.ts`). Undefined = the reply is the last step's text and a

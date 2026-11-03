@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
+  the current message on the first model step of a turn, so the next step reads
+  it from cache instead of paying it at full input price and then writing it
+  again. It saves on agents whose turns usually call tools and carry a large
+  message; a turn answered in a single step pays a cache write that is never
+  read, so it is off by default. `PATCH /api/instances/:slug` accepts
+  `cacheUserTurn`, export and import carry it (migration `0099`), and the
+  conversation model panel has a switch under the cache lifetime.
+
 ### Fixed
 
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.

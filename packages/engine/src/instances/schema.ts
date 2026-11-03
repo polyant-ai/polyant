@@ -75,6 +75,14 @@ export const instances = pgTable("instances", {
   /** Cross-turn Anthropic cache TTL: "5m" or "1h" (default "1h"). Bedrock is 5m regardless. */
   cacheTtl: text("cache_ttl").notNull().default("1h"),
   /**
+   * Also cache the current user turn on the first step of a multi-step turn, so
+   * the next step reads it instead of paying it again. Pays off when turns
+   * usually take two or more steps and the user turn is large; an agent that
+   * mostly answers in one step pays a cache write it never reads. Default off =
+   * prior behaviour. Anthropic and Bedrock only (see `makeStepMarker`).
+   */
+  cacheUserTurn: boolean("cache_user_turn").notNull().default(false),
+  /**
    * What becomes of text the model writes in a step that also calls a tool:
    * "discard", "progress" or "reply" (see ai-gateway/intermediate-text.ts). NULL
    * = never chosen: the reply is the last step's text, a stream shows every

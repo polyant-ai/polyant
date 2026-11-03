@@ -228,6 +228,27 @@ describe("ModelTab", () => {
     );
   });
 
+  it("saves the user-turn cache switch for an Anthropic agent, and offers none on OpenAI", async () => {
+    mocks.secretsList.mockResolvedValue({ secrets: [{ key: "anthropic_api_key", configured: true }] });
+    const anthropic = makeInstance({ provider: "anthropic", model: "claude-3-opus", effectiveProvider: "anthropic", effectiveModel: "claude-3-opus" });
+    const { unmount } = render(<ModelTab instance={anthropic} onUpdate={onUpdate} />);
+
+    const panel = await openTask("settings.role.chat.title");
+    const toggle = within(panel).getByRole("switch", { name: "settings.tab.cacheUserTurn" });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    await userEvent.click(within(panel).getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ cacheUserTurn: true })),
+    );
+    unmount();
+
+    render(<ModelTab instance={makeInstance()} onUpdate={onUpdate} />);
+    const openaiPanel = await openTask("settings.role.chat.title");
+    expect(within(openaiPanel).queryByRole("switch", { name: "settings.tab.cacheUserTurn" })).not.toBeInTheDocument();
+  });
+
   it("names the model plainly when fast mode is stored on a model that has none", async () => {
     render(<ModelTab instance={makeInstance({ model: "gpt-4o", fastMode: true, effectiveFastMode: false })} onUpdate={onUpdate} />);
 

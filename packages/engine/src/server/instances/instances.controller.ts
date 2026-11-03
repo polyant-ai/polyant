@@ -117,6 +117,7 @@ function toInstanceDto(instance: Instance) {
     messageMaxRestarts: instance.messageMaxRestarts,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    cacheUserTurn: instance.cacheUserTurn,
     intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
@@ -403,6 +404,7 @@ export class InstancesController {
       messageMaxRestarts?: number | null;
       cacheEnabled?: boolean;
       cacheTtl?: string;
+      cacheUserTurn?: boolean;
       /** `null` clears the policy back to the behaviour from before it existed. */
       intermediateText?: IntermediateTextPolicy | null;
       a2aEnabled?: boolean;
@@ -447,6 +449,9 @@ export class InstancesController {
     }
     if (body.fastMode !== undefined && typeof body.fastMode !== "boolean") {
       throw new BadRequestException("fastMode must be a boolean");
+    }
+    if (body.cacheUserTurn !== undefined && typeof body.cacheUserTurn !== "boolean") {
+      throw new BadRequestException("cacheUserTurn must be a boolean");
     }
     if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
       throw new BadRequestException(
