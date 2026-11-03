@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read, so it is off by default. `PATCH /api/instances/:slug` accepts
   `cacheUserTurn`, export and import carry it (migration `0099`), and the
   conversation model panel has a switch under the cache lifetime.
+- Exact replay of earlier turns, per agent (`toolHistoryReplay: "exact"`, off by
+  default). With tool results in history on, an agent can replay earlier turns
+  exactly as the model received them: step by step, with whole tool results,
+  the user message with the context it was sent with, and the thinking blocks.
+  The next request then starts with the prefix the provider already cached, so
+  the history is read from the prompt cache instead of written to it every turn.
+  The context grows with every tool result kept whole, which is why it is opt-in.
 
 ### Fixed
 

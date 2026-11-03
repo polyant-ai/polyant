@@ -565,6 +565,46 @@ describe("createProvider – cumulative usage across SDK majors", () => {
   });
 });
 
+/**
+ * An agent on exact history replay stores the turn's response messages as the
+ * SDK fed them back between steps. AI SDK 7 exposes them as `responseMessages`
+ * (a Promise on the streamed result).
+ */
+describe("createProvider – the turn's response messages", () => {
+  const messages = [
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "t1", toolName: "read", input: {} }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", toolName: "read", output: { type: "text", value: "ok" } }] },
+    { role: "assistant", content: [{ type: "text", text: "hello" }] },
+  ];
+
+  it("chat: returns every step's response messages", async () => {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({ ...fakeGenerateTextResult, responseMessages: messages } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res.responseMessages).toEqual(messages);
+  });
+
+  it("chatStream: returns every step's response messages once the stream is done", async () => {
+    vi.mocked(tracedStreamText).mockResolvedValueOnce({ ...fakeStreamTextResult, responseMessages: Promise.resolve(messages) } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect((await stream.response).responseMessages).toEqual(messages);
+  });
+
+  it("leaves the field out when the SDK reports none", async () => {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({ ...fakeGenerateTextResult } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res).not.toHaveProperty("responseMessages");
+  });
+});
+
 describe("createProvider – temperature forwarding", () => {
   it("passes temperature to generateText when set", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);

@@ -13,7 +13,12 @@ import { chat } from "./ai-gateway/index.js";
 import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
-import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import {
+  buildExactHistory,
+  buildHistoryWithToolResults,
+  toExactUserMessage,
+  type ExactTurn,
+} from "./conversations/tool-history.js";
 import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
@@ -274,9 +279,16 @@ export async function preparePipeline(
   // Tool-result replay (opt-in per instance): rebuild the in-window history from
   // the raw rows read above, reconstructing tool_use/tool_result blocks from the
   // persisted `steps` so the model retains tool outputs across turns. The dropped
-  // messages / summary stay text-only.
+  // messages / summary stay text-only. The window is counted in rows in both
+  // modes, so an exact turn of several steps enters and leaves it whole.
   if (replayRows && replayRows.length > 0) {
-    history = buildHistoryWithToolResults(hasOverflow ? replayRows.slice(-10) : replayRows);
+    const windowRows = hasOverflow ? replayRows.slice(-10) : replayRows;
+    history =
+      instanceConfig.toolHistoryReplay === "exact"
+        ? // A window cut from the front changes what every replayed thinking block
+          // is bound to, so reasoning is replayed only while nothing was cut.
+          buildExactHistory(windowRows, { keepReasoning: !hasOverflow })
+        : buildHistoryWithToolResults(windowRows);
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);
@@ -444,6 +456,8 @@ export interface AfterResponseOptions {
   /** Message arrival time (pipeline start). Used as the user row's created_at so the
    * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant). */
   receivedAt?: Date;
+  /** The turn as the model received it; set only for agents that replay their history exactly. */
+  exactTurn?: ExactTurn;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -515,6 +529,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
         content: opts.userMessage,
         attachments: attachmentMetas,
         metadata: opts.inboundMetadata,
+        ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
         // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
         // and it always precedes the assistant row persisted just below.
         ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
@@ -533,6 +548,11 @@ export function afterResponse(opts: AfterResponseOptions): void {
         reasoning: opts.reasoning,
         debugPayload: opts.debugPayload,
         metadata: opts.provenance,
+        // A reply a hook wrote is not what the model produced: that row replays
+        // compactly, from the text the user received.
+        ...(opts.exactTurn && opts.exactTurn.response.length > 0 && !opts.provenance
+          ? { exactReplay: { messages: opts.exactTurn.response, prefixKey: opts.exactTurn.prefixKey } }
+          : {}),
       },
     ]);
 
@@ -712,6 +732,8 @@ export interface PipelinePostOptions {
    *  runPipelinePost does NOT re-run those hooks and does NOT re-apply replace —
    *  the caller already produced the final `resultText`. */
   responseGenerated?: ResponseGeneratedOutcome;
+  /** The turn as the model received it (`SupervisorOutput.exactTurn`); persisted only on exact replay. */
+  exactTurn?: ExactTurn;
 }
 
 export interface PipelinePostResult {
@@ -839,6 +861,10 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       inboundMetadata: ctx.inboundMetadata,
       provenance,
       receivedAt: new Date(ctx.pipelineStart),
+      exactTurn:
+        ctx.instanceConfig.toolResultsInHistoryEnabled && ctx.instanceConfig.toolHistoryReplay === "exact"
+          ? opts.exactTurn
+          : undefined,
     });
 
     // ContextPrompt is one-shot: if we loaded it for this turn, clear it so

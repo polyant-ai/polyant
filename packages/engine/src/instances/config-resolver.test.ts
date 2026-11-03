@@ -79,6 +79,7 @@ const fakeInstance = {
   cacheUserTurn: true,
   a2aEnabled: true,
   toolResultsInHistoryEnabled: false,
+  toolHistoryReplay: "compact",
   debugEnabled: false,
   attachmentStorageEnabled: true,
   icon: null,
@@ -153,6 +154,7 @@ describe("instances/config-resolver", () => {
         intermediateText: null,
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
+        toolHistoryReplay: "compact",
         debugEnabled: false,
         attachmentStorageEnabled: false,
         optout: {
@@ -221,6 +223,7 @@ describe("instances/config-resolver", () => {
         intermediateText: null,
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,
+        toolHistoryReplay: "compact",
         debugEnabled: false,
         attachmentStorageEnabled: true,
         optout: {

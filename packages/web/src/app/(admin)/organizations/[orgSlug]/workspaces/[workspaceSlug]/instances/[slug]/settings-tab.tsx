@@ -72,6 +72,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     messageMaxRestarts: instance.messageMaxRestarts?.toString() ?? "",
     // Replay prior-turn tool results into the model's cross-turn history (default off).
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    // Replay earlier turns exactly as sent (default compact rebuild).
+    exactToolHistory: instance.toolHistoryReplay === "exact",
     // What becomes of text written alongside a tool call (unset = per-channel behaviour).
     intermediateText: instance.intermediateText ?? UNSET,
     // DEBUG mode: persist the exact LLM request payload per turn (default off).
@@ -86,6 +88,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         stateInPromptEnabled,
         datetimeInjectionEnabled,
         toolResultsInHistoryEnabled,
+        toolHistoryReplay: draft.exactToolHistory ? "exact" : "compact",
         debugEnabled,
         intermediateText: intermediateTextOrNull(draft.intermediateText),
         // Empty means "hand this back to the deployment default", which the API
@@ -281,6 +284,29 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               id="agent-tool-results-history"
               checked={toolResultsInHistoryEnabled}
               onCheckedChange={(v) => set("toolResultsInHistoryEnabled", v)}
+            />
+          </div>
+
+          {/*
+            How those earlier turns come back: rebuilt with truncated results
+            (default), or exactly as the model was sent them, which lets the
+            provider's prompt cache read the history. Only meaningful with the
+            toggle above on.
+          */}
+          <div className="flex items-start justify-between gap-4 pl-4">
+            <div className="space-y-1">
+              <Label htmlFor="agent-exact-tool-history" className="text-sm font-medium">
+                {t("settings.tab.exactToolHistory")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.exactToolHistoryHelp")}
+              </p>
+            </div>
+            <Switch
+              id="agent-exact-tool-history"
+              checked={draft.exactToolHistory}
+              disabled={!toolResultsInHistoryEnabled}
+              onCheckedChange={(v) => set("exactToolHistory", v)}
             />
           </div>
 

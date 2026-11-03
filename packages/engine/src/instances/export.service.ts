@@ -112,6 +112,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    toolHistoryReplay: instance.toolHistoryReplay === "exact" ? "exact" : "compact",
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
     sttProvider: instance.sttProvider,

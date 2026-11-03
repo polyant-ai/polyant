@@ -121,6 +121,12 @@ export interface ChatResponse {
    * persisted on the assistant message row (`conversation_messages.debug_payload`).
    */
   debugPayload?: LlmDebugPayload;
+  /**
+   * The assistant and tool messages the turn produced, step by step, as the SDK
+   * fed them back to the model between steps (reasoning parts and whole tool
+   * outputs included). Kept by agents that replay their history exactly.
+   */
+  responseMessages?: ModelMessage[];
 }
 
 /**

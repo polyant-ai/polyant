@@ -168,6 +168,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     cacheEnabled: true,
     cacheTtl: "1h",
     toolResultsInHistoryEnabled: false,
+    toolHistoryReplay: "compact",
     debugEnabled: false,
     optoutEnabled: false,
     optoutStopKeywords: [],

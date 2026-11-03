@@ -32,6 +32,11 @@ export function modelSupportsVision(provider: string, model: string): boolean {
 // them). Backfill marker for a message left with no content after sanitizing.
 const EMPTY_PLACEHOLDER = "[attachment]";
 
+/** The text that stands in for an image or file part a model cannot receive. */
+export function attachmentNote(mediaType: unknown): string {
+  return `[attachment: ${typeof mediaType === "string" ? mediaType : "file"}]`;
+}
+
 /**
  * Sanitize the message array for the resolved model before it reaches the provider:
  *  - text-only models: replace image/file parts with a text note (the raw bytes still
@@ -63,7 +68,7 @@ export function sanitizeMessagesForModel(
     for (const part of m.content as Array<Record<string, unknown>>) {
       if (!visionOk && (part.type === "image" || part.type === "file")) {
         changed = true;
-        parts.push({ type: "text", text: `[attachment: ${(part.mediaType as string) ?? "file"}]` });
+        parts.push({ type: "text", text: attachmentNote(part.mediaType) });
       } else if (part.type === "text" && typeof part.text === "string" && part.text.trim() === "") {
         changed = true; // drop blank text block
       } else {
