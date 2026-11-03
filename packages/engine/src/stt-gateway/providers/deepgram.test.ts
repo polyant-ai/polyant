@@ -118,6 +118,20 @@ describe("deepgramAdapter", () => {
     ).rejects.toBeInstanceOf(STTTimeoutError);
   });
 
+  it("times out an answer whose body never finishes arriving", async () => {
+    const stalled = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"results":')); } });
+    (global.fetch as any).mockResolvedValue(new Response(stalled, { status: 200 }));
+
+    await expect(
+      deepgramAdapter.transcribe({
+        audio: Buffer.from([0]),
+        mimeType: "audio/ogg",
+        credentials: { deepgram: { apiKey: "dg-test" } },
+        timeoutMs: 20,
+      }),
+    ).rejects.toBeInstanceOf(STTTimeoutError);
+  });
+
   it("throws a provider error, not a timeout, when the caller aborts", async () => {
     abortableFetch();
     const caller = new AbortController();
