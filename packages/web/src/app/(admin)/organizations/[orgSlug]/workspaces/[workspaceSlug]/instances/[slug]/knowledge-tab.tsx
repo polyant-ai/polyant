@@ -31,6 +31,22 @@ import { useDraft } from "./use-draft";
 import { AddTextSheet } from "@/components/knowledge/add-text-sheet";
 import { formatBytes, KnowledgeStatusBadge } from "@/components/knowledge/document-status";
 
+/**
+ * Every document of the agent. The engine answers one page at a time; the list
+ * is searched and sorted here, so it follows `nextOffset` to the last page.
+ */
+async function listAllDocuments(slug: string): Promise<{ documents: KnowledgeDocument[] }> {
+  const first = await api.knowledge.list(slug);
+  const documents = [...first.documents];
+  let next = first.nextOffset;
+  while (next != null) {
+    const page = await api.knowledge.list(slug, { offset: next });
+    documents.push(...page.documents);
+    next = page.nextOffset;
+  }
+  return { documents };
+}
+
 interface Props {
   slug: string;
   /** For the capability switches above the documents — see `KnowledgeCapabilities`. */
@@ -134,7 +150,7 @@ function KnowledgeToggle({
 
 export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
   const { t } = useI18n();
-  const { data, error, loading, reload: load } = useResource(["knowledge", slug], () => api.knowledge.list(slug));
+  const { data, error, loading, reload: load } = useResource(["knowledge", slug], () => listAllDocuments(slug));
   const documents: KnowledgeDocument[] = data?.documents ?? [];
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   // Document switches ride the page's Save like the two switches above them: the

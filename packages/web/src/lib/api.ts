@@ -561,8 +561,11 @@ export const api = {
       ),
   },
   knowledge: {
-    list: (slug: string) =>
-      request<{ documents: KnowledgeDocument[] }>(urlPath`/api/instances/${slug}/knowledge`),
+    /** One page of the agent's documents; `nextOffset` names the next page, null after the last. */
+    list: (slug: string, page?: { limit?: number; offset?: number }) =>
+      request<{ documents: KnowledgeDocument[]; nextOffset?: number | null }>(
+        withQuery(urlPath`/api/instances/${slug}/knowledge`, page ?? {}),
+      ),
     get: (slug: string, docId: string) =>
       request<{ document: KnowledgeDocumentDetail }>(
         urlPath`/api/instances/${slug}/knowledge/${docId}`,

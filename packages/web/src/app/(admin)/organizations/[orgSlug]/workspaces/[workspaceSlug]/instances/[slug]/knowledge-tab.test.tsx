@@ -483,6 +483,32 @@ describe("KnowledgeTab — the switch on a document", () => {
   });
 });
 
+describe("KnowledgeTab — an agent with more documents than one page", () => {
+  const doc = (id: string, filename: string) => ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+
+  it("follows the engine's pages until the last, and lists every document", async () => {
+    mockList.mockImplementation(async (_slug: string, page?: { offset?: number }) =>
+      page?.offset === 1
+        ? { documents: [doc("d2", "second-page.md")], nextOffset: null }
+        : { documents: [doc("d1", "first-page.md")], nextOffset: 1 },
+    );
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    expect(await screen.findByText("second-page.md")).toBeInTheDocument();
+    expect(screen.getByText("first-page.md")).toBeInTheDocument();
+    expect(mockList).toHaveBeenCalledTimes(2);
+    expect(mockList).toHaveBeenLastCalledWith("a1", { offset: 1 });
+  });
+
+  it("asks once when the engine names no next page", async () => {
+    mockList.mockResolvedValue({ documents: [doc("d1", "only.md")] });
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("only.md");
+    expect(mockList).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("KnowledgeTab — refreshing documents still in processing", () => {
   const processing = [
     { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
