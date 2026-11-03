@@ -6,6 +6,7 @@ import { db } from "../../database/client.js";
 import { tools } from "./tools.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { skillTools } from "../../skills/schema.js";
+
 /**
  * Set of tool names that are considered "global" — always available to every
  * instance regardless of per-instance tool configuration.
