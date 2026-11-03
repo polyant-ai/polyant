@@ -34,7 +34,6 @@ export interface RoomFormState {
   prompt: string;
   outboundChannel: string;
   outboundTarget: string;
-  evalIntervalMinutes: number;
 }
 
 interface Props {
@@ -125,15 +124,6 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
         </div>
       </div>
 
-      <div className="space-y-1">
-        <Label>{t("room.config.evalInterval")}</Label>
-        <Input
-          type="number"
-          min={1}
-          value={form.evalIntervalMinutes}
-          onChange={(e) => onChange({ ...form, evalIntervalMinutes: Number(e.target.value) })}
-        />
-      </div>
     </section>
   );
 }

@@ -62,7 +62,6 @@ const ROOM_A = {
   prompt: "Agent A",
   outboundChannel: "slack" as const,
   outboundTarget: "#a",
-  evalIntervalMinutes: 5,
   conversationId: "room:inst-a",
 };
 

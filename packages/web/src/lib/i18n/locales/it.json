@@ -912,7 +912,6 @@
   "room.config.outboundChannel": "Canale in uscita",
   "room.config.outboundTarget": "Target del canale",
   "room.config.outboundTargetHelp": "ID canale Slack, numero WhatsApp, o chat ID Telegram",
-  "room.config.evalInterval": "Intervallo di valutazione (minuti)",
   "room.sources.title": "Sorgenti di Eventi",
   "room.sources.add": "Aggiungi",
   "room.sources.definitionsCount": "{count} definizioni di evento",

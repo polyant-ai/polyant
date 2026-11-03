@@ -230,7 +230,6 @@ export interface RoomConfigResponse {
   prompt?: string;
   outboundChannel?: string | null;
   outboundTarget?: string | null;
-  evalIntervalMinutes?: number;
   pendingEventCount?: number;
 }
 

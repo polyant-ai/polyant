@@ -13,7 +13,6 @@ export interface RoomConfig {
   prompt: string;
   outboundChannel: string | null;
   outboundTarget: string | null;
-  evalIntervalMinutes: number;
   conversationId: string | null;
 }
 
@@ -41,7 +40,6 @@ export async function upsertRoom(
     prompt?: string;
     outboundChannel?: string | null;
     outboundTarget?: string | null;
-    evalIntervalMinutes?: number;
   },
 ): Promise<void> {
   await db
@@ -52,7 +50,6 @@ export async function upsertRoom(
       prompt: data.prompt ?? "",
       outboundChannel: data.outboundChannel ?? null,
       outboundTarget: data.outboundTarget ?? null,
-      evalIntervalMinutes: data.evalIntervalMinutes ?? 5,
     })
     .onConflictDoUpdate({
       target: [instanceRoom.instanceId],

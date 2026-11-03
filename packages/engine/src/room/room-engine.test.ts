@@ -139,7 +139,6 @@ function makeRoom(overrides: Partial<RoomConfig> = {}): RoomConfig {
     prompt: "You are a helpful room agent.",
     outboundChannel: "slack",
     outboundTarget: "#general",
-    evalIntervalMinutes: 5,
     conversationId: expect.stringMatching(/^room:inst-1:\d+$/),
     ...overrides,
   };

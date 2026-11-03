@@ -879,7 +879,6 @@ export const api = {
       prompt?: string;
       outboundChannel?: string | null;
       outboundTarget?: string | null;
-      evalIntervalMinutes?: number;
     }) =>
       request(urlPath`/api/instances/${slug}/room`, json("PUT", data)),
     delete: (slug: string) =>

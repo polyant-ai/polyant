@@ -75,7 +75,6 @@ export const exportRoomSchema = z.object({
   prompt: z.string(),
   outboundChannel: z.string().nullable(),
   outboundTarget: z.string().nullable(),
-  evalIntervalMinutes: z.number(),
 });
 
 export const exportEventDefinitionSchema = z.object({
