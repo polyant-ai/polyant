@@ -105,7 +105,7 @@ export async function extractMemories(
       system: buildExtractionPrompt(new Date(), datetime.timezone),
       messages: [{ role: "user", content: transcript }],
     },
-    { conversationId, instanceId, callType: "service" },
+    { conversationId, instanceId, callType: "service", purpose: "memory" },
   );
 
   // 4. Parse JSON response

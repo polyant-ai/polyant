@@ -421,6 +421,28 @@ describe("supervise", () => {
       ]);
     });
 
+    it("sends conversation-only system text ahead of the history, apart from the agent's system prompt", async () => {
+      mockBuildPrompt.mockResolvedValueOnce({
+        system: "System prompt content",
+        conversationSystem: "---\n\n## Conversation Context\n\nOrder 42 shipped.",
+        turnContext: "",
+      });
+
+      await supervise({
+        instanceId: TEST_INSTANCE,
+        message: "and now?",
+        conversationHistory: [{ role: "user" as const, content: "earlier" }],
+      });
+
+      const callArgs = mockChat.mock.calls[0][0];
+      expect(callArgs.system).toBe("System prompt content");
+      expect(callArgs.messages).toEqual([
+        { role: "system", content: "---\n\n## Conversation Context\n\nOrder 42 shipped." },
+        { role: "user", content: "earlier" },
+        { role: "user", content: "and now?" },
+      ]);
+    });
+
     it("without history: just the current message", async () => {
       await supervise({ instanceId: TEST_INSTANCE, message: "standalone" });
 

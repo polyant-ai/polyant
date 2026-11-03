@@ -362,7 +362,7 @@ async function buildTools(opts: BuildToolsOptions) {
         // takeable here, so the store needs no per-tool authorization of its own.
         artifacts: artifactApiFor(instanceId, conversationId),
         // No `model`: a pinned model would override the tier the tool asks for.
-        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId }),
+        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId, purpose: "tool" }),
         abortSignal,
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
@@ -617,7 +617,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
     }
 
-    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+    const { system: systemPrompt, conversationSystem, turnContext } = await buildSupervisorSystemPrompt({
       tools,
       instanceId: instanceUuid,
       instanceSlug,
@@ -639,7 +639,10 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     // Build user message — multimodal when attachments are present. The per-turn
     // volatile context rides the tail of this message (see buildUserContent).
     const userContent = buildUserContent(input.message, turnContext, input.attachments);
+    // Conversation-only system text leads the history: the gateway sends it
+    // after the cached agent prompt, ahead of the history's own system rows.
     const messages: ModelMessage[] = [
+      ...(conversationSystem ? [{ role: "system" as const, content: conversationSystem }] : []),
       ...(input.conversationHistory ?? []),
       { role: "user", content: userContent },
     ];

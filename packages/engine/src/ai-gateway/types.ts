@@ -7,6 +7,22 @@ import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
+/**
+ * What a service call is for, recorded on its `ai_logs` row so service spend
+ * can be told apart: titles, summaries and memory share tier, model and
+ * conversation, and nothing else separates them.
+ */
+export type ServicePurpose =
+  | "title"
+  | "summary"
+  | "memory"
+  | "webhook_match"
+  | "prompt_rewrite"
+  | "room_compaction"
+  | "sub_task"
+  | "tool"
+  | "hook";
+
 /** Cross-turn prompt-cache TTL (Anthropic). Bedrock always uses its default 5m; OpenAI/Nebius ignore it. */
 export type CacheTtl = "5m" | "1h";
 
@@ -62,6 +78,21 @@ export interface ChatRequest {
   onToolCall?: (toolName: string, args: Record<string, unknown>) => void;
   /** Cancellation signal propagated to Vercel AI SDK (generateText/streamText). */
   abortSignal?: AbortSignal;
+  /**
+   * Bounds on the call, in the AI SDK's terms: `totalMs` for the whole call,
+   * `chunkMs` for the longest silence between two chunks of a streamed answer
+   * once it has started. A call that exceeds one fails with a `TimeoutError`.
+   * Unset, the gateway applies its per-call-type default (`config.llm`).
+   */
+  timeout?: { totalMs?: number; chunkMs?: number };
+  /** How many times a failed model request is retried. Unset, the gateway applies `config.llm.maxRetries`. */
+  maxRetries?: number;
+  /**
+   * Cap on the tokens the model may generate per step. On a model that reasons,
+   * the reasoning counts against it too, so a cap sized for the answer alone
+   * can cut the call off before the answer. Unset = the provider's default.
+   */
+  maxOutputTokens?: number;
   /**
    * When true, the provider captures the exact request payload (system + messages
    * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
@@ -206,6 +237,8 @@ export interface AILogEntry {
    * count all three; call counts and response times keep to model calls.
    */
   callType?: "conversation" | "service" | "embedding";
+  /** What a service call was for (see {@link ServicePurpose}). Absent on other calls. */
+  purpose?: ServicePurpose;
   createdAt?: Date;
   /**
    * Whether the provider call returned ("ok"), died before returning ("error"),
@@ -214,7 +247,11 @@ export interface AILogEntry {
    * calls keep to "ok".
    */
   outcome?: "ok" | "error" | "aborted";
-  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null unless outcome is "error". */
+  /**
+   * The CLASS of a provider failure (never its message — see classifyProviderError).
+   * On an "aborted" row, "in_flight" when its tokens include the estimate of a
+   * model call aborted before it answered. Null otherwise.
+   */
   errorKind?: string | null;
 }
 

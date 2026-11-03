@@ -100,7 +100,7 @@ export async function matchEvent(
           },
         ],
       },
-      { conversationId: `event-match:${def.id}`, instanceId: asInstanceSlug(instanceSlug), callType: "service" },
+      { conversationId: `event-match:${def.id}`, instanceId: asInstanceSlug(instanceSlug), callType: "service", purpose: "webhook_match" },
     );
 
     const verdict = readVerdict(response.text);

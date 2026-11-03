@@ -677,7 +677,8 @@ export async function runPipelinePre(
   }
 
   // A pre-LLM hook may contribute one-shot context to this turn's LLM input.
-  // The engine folds mid-array `system` messages into the top-level system prompt.
+  // The gateway lifts mid-array `system` messages out of the turns and sends them
+  // after the agent's cached system prompt, so they never invalidate it.
   const injected = collectInjectContext(hookExecutions);
   if (injected.length > 0) {
     const sys: ModelMessage[] = injected.map((text) => ({ role: "system", content: text }));

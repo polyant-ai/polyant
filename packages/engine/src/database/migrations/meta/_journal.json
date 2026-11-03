@@ -666,6 +666,13 @@
       "when": 1793264600000,
       "tag": "0101_knowledge_query_stopwords",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793264700000,
+      "tag": "0102_ai_logs_purpose",
+      "breakpoints": true
     }
   ]
 }

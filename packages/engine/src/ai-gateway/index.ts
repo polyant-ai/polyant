@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateTurnCostBreakdown, fastSupported, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
+import { resolveModel, estimateTurnCostBreakdown, fastSupported, isReasoningAlwaysOn, isThinkingCapable, lowestReasoningLevel, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -10,7 +10,7 @@ import { usageCompletedBeforeFailure } from "./providers/base.js";
 import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
 import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
-import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
+import type { AILogEntry, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter, ServicePurpose } from "./types.js";
 import { pipelineLog } from "../utils/pipeline-logger.js";
 import {
   emitFromChatResponse,
@@ -21,6 +21,7 @@ import { DEFAULT_PROVIDER } from "./model-catalog.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../instances/instance-meta.js";
 import { createLogger } from "../utils/create-logger.js";
+import { config as processConfig } from "../config.js";
 
 const log = createLogger();
 
@@ -68,6 +69,7 @@ function resolveCallConfig(
       conversationId: options?.conversationId,
       instanceId: options?.instanceId,
       callType: options?.callType,
+      purpose: options?.purpose,
       providerName,
       modelId,
       agentCall: options?.agentCallMetadata,
@@ -94,7 +96,16 @@ function resolveCallConfig(
   // Clamp the requested level to what THIS model accepts (per the catalog's
   // live-verified reasoningLevels) — a stale/out-of-range effort (e.g. xhigh on o3,
   // max on gpt-oss) would otherwise 400. Falls back to "medium" (universally valid).
-  const thinkingLevel = resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium");
+  //
+  // A model that reasons on every call (`reasoningAlwaysOn`) has no off: with
+  // thinking off it gets the ON payload at the lowest level it accepts, so
+  // "off" means "as little as possible" on every dialect instead of the
+  // model's own default effort.
+  const alwaysOn = isReasoningAlwaysOn(providerName, modelId);
+  const thinkingOn = !!request.thinking || alwaysOn;
+  const thinkingLevel = request.thinking || !alwaysOn
+    ? resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium")
+    : lowestReasoningLevel(providerName, modelId);
   const dialect = wireDialectFor(providerName);
   const thinkingCapable = isThinkingCapable(providerName, modelId);
   // Whether thinking OFF is a payload rather than an omission. It used to be an
@@ -104,11 +115,9 @@ function resolveCallConfig(
   // reason through a turn the operator switched thinking off for unless we say
   // so. The openai-compatible dialect always enters, because its builder decides
   // both directions from the same catalog data.
-  const reasoningOff = isReasoningAlwaysOn(providerName, modelId)
-    ? undefined
-    : reasoningOffFor(providerName, modelId);
-  if (thinkingCapable && (request.thinking || dialect === "openai-compatible" || reasoningOff)) {
-    const off = !request.thinking;
+  const reasoningOff = alwaysOn ? undefined : reasoningOffFor(providerName, modelId);
+  if (thinkingCapable && (thinkingOn || dialect === "openai-compatible" || reasoningOff)) {
+    const off = !thinkingOn;
     const options: Record<string, unknown> | undefined =
       dialect === "anthropic"
         ? off
@@ -126,7 +135,7 @@ function resolveCallConfig(
               ? buildCompatibleReasoningOptions({
                   provider: providerName,
                   modelId,
-                  thinking: !!request.thinking,
+                  thinking: thinkingOn,
                   level: thinkingLevel,
                 })
               : undefined;
@@ -179,6 +188,8 @@ export interface ChatCallOptions {
   conversationId?: string;
   instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
+  /** What a service call is for; set it on every service call. Recorded on the call's row and trace. */
+  purpose?: ServicePurpose;
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
    * When present, enriches the LangSmith trace with caller identity so the UI
@@ -203,12 +214,35 @@ function reasoningCharCount(response: ChatResponse): number {
   return n;
 }
 
+/**
+ * How many prompt tokens each conversation's latest answered model call left
+ * in the provider's cache (read plus written), so the next call of the
+ * conversation can be priced as reading them when it is aborted in flight and
+ * never reports usage. Per process and bounded: an estimate, not a ledger.
+ */
+const cachedPrefixByConversation = new Map<string, number>();
+const CACHED_PREFIX_CONVERSATIONS = 10_000;
+
+function rememberCachedPrefix(conversationId: string | undefined, response: ChatResponse): void {
+  if (!conversationId) return;
+  const last = response.steps.at(-1);
+  const prefix = last && last.promptTokens !== undefined
+    ? (last.cachedInputTokens ?? 0) + (last.cacheCreationInputTokens ?? 0)
+    : (response.usage.cachedInputTokens ?? 0) + (response.usage.cacheCreationInputTokens ?? 0);
+  cachedPrefixByConversation.delete(conversationId);
+  cachedPrefixByConversation.set(conversationId, prefix);
+  if (cachedPrefixByConversation.size > CACHED_PREFIX_CONVERSATIONS) {
+    cachedPrefixByConversation.delete(cachedPrefixByConversation.keys().next().value!);
+  }
+}
+
 function logAndRecordUsage(
   config: { providerName: string; modelId: string },
   request: ChatRequest,
   response: ChatResponse,
   options?: ChatCallOptions,
 ): void {
+  rememberCachedPrefix(options?.conversationId, response);
   pipelineLog.llmResponse(
     options?.instanceId ?? "",
     config.modelId,
@@ -230,7 +264,7 @@ function logAndRecordUsage(
   response.thinking = request.thinking ?? false;
   response.temperature = request.temperature;
 
-  aiLogger.log(
+  aiLogger.log(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
@@ -248,8 +282,14 @@ function logAndRecordUsage(
       options?.callType,
       response.usage.cachedInputTokens,
       response.usage.cacheCreationInputTokens,
-    )
-  );
+    ),
+    options,
+  ));
+}
+
+/** A row with the purpose of the service call it records, when the caller named one. */
+function withPurpose(entry: AILogEntry, options: ChatCallOptions | undefined): AILogEntry {
+  return options?.purpose ? { ...entry, purpose: options.purpose } : entry;
 }
 
 /** The provider's price of a usage, as the success path prices a response. */
@@ -293,8 +333,12 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
  * the failure rate measure how often people type quickly. But the model calls
  * it had already made were billed, so when there are any, the turn is logged
  * as `aborted` with their usage and cost: sums of cost and tokens count it,
- * counts of answered and failed calls do not. A turn aborted before any model
- * call answered cost nothing and writes nothing.
+ * counts of answered and failed calls do not. A model call aborted in flight
+ * had reached the provider, which bills its prompt although no usage comes
+ * back: the row adds the provider's estimate of that prompt, read from cache
+ * up to what the conversation's previous call left there, and is marked
+ * `in_flight`. A turn aborted before any model call started cost nothing and
+ * writes nothing.
  *
  * A signal aborted by the caller's own deadline (`AbortSignal.timeout`, alone
  * or inside `AbortSignal.any`) carries a `TimeoutError` reason. Nobody
@@ -312,16 +356,18 @@ function logFailedCall(
   const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
   const aborted = signal?.aborted === true && !timedOut;
   if (aborted && !usage) return;
-  const cost = usage ? costOfUsage(config, usage) : 0;
-  aiLogger.log(
+  const inFlight = aborted && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
+  const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
+  const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
+  aiLogger.log(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
       request.tier,
       request.thinking ?? false,
-      usage?.promptTokens ?? 0,
+      promptTokens,
       usage?.completionTokens ?? 0,
-      (usage?.promptTokens ?? 0) + (usage?.completionTokens ?? 0),
+      promptTokens + (usage?.completionTokens ?? 0),
       cost,
       durationMs,
       0,
@@ -329,12 +375,59 @@ function logFailedCall(
       options?.conversationId,
       options?.instanceId,
       options?.callType,
-      usage?.cachedInputTokens ?? 0,
+      (usage?.cachedInputTokens ?? 0) + (inFlight?.cachedInputTokens ?? 0),
       usage?.cacheCreationInputTokens ?? 0,
       aborted ? "aborted" : "error",
-      aborted ? null : timedOut ? "timeout" : classifyProviderError(err),
+      aborted ? (inFlight ? "in_flight" : null) : timedOut ? "timeout" : classifyProviderError(err),
     ),
-  );
+    options,
+  ));
+}
+
+/** The usage of a model call aborted in flight: its estimated prompt, read from cache up to the conversation's cached prefix. */
+function inFlightCall(promptTokens: number, conversationId: string | undefined): NonNullable<ReturnType<typeof usageCompletedBeforeFailure>> {
+  const cached = Math.min(promptTokens, (conversationId && cachedPrefixByConversation.get(conversationId)) || 0);
+  const call = { promptTokens, completionTokens: 0, cachedInputTokens: cached, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
+  return { ...call, calls: [{ ...call, fast: false }] };
+}
+
+const SERVICE_CACHE: NonNullable<ChatRequest["cacheConfig"]> = { enabled: true, ttl: "5m" };
+
+/**
+ * The request as the provider receives it: the messages this model can read,
+ * the resolved provider options, and the defaults for its kind of call where
+ * the caller set none (see `config.llm`).
+ *
+ * Bounds: a streamed answer by the silence between its chunks; a single-call
+ * service job by its total time; a call that runs tools over several steps (a
+ * conversation turn, a sub-agent) by neither, since its tools may run for
+ * minutes. Cache: a service call's prefix is rarely read again within the hour,
+ * so it is written at the five-minute lifetime (1.25× input on Anthropic)
+ * rather than the default hour (2×).
+ */
+function providerRequest(
+  request: ChatRequest,
+  config: CallConfig,
+  call: { streamed: boolean; service: boolean },
+): ChatRequest {
+  const llm = processConfig.llm;
+  const cacheConfig = request.cacheConfig ?? (call.service ? SERVICE_CACHE : undefined);
+  const singleCall = (request.maxSteps ?? 1) <= 1;
+  const timeout =
+    request.timeout ??
+    (call.streamed
+      ? { chunkMs: llm.streamChunkTimeoutMs }
+      : call.service && singleCall
+        ? { totalMs: llm.serviceCallTimeoutMs }
+        : undefined);
+  return {
+    ...request,
+    messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
+    providerOptions: config.providerOptions,
+    ...(timeout ? { timeout } : {}),
+    ...(cacheConfig ? { cacheConfig } : {}),
+    maxRetries: request.maxRetries ?? llm.maxRetries,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -350,11 +443,10 @@ export async function chat(
 
   let response: ChatResponse;
   try {
-    response = await config.provider.chat({
-      ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
-      providerOptions: config.providerOptions,
-    }, config.modelId);
+    response = await config.provider.chat(
+      providerRequest(request, config, { streamed: false, service: options?.callType === "service" }),
+      config.modelId,
+    );
   } catch (err) {
     // Exactly one row per failed call: this is the only place chat() invokes
     // the provider, and a thrown error here skips the success log below
@@ -397,11 +489,10 @@ export async function chatStream(
 
   let stream: ChatStreamResult;
   try {
-    stream = await config.provider.chatStream({
-      ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
-      providerOptions: config.providerOptions,
-    }, config.modelId);
+    stream = await config.provider.chatStream(
+      providerRequest(request, config, { streamed: true, service: options?.callType === "service" }),
+      config.modelId,
+    );
   } catch (err) {
     // Same exactly-once reasoning as chat(): the request-time failure (before
     // any stream is established) is the only provider call chatStream() makes.

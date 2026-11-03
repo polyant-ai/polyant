@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
+import { DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -9,10 +9,12 @@ import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../interm
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
+import { classifyProviderError } from "../logger.js";
 
 const log = createLogger();
 
-type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
+/** A provider model object (never a bare model id), so the gateway can wrap it. */
+type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => Parameters<typeof wrapLanguageModel>[0]["model"];
 
 /**
  * Serialize the tool definitions sent to the model for debug capture.
@@ -170,24 +172,47 @@ interface MappedUsage {
  * only after its tools have run, so a turn aborted while a tool was running —
  * the message coordinator's cancel-and-restart, typically — had an answered,
  * billed model call that no step ever reported.
+ *
+ * A call that had started and not answered when the turn failed is pinned too,
+ * as `inFlight`, with an estimate of its prompt: aborted in flight, it had
+ * reached the provider, which processes and bills the prompt whether or not
+ * anyone reads the answer. The estimate counts about one token per four
+ * characters of what the call sent; no provider reports more for it.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
-/** The summed usage of the completed steps, and each step's own (`calls`). */
-type UsageBeforeFailure = Required<MappedUsage> & { calls: (Required<MappedUsage> & { fast: boolean })[] };
+/** The summed usage of the completed steps, each step's own (`calls`), and the call still in flight, if any. */
+type UsageBeforeFailure = Required<MappedUsage> & {
+  calls: (Required<MappedUsage> & { fast: boolean })[];
+  inFlight?: { promptTokens: number };
+};
 
-/** The usage of the model calls a failed or aborted turn completed, or null when none had answered. */
+/** The usage of the model calls a failed or aborted turn had made, or null when none had started. */
 export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** Sums each answered model call's usage (`onLanguageModelCallEnd`) and pins it to the turn's error. */
+/** About one token per four characters of everything a model call sends: instructions, messages and tools. */
+function estimatePromptTokens(event: { instructions?: unknown; messages?: unknown; tools?: unknown }): number {
+  const chars = JSON.stringify([event.instructions ?? null, event.messages ?? null, event.tools ?? null]).length;
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Sums each answered model call's usage (`onLanguageModelCallEnd`), tracks the
+ * call in flight (`onLanguageModelCallStart`), and pins both to the turn's error.
+ */
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
+  let inFlight: UsageBeforeFailure["inFlight"];
   return {
+    onLanguageModelCallStart: (event: { instructions?: unknown; messages?: unknown; tools?: unknown }) => {
+      inFlight = { promptTokens: estimatePromptTokens(event) };
+    },
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
+      inFlight = undefined;
       const usage = mapUsage(event.usage);
       const call = {
         promptTokens: usage.promptTokens ?? 0,
@@ -200,7 +225,9 @@ function completedCallsUsage() {
       calls.push({ ...call, fast: ranFast(event.providerMetadata) });
     },
     pinTo(err: unknown): void {
-      if (calls.length > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total, calls: [...calls] });
+      if ((calls.length > 0 || inFlight) && err !== null && typeof err === "object") {
+        usageBeforeFailure.set(err, { ...total, calls: [...calls], ...(inFlight ? { inFlight } : {}) });
+      }
     },
   };
 }
@@ -463,30 +490,44 @@ function buildChatResponse(
 }
 
 /**
- * Fold any `role: "system"` entries sitting inside the `messages` array into the
- * top-level `system` string. Some histories carry a persisted system message
- * mid-conversation (e.g. a webhook trigger stores its rendered context prompt as
- * a system row so it survives multi-turn — see webhook-engine.ts). On a later
- * inbound turn that row is replayed inside `messages`, producing two system
- * blocks separated by user/assistant turns. Bedrock's convertToBedrockChatMessages
- * rejects that outright (AI_UnsupportedFunctionalityError); OpenAI/Anthropic only
- * warn. Merging is semantically identical — system context is position-independent
- * — and clears the AI SDK warning for every provider, so we normalise here once.
+ * Lift any `role: "system"` entries sitting inside the `messages` array out of
+ * it. Some histories carry a persisted system message mid-conversation (e.g. a
+ * webhook trigger stores its rendered context prompt as a system row so it
+ * survives multi-turn — see webhook-engine.ts), and a pre-LLM hook's one-shot
+ * context arrives the same way. Bedrock's convertToBedrockChatMessages rejects
+ * a system message among the turns outright (AI_UnsupportedFunctionalityError);
+ * OpenAI/Anthropic only warn. System context is position-independent, so they
+ * are lifted here once for every provider.
+ *
+ * They are kept apart from the request's own `system` (`systemTail`, in their
+ * original order) because the two are cached differently: `system` is the
+ * agent's prompt, identical for every conversation, while this text belongs to
+ * one conversation. A provider that marks a cache breakpoint puts the marker
+ * after `system` and sends this text after it; every other provider receives
+ * the one string `joinSystemText` makes of the two.
  */
 function foldSystemMessages(
   system: string | undefined,
   messages: ModelMessage[],
-): { system: string | undefined; messages: ModelMessage[] } {
+): { system: string | undefined; systemTail?: string; messages: ModelMessage[] } {
   const inline = messages.filter(
     (m): m is ModelMessage & { role: "system"; content: string } => m.role === "system",
   );
   if (inline.length === 0) return { system, messages };
 
-  const merged = [system, ...inline.map((m) => m.content)].filter(Boolean).join("\n\n");
+  const tail = inline.map((m) => m.content).filter(Boolean).join("\n\n");
   return {
-    system: merged.length > 0 ? merged : undefined,
+    system,
+    ...(tail.length > 0 ? { systemTail: tail } : {}),
     messages: messages.filter((m) => m.role !== "system"),
   };
+}
+
+/** The agent's system prompt and the conversation's own system text as one string, for a provider that marks no cache breakpoint. */
+export function joinSystemText(system: string | undefined, systemTail: string | undefined): string | undefined {
+  if (!systemTail) return system;
+  const merged = [system, systemTail].filter(Boolean).join("\n\n");
+  return merged.length > 0 ? merged : undefined;
 }
 
 /** Content parts of a message as an array (empty string → no parts) — used to
@@ -540,6 +581,8 @@ export function normalizeStrictConversation(messages: ModelMessage[]): ModelMess
  */
 export type PrepareMessages = (input: {
   system: string | undefined;
+  /** System text that belongs to this conversation only (see `foldSystemMessages`); never inside a cached block. */
+  systemTail?: string;
   messages: ModelMessage[];
   modelId: string;
   /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
@@ -655,12 +698,30 @@ function errorBodyReason(body: string): string | null {
   }
 }
 
+/** The folded request a failed call sent, and the caller's signal. */
+type CallContext = { system: Instructions | undefined; messages: ModelMessage[]; abortSignal?: AbortSignal };
+
+/**
+ * Whether the caller cancelled the call: its signal is aborted for a reason
+ * other than its own deadline (`AbortSignal.timeout` carries a `TimeoutError`).
+ * The message coordinator does this every time a follow-up message preempts a
+ * turn, so it is a routine path and not a provider failure — the same
+ * distinction the gateway makes when it records the call.
+ */
+function cancelledByCaller(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name !== "TimeoutError";
+}
+
 function logProviderError(
   providerName: string,
   modelId: string,
   err: unknown,
-  ctx?: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx?: CallContext,
 ): void {
+  if (cancelledByCaller(ctx?.abortSignal)) {
+    log.debug("ai-gateway", `${providerName}/${modelId} call cancelled by its caller`);
+    return;
+  }
   const e = err as {
     name?: unknown;
     statusCode?: unknown;
@@ -708,7 +769,7 @@ function logProviderError(
 async function withProviderErrorLog<T>(
   providerName: string,
   modelId: string,
-  ctx: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx: CallContext,
   run: () => T | Promise<T>,
 ): Promise<Awaited<T>> {
   try {
@@ -740,6 +801,51 @@ function temperatureCallParam(
     : {};
 }
 
+/**
+ * Log every retry the AI SDK makes of a model request. The SDK retries inside
+ * one model call, so neither its callbacks nor `ai_logs` see a retry, and each
+ * one can add seconds to a turn. A request that starts after the previous
+ * request of the same call failed is a retry: a failure the SDK does not retry
+ * ends the call.
+ */
+function retryLogging(providerName: string, modelId: string): LanguageModelMiddleware {
+  let lastFailure: unknown;
+  const attempt = async <T>(run: () => PromiseLike<T>): Promise<T> => {
+    if (lastFailure !== undefined) {
+      log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
+    }
+    try {
+      const result = await run();
+      lastFailure = undefined;
+      return result;
+    } catch (err) {
+      lastFailure = err;
+      throw err;
+    }
+  };
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: ({ doGenerate }) => attempt(doGenerate),
+    wrapStream: ({ doStream }) => attempt(doStream),
+  };
+}
+
+/**
+ * The AI SDK's download step, replaced so the engine never fetches a URL found
+ * in a message. By default the SDK downloads every image or file URL the
+ * provider does not take by reference — outside `utils/safe-http.ts`, with no
+ * time limit, up to 2 GiB each, all parts at once — and a client-supplied
+ * history can carry any number of them. The engine's own attachments arrive as
+ * bytes (channel media, uploads) and never need it; a data URL is inline data
+ * and never reaches this step. A URL the provider fetches itself is passed on
+ * untouched; any other is refused, which fails the call.
+ */
+export const refuseUrlDownloads: Experimental_DownloadFunction = async (requests) =>
+  requests.map(({ url, isUrlSupportedByModel }) => {
+    if (isUrlSupportedByModel) return null;
+    throw new DownloadError({ url: url.toString(), message: "A URL in a message part is not downloaded by the engine; send the content inline." });
+  });
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -754,12 +860,12 @@ export function createProvider(
     // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
     // a no-op for well-formed conversations, so the cached prefix is unchanged.
     const prepared = hooks?.strictTemplate
-      ? { system: folded.system, messages: normalizeStrictConversation(folded.messages) }
+      ? { ...folded, messages: normalizeStrictConversation(folded.messages) }
       : folded;
     // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
     // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
     if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) {
-      return { instructions: prepared.system, messages: prepared.messages };
+      return { instructions: joinSystemText(prepared.system, prepared.systemTail), messages: prepared.messages };
     }
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
@@ -775,12 +881,20 @@ export function createProvider(
     const completed = completedCallsUsage();
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
-      model: createModel(modelId, request.apiKeys),
+      model: wrapLanguageModel({
+        model: createModel(modelId, request.apiKeys),
+        middleware: retryLogging(providerName, modelId),
+      }),
       instructions,
       messages,
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
       abortSignal: request.abortSignal,
+      experimental_download: refuseUrlDownloads,
+      ...(request.timeout ? { timeout: request.timeout } : {}),
+      ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
+      ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
+      onLanguageModelCallStart: completed.onLanguageModelCallStart,
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
@@ -796,7 +910,7 @@ export function createProvider(
       const start = Date.now();
 
       const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
@@ -828,7 +942,7 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedStreamText(args()),
       );
 
@@ -863,7 +977,7 @@ export function createProvider(
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
-            logProviderError(providerName, modelId, err, { system: instructions, messages });
+            logProviderError(providerName, modelId, err, { system: instructions, messages, abortSignal: request.abortSignal });
             completed.pinTo(err);
             throw err;
           }

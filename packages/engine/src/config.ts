@@ -181,6 +181,22 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
   }),
 
 
+  // Bounds on the model calls the AI gateway makes (milliseconds). The AI SDK
+  // sets no timeout of its own, so a provider that stopped answering held the
+  // turn until the socket died. A call that runs tools over several steps and
+  // does not stream (a conversation turn, a sub-agent) gets no total bound: its
+  // tools may legitimately run for minutes.
+  llm: z.object({
+    // Streamed answers: the longest silence between two chunks of one model
+    // response, once it has started (tool execution between steps not counted).
+    streamChunkTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
+    // Single-call service jobs (titles, summaries, memory, matchers, a tool's or a
+    // hook's own model call): the whole call.
+    serviceCallTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
+    // Retries of a failed model request. 2 is the AI SDK's own default; each retry is logged.
+    maxRetries: z.coerce.number().int().min(0).max(10).default(2),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -238,6 +254,11 @@ function loadConfig(): Config {
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
+    },
+    llm: {
+      streamChunkTimeoutMs: process.env.LLM_STREAM_CHUNK_TIMEOUT_MS,
+      serviceCallTimeoutMs: process.env.LLM_SERVICE_CALL_TIMEOUT_MS,
+      maxRetries: process.env.LLM_MAX_RETRIES,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the
