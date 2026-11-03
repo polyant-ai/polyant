@@ -244,11 +244,13 @@ describe("insertChunksAndFinalize", () => {
   };
 
   it("inserts chunks through the active column and marks the doc ready", async () => {
+    mockDb.select.mockReturnValue(createChainMock([{ id: "doc-1" }]));
+    mockDb.delete.mockReturnValue(createChainMock([]));
     const insChain = createChainMock([]);
     mockDb.insert.mockReturnValue(insChain);
     mockDb.update.mockReturnValue(createChainMock([]));
 
-    const count = await insertChunksAndFinalize("doc-1", [chunk], 1024, "bedrock");
+    const count = await insertChunksAndFinalize("doc-1", [chunk], 1024, "bedrock", "hash");
 
     expect(count).toBe(1);
     const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
@@ -259,9 +261,11 @@ describe("insertChunksAndFinalize", () => {
   });
 
   it("marks the doc ready with chunkCount 0 for an empty batch", async () => {
+    mockDb.select.mockReturnValue(createChainMock([{ id: "doc-1" }]));
+    mockDb.delete.mockReturnValue(createChainMock([]));
     mockDb.update.mockReturnValue(createChainMock([]));
 
-    const count = await insertChunksAndFinalize("doc-1", [], 1536, "openai");
+    const count = await insertChunksAndFinalize("doc-1", [], 1536, "openai", "hash");
 
     expect(count).toBe(0);
     expect(mockDb.insert).not.toHaveBeenCalled();

@@ -2,8 +2,8 @@
 
 import { chunkText } from "./chunker.js";
 import {
-  deleteChunksByDocumentId,
   getDocument,
+  hashContent,
   insertChunksAndFinalize,
   touchDocument,
   updateDocumentStatus,
@@ -19,8 +19,13 @@ const log = createLogger();
  * Process a document: chunk the text, generate embeddings, store chunks.
  * Designed to be called asynchronously after document creation.
  *
- * Chunk insertion + status update are wrapped in a DB transaction:
- * if insertion fails, the document is set to "error" (never "ready" with incomplete data).
+ * Every write is tied to `textContent`: the pass reports on the document and
+ * replaces its chunks only while the document still holds that text. A pass
+ * whose text was replaced meanwhile (the document was written again) stops
+ * without touching it and returns `superseded`; the pass for the new text
+ * owns the document. The old chunks stay searchable until the new set
+ * replaces them in one transaction; if that fails, the document is set to
+ * "error" (never "ready" with incomplete data).
  *
  * The document's filename is prepended to the first chunk so the title
  * contributes to both the embedding and the FTS tokens — otherwise a chunk
@@ -31,24 +36,20 @@ export async function processDocument(
   docId: string,
   instanceId: InstanceSlug,
   textContent: string,
-): Promise<{ chunkCount: number }> {
+): Promise<{ chunkCount: number; superseded?: true }> {
+  const textHash = hashContent(textContent);
+  const superseded = () => {
+    log.info("knowledge", `Skipped doc ${docId}: replaced or deleted while it was being indexed`);
+    return { chunkCount: 0, superseded: true as const };
+  };
   try {
-    await updateDocumentStatus(docId, "processing");
-
-    // Reindex-safe: drop any existing chunks before regenerating.
-    // No-op on first ingestion.
-    await deleteChunksByDocumentId(docId);
+    if (!(await updateDocumentStatus(docId, "processing", { textHash }))) return superseded();
 
     const chunks = chunkText(textContent);
 
-    if (chunks.length === 0) {
-      await updateDocumentStatus(docId, "ready", { chunkCount: 0 });
-      return { chunkCount: 0 };
-    }
-
     // Prepend the document title to the first chunk so it contributes to the
     // embedding and FTS tokens (see processDocument docstring).
-    const doc = await getDocument(docId);
+    const doc = chunks.length > 0 ? await getDocument(docId) : undefined;
     const filename = doc?.filename ?? "";
     const titlePrefix = filename ? `# ${filename}\n\n` : "";
 
@@ -80,20 +81,22 @@ export async function processDocument(
       chunkIndex: i,
     }));
 
-    // Insert chunks + mark document as "ready" atomically in a transaction
+    // Replace the chunks + mark document as "ready" atomically in a transaction
     const inserted = await insertChunksAndFinalize(
       docId,
       chunkRecords,
       ctx.dimensions,
       ctx.providerName,
+      textHash,
     );
+    if (inserted === null) return superseded();
 
     log.info("knowledge", `Processed doc ${docId}: ${inserted} chunks embedded`);
     return { chunkCount: inserted };
   } catch (err) {
     const message = errMsg(err);
     log.error("knowledge", `Failed to process doc ${docId}`, err);
-    await updateDocumentStatus(docId, "error", { errorMessage: message });
+    await updateDocumentStatus(docId, "error", { errorMessage: message, textHash });
     throw err;
   }
 }

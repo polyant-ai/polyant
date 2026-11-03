@@ -83,12 +83,26 @@ export async function createDocument(input: {
   return doc as KnowledgeDocument;
 }
 
+/**
+ * The document's stored text still hashes to `textHash`. Computed from
+ * `raw_content` itself, so it holds for rows whose `content_hash` predates the
+ * column or was written by another path.
+ */
+function storedTextIs(textHash: string) {
+  return sql`encode(sha256(convert_to(${knowledgeDocuments.rawContent}, 'UTF8')), 'hex') = ${textHash}`;
+}
+
+/**
+ * Set a document's status. With `textHash`, only while the document still holds
+ * the text with that hash: an indexing pass for text that has since been
+ * replaced must not report on the document. Returns whether a row changed.
+ */
 export async function updateDocumentStatus(
   docId: string,
   status: "uploading" | "processing" | "ready" | "error",
-  extra?: { chunkCount?: number; errorMessage?: string },
-): Promise<void> {
-  await db
+  extra?: { chunkCount?: number; errorMessage?: string; textHash?: string },
+): Promise<boolean> {
+  const rows = await db
     .update(knowledgeDocuments)
     .set({
       status,
@@ -96,7 +110,9 @@ export async function updateDocumentStatus(
       errorMessage: extra?.errorMessage ?? undefined,
       updatedAt: sql`now()`,
     })
-    .where(eq(knowledgeDocuments.id, docId));
+    .where(and(eq(knowledgeDocuments.id, docId), extra?.textHash ? storedTextIs(extra.textHash) : undefined))
+    .returning({ id: knowledgeDocuments.id });
+  return rows.length > 0;
 }
 
 /** List documents (without rawContent for performance). */
@@ -264,6 +280,8 @@ export interface AgentWriteResult {
   created: boolean;
   sizeBytes: number;
   rawContent: string;
+  /** False when the text is unchanged on a document already indexed: its chunks stand. */
+  reindex: boolean;
 }
 
 type AgentWriteInput = {
@@ -281,6 +299,10 @@ type AgentWriteInput = {
  * existing text and the input with a separator, and creates the document
  * without one when absent. SELECT ... FOR UPDATE serializes concurrent writes
  * on the same row.
+ *
+ * A write that leaves the text of a ready document as it is (a plugin syncing
+ * the same catalogue, a repeated write) keeps the document ready and asks for
+ * no reindex: re-embedding identical text costs provider time for no change.
  */
 async function writeAgentDocument(
   input: AgentWriteInput,
@@ -303,6 +325,8 @@ async function writeAgentDocument(
       .select({
         id: knowledgeDocuments.id,
         rawContent: mode === "append" ? knowledgeDocuments.rawContent : sql<null>`null`,
+        contentHash: knowledgeDocuments.contentHash,
+        status: knowledgeDocuments.status,
       })
       .from(knowledgeDocuments)
       .where(
@@ -325,19 +349,25 @@ async function writeAgentDocument(
           `Appending would grow document past ${MAX_DOCUMENT_BYTES} bytes (would be ${mergedBytes}).`,
         );
       }
-      await tx
-        .update(knowledgeDocuments)
-        .set({
-          ...(mode === "overwrite" ? { mimeType } : {}),
-          rawContent: merged,
-          contentHash: hashContent(merged),
-          sizeBytes: mergedBytes,
-          status: "processing",
-          errorMessage: null,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(knowledgeDocuments.id, existing.id));
-      return { docId: existing.id, created: false, sizeBytes: mergedBytes, rawContent: merged };
+      const mergedHash = hashContent(merged);
+      const reindex = !(existing.status === "ready" && existing.contentHash === mergedHash);
+      if (reindex) {
+        await tx
+          .update(knowledgeDocuments)
+          .set({
+            ...(mode === "overwrite" ? { mimeType } : {}),
+            rawContent: merged,
+            contentHash: mergedHash,
+            sizeBytes: mergedBytes,
+            status: "processing",
+            errorMessage: null,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(knowledgeDocuments.id, existing.id));
+      } else if (mode === "overwrite") {
+        await tx.update(knowledgeDocuments).set({ mimeType }).where(eq(knowledgeDocuments.id, existing.id));
+      }
+      return { docId: existing.id, created: false, sizeBytes: mergedBytes, rawContent: merged, reindex };
     }
 
     const [inserted] = await tx
@@ -353,7 +383,7 @@ async function writeAgentDocument(
         status: "processing",
       })
       .returning({ id: knowledgeDocuments.id });
-    return { docId: inserted.id, created: true, sizeBytes: inputBytes, rawContent: content };
+    return { docId: inserted.id, created: true, sizeBytes: inputBytes, rawContent: content, reindex: true };
   });
 }
 
@@ -371,15 +401,6 @@ export function upsertAgentDocument(input: AgentWriteInput): Promise<AgentWriteR
  */
 export function appendAgentDocument(input: AgentWriteInput): Promise<AgentWriteResult> {
   return writeAgentDocument(input, "append");
-}
-
-/** Delete all chunks belonging to a document (used before reindexing). */
-export async function deleteChunksByDocumentId(docId: string): Promise<number> {
-  const deleted = await db
-    .delete(knowledgeChunks)
-    .where(eq(knowledgeChunks.documentId, docId))
-    .returning({ id: knowledgeChunks.id });
-  return deleted.length;
 }
 
 /**
@@ -464,24 +485,38 @@ export async function insertChunks(
 }
 
 /**
- * Insert chunks and update document status atomically in a transaction.
- * If chunk insertion fails, the document status is NOT updated to "ready".
+ * Replace a document's chunks and mark it ready, in one transaction, if the
+ * document still holds the text the chunks were made from (`textHash`).
+ *
+ * Two passes can index one document at once (two agent writes in a row, an
+ * upload while the agent writes). The row lock taken here, and by the agent
+ * writes, orders them: a pass for replaced text writes nothing, and a pass for
+ * the current text swaps the whole set, so the chunks are never doubled or
+ * mixed. Until the swap the previous chunks stay searchable. Returns the chunk
+ * count, or null when the text was replaced and nothing was written. If the
+ * insert fails, nothing changes and the document is NOT marked "ready".
  */
 export async function insertChunksAndFinalize(
   docId: string,
   chunks: InsertChunkInput[],
   dimensions: EmbeddingDim,
   provider: EmbeddingProvider,
-): Promise<number> {
-  if (chunks.length === 0) {
-    await updateDocumentStatus(docId, "ready", { chunkCount: 0 });
-    return 0;
-  }
-
+  textHash: string,
+): Promise<number | null> {
   return await db.transaction(async (tx) => {
-    await tx.insert(knowledgeChunks).values(
-      chunks.map((c) => chunkRowValues(c, dimensions, provider)),
-    );
+    const [current] = await tx
+      .select({ id: knowledgeDocuments.id })
+      .from(knowledgeDocuments)
+      .where(and(eq(knowledgeDocuments.id, docId), storedTextIs(textHash)))
+      .for("update");
+    if (!current) return null;
+
+    await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, docId));
+    if (chunks.length > 0) {
+      await tx.insert(knowledgeChunks).values(
+        chunks.map((c) => chunkRowValues(c, dimensions, provider)),
+      );
+    }
 
     await tx
       .update(knowledgeDocuments)
