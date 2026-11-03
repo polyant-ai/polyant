@@ -644,7 +644,7 @@ export async function searchByKeyword(
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const anyWord = sql`(
-    SELECT string_agg($q$'$q$ || replace(replace(lexeme, $q$\\$q$, $q$\\\\$q$),$q$'$q$, $q$''$q$) || $q$'$q$, ' | ')::tsquery
+    SELECT string_agg($q$'$q$ || replace(replace(lexeme, $q$\\$q$, $q$\\\\$q$), $q$'$q$, $q$''$q$) || $q$'$q$, ' | ')::tsquery
     FROM unnest(to_tsvector('knowledge_query', ${query}))
   )`;
   const rows = await db.execute(sql`
