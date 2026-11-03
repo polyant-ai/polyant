@@ -266,7 +266,7 @@
   "general.slugHelp": "Lo slug non può essere modificato dopo la creazione.",
   "general.description": "Descrizione",
   "general.status": "Stato",
-  "general.statusHelp": "Un agente inattivo sparisce dall’elenco dei modelli dell’API, i suoi canali non si avviano e i task programmati vengono saltati. Chi conosce lo slug può comunque chiamarlo: non è un blocco di sicurezza.",
+  "general.statusHelp": "Se disattivato, l’agente smette di funzionare e non è più raggiungibile.",
   "general.icon": "Icona",
   "general.iconHelp": "Carica un'immagine quadrata (128x128). PNG, JPEG o WebP.",
   "general.iconUpload": "Carica icona",
