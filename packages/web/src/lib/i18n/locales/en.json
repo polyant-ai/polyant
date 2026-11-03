@@ -266,7 +266,7 @@
   "general.slugHelp": "The slug cannot be changed after creation.",
   "general.description": "Description",
   "general.status": "Status",
-  "general.statusHelp": "An inactive agent disappears from the API's model list, its channels do not start and its scheduled tasks are skipped. Anyone who knows the slug can still call it: this is not a security switch.",
+  "general.statusHelp": "When disabled, the agent stops working and can no longer be reached.",
   "general.icon": "Icon",
   "general.iconHelp": "Upload a square image (128x128). PNG, JPEG, or WebP.",
   "general.iconUpload": "Upload icon",
