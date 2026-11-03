@@ -5,6 +5,7 @@ import { analyticsDb } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter, previousRange } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
+import { toModelToolName } from "../utils/model-tool-wire.js";
 
 export type { DateRange };
 
@@ -567,39 +568,41 @@ async function getChannelDistribution(
 
 // ── Tool Usage ──────────────────────────────────────────────────────
 
+/**
+ * How often each tool ran, from the turn traces: every call the supervisor
+ * wraps leaves a `{name, duration_ms, success}` there, so the count is one
+ * small array per turn. Counting the calls in the messages' `steps` read every
+ * assistant message of the window, tool results included, to find their names.
+ *
+ * Traces store the canonical name (`plugin:tool`); the count is reported under
+ * the name the model calls (`plugin__tool`), which is the name the tool timings
+ * use too. Traces are kept as long as `ai_logs` (the analytics retention), so
+ * the counts cover the same history as the spend beside them.
+ */
 async function getToolUsage(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
 ): Promise<ToolRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
+  const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
-  // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
-  // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
-  // each step has a `toolCalls: [{toolCallId, toolName, args}]` array. We
-  // unwrap two levels: steps -> step.toolCalls -> toolName. Steps without a
-  // toolCalls array (e.g. plain "initial" text steps) are filtered out.
   return asRows<ToolRow>(
     await analyticsDb.execute(sql`
       SELECT
-        tool_call->>'toolName' AS tool,
+        tool_call->>'name' AS tool,
         COUNT(*)::int AS count
-      FROM conversation_messages cm
-      JOIN conversations c ON c.conversation_id = cm.conversation_id
-      CROSS JOIN LATERAL jsonb_array_elements(cm.steps) AS step
-      CROSS JOIN LATERAL jsonb_array_elements(step->'toolCalls') AS tool_call
-      WHERE cm.created_at >= ${toISO(range.from)} AND cm.created_at <= ${toISO(range.to)}
-        AND cm.steps IS NOT NULL
-        AND jsonb_array_length(cm.steps) > 0
-        AND jsonb_typeof(step->'toolCalls') = 'array'
-        ${ACTIVE_IN_WINDOW(range)}
-        ${convFilter} ${orgConv}
-      GROUP BY tool_call->>'toolName'
+      FROM pipeline_traces
+      CROSS JOIN LATERAL jsonb_array_elements(tool_calls) AS tool_call
+      WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
+        AND tool_calls IS NOT NULL
+        AND jsonb_array_length(tool_calls) > 0
+        ${instFilter} ${orgInst}
+      GROUP BY tool_call->>'name'
       ORDER BY count DESC
       LIMIT 20
     `),
-  );
+  ).map((r) => ({ tool: toModelToolName(r.tool), count: r.count }));
 }
 
 // ── Instance Comparison (global only) ───────────────────────────────

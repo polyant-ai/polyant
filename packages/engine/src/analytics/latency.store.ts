@@ -48,9 +48,9 @@ export interface LatencyData {
   slowestTools: ToolLatencyRow[];
   /**
    * Timings of the most called tools, named as the model calls them
-   * (`plugin__tool`) so they join `toolUsage`, which counts the tool calls the
-   * conversations recorded under that name. The traces store the canonical
-   * name (`plugin:tool`), and `slowestTools` keeps it.
+   * (`plugin__tool`) so they join `toolUsage`, which reports its counts under
+   * that name. The traces store the canonical name (`plugin:tool`), and
+   * `slowestTools` keeps it.
    */
   toolTimings: ToolLatencyRow[];
 }
