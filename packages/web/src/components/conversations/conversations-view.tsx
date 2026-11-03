@@ -2,8 +2,9 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { usePagination } from "@/hooks/use-pagination";
+import { useResource } from "@/hooks/use-resource";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Database } from "lucide-react";
@@ -64,13 +65,8 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
   const paths = useTenantPaths();
   const workspaceSlug = useWorkspaceSlug();
   const PAGE_SIZE = 20;
-  const { page, setPage, search, setSearch, debouncedSearch, totalPages, setTotal, offset } = usePagination({ pageSize: PAGE_SIZE });
-  const [conversations, setConversations] = useState<ConversationListItem[]>(
-    [],
-  );
+  const { page, setPage, search, setSearch, debouncedSearch, offset } = usePagination({ pageSize: PAGE_SIZE });
   const [instances, setInstances] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
   const [instanceFilter, setInstanceFilter] = useState(lockedInstanceId ?? "");
   // A direct link may narrow to one contact (`?contact=`); there is no field for it,
   // because the search box already matches the contact.
@@ -88,31 +84,25 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceSlug, lockedInstanceId]);
 
-  // Fetch conversations
-  const fetchConversations = useCallback(async () => {
-    setLoading(true);
-    setFailed(false);
-    try {
-      const result = await api.conversations.list({
+  // Keyed on everything the request depends on, so an answer to an earlier
+  // search, filter or page never replaces the rows of the current one.
+  const list = useResource(
+    ["conversations", workspaceSlug, instanceFilter, debouncedSearch, contact, offset],
+    () =>
+      api.conversations.list({
         instanceId: instanceFilter || undefined,
         search: debouncedSearch || undefined,
         userIdentifier: contact || undefined,
         limit: PAGE_SIZE,
         offset,
-      });
-      setConversations(result.conversations);
-      setTotal(result.total);
-    } catch (err) {
-      setFailed(true);
-      toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [instanceFilter, debouncedSearch, contact, offset, setTotal, t]);
-
+      }),
+  );
+  const conversations: ConversationListItem[] = list.data?.conversations ?? [];
+  const totalPages = Math.max(1, Math.ceil((list.data?.total ?? 0) / PAGE_SIZE));
+  const failed = list.error !== undefined;
   useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations]);
+    if (list.error !== undefined) toast.error(getUserErrorMessage(list.error, t("common.loadFailed")));
+  }, [list.error, t]);
 
   return (
     <div>
@@ -142,8 +132,8 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
 
       <div>
         {failed ? (
-          <LoadFailed onRetry={fetchConversations} />
-        ) : loading ? (
+          <LoadFailed onRetry={list.reload} />
+        ) : list.data === undefined ? (
           <ListLoading className="mt-4" />
         ) : conversations.length === 0 ? (
           debouncedSearch || contact ? (

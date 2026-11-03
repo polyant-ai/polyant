@@ -26,17 +26,15 @@ vi.mock("@/lib/api", () => ({
 const i18n = vi.hoisted(() => ({ t: (k: string) => k, locale: "en" }));
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => i18n }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-const pagination = vi.hoisted(() => ({ search: "" }));
+// The real hook's setters keep their identity across renders; so do these.
+const pagination = vi.hoisted(() => ({ search: "", setPage: vi.fn() }));
 vi.mock("@/hooks/use-pagination", () => ({
   usePagination: () => ({
     page: 1,
-    setPage: vi.fn(),
+    setPage: pagination.setPage,
     search: pagination.search,
     setSearch: mockSetSearch,
     debouncedSearch: pagination.search,
-    total: 2,
-    totalPages: 1,
-    setTotal: vi.fn(),
     offset: 0,
   }),
 }));
@@ -135,6 +133,24 @@ describe("ConversationsView", () => {
     mockList.mockResolvedValue({ conversations: [conv({})], total: 1 });
     await user.click(screen.getByRole("button", { name: "common.retry" }));
     await waitFor(() => expect(screen.getByText("Refund question")).toBeInTheDocument());
+  });
+
+  // A slow search that answers after the next one must not replace its rows.
+  it("shows the rows of the search on screen, not of a slower earlier one", async () => {
+    let answerFirst: (value: unknown) => void = () => {};
+    mockList.mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)));
+    mockList.mockResolvedValueOnce({ conversations: [conv({ title: "Fresh" })], total: 1 });
+    const { rerender } = render(<ConversationsView />);
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+
+    pagination.search = "fresh";
+    rerender(<ConversationsView />);
+    expect(await screen.findByText("Fresh")).toBeInTheDocument();
+
+    answerFirst({ conversations: [conv({ id: "9", conversationId: "old", title: "Stale" })], total: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("Stale")).not.toBeInTheDocument();
+    expect(screen.getByText("Fresh")).toBeInTheDocument();
   });
 
   it("keeps the agent in the link on the agent tab", async () => {

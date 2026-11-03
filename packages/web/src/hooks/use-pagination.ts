@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface UsePaginationOptions {
   pageSize?: number;
@@ -15,9 +15,6 @@ interface UsePaginationReturn {
   search: string;
   setSearch: (value: string) => void;
   debouncedSearch: string;
-  total: number;
-  totalPages: number;
-  setTotal: React.Dispatch<React.SetStateAction<number>>;
   offset: number;
 }
 
@@ -26,7 +23,6 @@ export function usePagination(opts: UsePaginationOptions = {}): UsePaginationRet
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [total, setTotal] = useState(0);
 
   // Debounce search input and reset to page 1. Only when the search actually
   // changed: on mount it has not, and a reset then would undo a page the reader
@@ -40,7 +36,6 @@ export function usePagination(opts: UsePaginationOptions = {}): UsePaginationRet
     return () => clearTimeout(timer);
   }, [search, debouncedSearch, debounceMs]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const offset = (page - 1) * pageSize;
 
   return {
@@ -49,9 +44,6 @@ export function usePagination(opts: UsePaginationOptions = {}): UsePaginationRet
     search,
     setSearch,
     debouncedSearch,
-    total,
-    totalPages,
-    setTotal,
     offset,
   };
 }
