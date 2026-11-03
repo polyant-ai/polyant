@@ -183,13 +183,16 @@ function resolveCallConfig(
   return { provider, providerName, modelId, providerOptions };
 }
 
-/** Options shared by chat() and chatStream(). */
-export interface ChatCallOptions {
+/**
+ * Options shared by chat() and chatStream(). A service call names what it is
+ * for; the purpose is recorded on the call's row and trace.
+ */
+export type ChatCallOptions = ChatCallContext &
+  ({ callType?: "conversation"; purpose?: never } | { callType: "service"; purpose: ServicePurpose });
+
+interface ChatCallContext {
   conversationId?: string;
   instanceId?: InstanceSlug;
-  callType?: "conversation" | "service";
-  /** What a service call is for; set it on every service call. Recorded on the call's row and trace. */
-  purpose?: ServicePurpose;
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
    * When present, enriches the LangSmith trace with caller identity so the UI

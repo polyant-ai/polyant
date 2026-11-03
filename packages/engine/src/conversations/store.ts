@@ -40,8 +40,6 @@ export interface MessageRow {
   content: string;
   /** Per-step breakdown of a multi-step assistant turn. NULL for user/system rows. */
   steps?: StepDetail[] | null;
-  /** Aggregated reasoning at the message level. NULL when not produced/persisted. */
-  reasoning?: ReasoningDetail[] | null;
   createdAt: Date | null;
 }
 

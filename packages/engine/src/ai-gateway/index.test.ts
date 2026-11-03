@@ -225,7 +225,7 @@ describe("AI Gateway", () => {
     it("passes callType 'service' to logger when specified", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service", purpose: "title" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-6.1-terra", "standard", false,
@@ -620,7 +620,7 @@ describe("AI Gateway", () => {
         response: Promise.resolve(makeChatResponse()),
       });
 
-      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service", purpose: "title" });
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
@@ -724,7 +724,7 @@ describe("AI Gateway", () => {
 
     it("bounds a service call's total time and states its retries", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
-      await chat(makeRequest(), { callType: "service" });
+      await chat(makeRequest(), { callType: "service", purpose: "title" });
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
@@ -759,7 +759,7 @@ describe("AI Gateway", () => {
 
     it("keeps the bounds a caller sets itself", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
-      await chat(makeRequest({ timeout: { totalMs: 15_000 }, maxRetries: 0 }), { callType: "service" });
+      await chat(makeRequest({ timeout: { totalMs: 15_000 }, maxRetries: 0 }), { callType: "service", purpose: "title" });
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toEqual({ totalMs: 15_000 });

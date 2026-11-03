@@ -6,7 +6,7 @@ import type { MessageRow } from "./store.js";
 import type { StepDetail } from "./schema.js";
 
 function row(partial: Partial<MessageRow> & { role: string; content: string }): MessageRow {
-  return { steps: null, reasoning: null, createdAt: null, ...partial };
+  return { steps: null, createdAt: null, ...partial };
 }
 
 function step(over: Partial<StepDetail> & Pick<StepDetail, "toolCalls">): StepDetail {

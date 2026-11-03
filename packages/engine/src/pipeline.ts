@@ -598,7 +598,7 @@ export function afterResponseTail(opts: TurnTailOptions): void {
             role: "user",
             content: `${existing}Messages to summarize:\n${droppedText}`,
           }],
-        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
+        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
 
         // Lands only if no other turn moved the summary meanwhile; until it
         // lands, turns keep reading from where the summary reached before.
