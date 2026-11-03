@@ -538,8 +538,8 @@ export interface TurnTailOptions {
   instanceId: InstanceSlug;
   /** The agent's config: provider, keys, LangSmith, memory switch, timezone. */
   instanceConfig: InstanceConfig;
-  /** What the conversation title is generated from, and an optional hint for it. */
-  titleContent: string;
+  /** What the conversation title is generated from, and an optional hint for it. No title without it. */
+  titleContent?: string;
   titleContext?: string;
   /** The summary the turn read, which a fold extends. */
   existingSummary?: string;
@@ -559,15 +559,17 @@ export function afterResponseTail(opts: TurnTailOptions): void {
   const langsmith = buildLangsmithConfig(cfg);
   const work = async () => {
     // Generate title (only once, after first exchange)
-    await generateConversationTitle({
-      conversationId: opts.conversationId,
-      instanceId: opts.instanceId,
-      provider: cfg.provider,
-      apiKeys: cfg.apiKeys,
-      langsmith,
-      content: opts.titleContent,
-      context: opts.titleContext,
-    });
+    if (opts.titleContent !== undefined) {
+      await generateConversationTitle({
+        conversationId: opts.conversationId,
+        instanceId: opts.instanceId,
+        provider: cfg.provider,
+        apiKeys: cfg.apiKeys,
+        langsmith,
+        content: opts.titleContent,
+        context: opts.titleContext,
+      });
+    }
 
     // Fold the oldest messages of the history into the summary, once per block.
     if (opts.summaryFold) {

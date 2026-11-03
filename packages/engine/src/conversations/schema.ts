@@ -15,7 +15,7 @@ export const conversations = pgTable(
     userIdentifier: text("user_identifier"),
     contextPrompt: text("context_prompt"),
     // created_at of the last message `summary` covers: the turn's history starts
-    // right after it, so summary and history meet with no gap (migration 0099).
+    // right after it, so summary and history meet with no gap (migration 0100).
     summaryThrough: timestamp("summary_through", { withTimezone: true }),
     // created_at of the last message memory extraction has read.
     memoryThrough: timestamp("memory_through", { withTimezone: true }),
