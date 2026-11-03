@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
+import { DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -812,6 +812,22 @@ function retryLogging(providerName: string, modelId: string): LanguageModelMiddl
   };
 }
 
+/**
+ * The AI SDK's download step, replaced so the engine never fetches a URL found
+ * in a message. By default the SDK downloads every image or file URL the
+ * provider does not take by reference — outside `utils/safe-http.ts`, with no
+ * time limit, up to 2 GiB each, all parts at once — and a client-supplied
+ * history can carry any number of them. The engine's own attachments arrive as
+ * bytes (channel media, uploads) and never need it; a data URL is inline data
+ * and never reaches this step. A URL the provider fetches itself is passed on
+ * untouched; any other is refused, which fails the call.
+ */
+export const refuseUrlDownloads: Experimental_DownloadFunction = async (requests) =>
+  requests.map(({ url, isUrlSupportedByModel }) => {
+    if (isUrlSupportedByModel) return null;
+    throw new DownloadError({ url: url.toString(), message: "A URL in a message part is not downloaded by the engine; send the content inline." });
+  });
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -856,6 +872,7 @@ export function createProvider(
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
       abortSignal: request.abortSignal,
+      experimental_download: refuseUrlDownloads,
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
