@@ -95,6 +95,32 @@ describe("requireLiveAdapter", () => {
   });
 });
 
+describe("WhatsApp webhook throttle limit", () => {
+  type Limit = number | ((context: unknown) => number);
+  const limitOf = (method: string): Limit =>
+    Reflect.getMetadata(
+      "THROTTLER:LIMITdefault",
+      (TwilioWebhookController.prototype as unknown as Record<string, object>)[method],
+    ) as Limit;
+  const resolve = (limit: Limit, slug: string): number =>
+    typeof limit === "number" ? limit : limit({ switchToHttp: () => ({ getRequest: () => request(slug) }) });
+
+  it.each(["handleWhatsAppWebhook", "handleWhatsAppWebhookWithSecret"])(
+    "lets a live agent take a campaign's replies, hundreds a minute (%s)",
+    (method) => {
+      live.set("shop/whatsapp", {});
+      expect(resolve(limitOf(method), "shop")).toBeGreaterThanOrEqual(300);
+    },
+  );
+
+  it.each(["handleWhatsAppWebhook", "handleWhatsAppWebhookWithSecret"])(
+    "keeps the tight limit for a slug with no running adapter (%s)",
+    (method) => {
+      expect(resolve(limitOf(method), "nobody")).toBe(60);
+    },
+  );
+});
+
 describe("public channel webhook routes", () => {
   type Tracker = (req: Record<string, unknown>) => string;
   const trackerOf = (proto: object, method: string): Tracker | undefined =>
