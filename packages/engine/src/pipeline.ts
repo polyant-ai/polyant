@@ -18,7 +18,7 @@ import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { contactConversationId } from "./channels/outbound-conversation.js";
-import { runBackgroundJob } from "./channels/background-turns.js";
+import { runBackgroundJob, trackBackgroundTurn } from "./channels/background-turns.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
@@ -144,6 +144,25 @@ function buildLangsmithConfig(cfg: InstanceConfig): { apiKey: string; project: s
   return { apiKey: cfg.langsmith.apiKey, project: cfg.langsmith.project ?? "default" };
 }
 
+/**
+ * `response_sent` work still running, by conversation. The conversation's next
+ * turn waits for it before reading the state, so a delivery hook that writes is
+ * never read stale. Process-local, like the message coordinator.
+ */
+const deliveryHooks = new Map<string, Promise<void>>();
+
+function holdNextTurn(conversationId: string, work: Promise<unknown>): void {
+  const settled = work.then(
+    () => undefined,
+    (err: unknown) => log.error("pipeline", `response_sent hooks failed for ${conversationId}`, err),
+  );
+  deliveryHooks.set(conversationId, settled);
+  trackBackgroundTurn(settled);
+  void settled.then(() => {
+    if (deliveryHooks.get(conversationId) === settled) deliveryHooks.delete(conversationId);
+  });
+}
+
 export async function preparePipeline(
   msg: IncomingMessage,
   conversationIdOverride?: string | null,
@@ -237,10 +256,12 @@ export async function preparePipeline(
       conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
       isAutoTaskTurn
         ? Promise.resolve(undefined)
-        : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
-            log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
-            return new ConversationStateBuffer(conversationId, instanceId);
-          }),
+        : Promise.resolve(deliveryHooks.get(conversationId))
+            .then(() => ConversationStateBuffer.load(conversationId, instanceId))
+            .catch((err) => {
+              log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
+              return new ConversationStateBuffer(conversationId, instanceId);
+            }),
     ]);
 
   // First persisted turn — computed from PERSISTED rows, NOT the metadata
@@ -711,7 +732,8 @@ export interface PipelinePostOptions {
 
 export interface PipelinePostResult {
   finalText: string;
-  /** Post-LLM hook outcomes (response_generated + response_sent). */
+  /** Post-LLM hook outcomes: response_generated, plus response_sent on a streamed
+   *  turn (on the others those hooks run after this result is returned). */
   hookExecutions: HookExecutionSummary[];
 }
 
@@ -840,17 +862,25 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
 
   // Lifecycle hooks: response_sent fires once the turn is finalized and handed
   // to the channel (the pipeline never observes physical delivery — see the
-  // hooks design doc). The main flush already ran, so persist any state these
-  // hooks wrote with a second flush (no-op when nothing changed).
+  // hooks design doc). The turn's state is already saved, so persist any state
+  // these hooks wrote with a second flush (no-op when nothing changed).
   if (hookPayload && hookCtx) {
-    hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
-    if (persist && ctx.stateBuffer) {
-      try {
-        await ctx.stateBuffer.flush();
-      } catch (err) {
-        log.error("pipeline", `Failed to flush hook state for ${ctx.conversationId}`, err);
+    const responseSent = runHooks("response_sent", hookPayload, hookCtx).then(async (summaries) => {
+      if (persist && ctx.stateBuffer) {
+        try {
+          await ctx.stateBuffer.flush();
+        } catch (err) {
+          log.error("pipeline", `Failed to flush hook state for ${ctx.conversationId}`, err);
+        }
       }
-    }
+      return summaries;
+    });
+    // A streamed reply has already reached the client: waiting costs no delivery
+    // time and brings the outcomes to the client before `done`. Otherwise the
+    // channel sends only after this function returns, so the hooks run after
+    // it, and the conversation's next turn waits for their state.
+    if (opts.isStreaming) hookExecutions.push(...(await responseSent));
+    else holdNextTurn(ctx.conversationId, responseSent);
   }
 
   return { finalText, hookExecutions };

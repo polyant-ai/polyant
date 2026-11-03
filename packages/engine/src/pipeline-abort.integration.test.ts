@@ -20,7 +20,7 @@ import type { HookEvent, HookEventPayload, HookExecutionSummary, HookRunContext 
 
 const hookBehaviour = vi.hoisted(() => ({
   responseGenerated: undefined as undefined | ((ctx: HookRunContext) => void),
-  responseSent: undefined as undefined | ((payload: HookEventPayload) => void),
+  responseSent: undefined as undefined | ((payload: HookEventPayload, ctx: HookRunContext) => void | Promise<void>),
 }));
 
 vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
@@ -33,7 +33,7 @@ vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
       ctx: HookRunContext,
     ): Promise<HookExecutionSummary[]> => {
       if (event === "response_generated") hookBehaviour.responseGenerated?.(ctx);
-      if (event === "response_sent") hookBehaviour.responseSent?.(payload);
+      if (event === "response_sent") await hookBehaviour.responseSent?.(payload, ctx);
       return [];
     },
   };
@@ -238,5 +238,29 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
     expect(await messages(conversationId)).toEqual(["user:a", "assistant:R(a)", "user:b", "assistant:R(b)"]);
     await vi.waitFor(() => expect(sent).toEqual(["R(a)", "R(b)"]));
     coordinator.shutdown();
+  });
+
+  it("returns before slow response_sent hooks finish, and the next turn still reads the state they wrote", async () => {
+    const channelId = randomUUID();
+    const conversationId = `${AGENT}:web:${channelId}`;
+    const msg = (text: string): IncomingMessage => ({ channelType: "web", channelId, instanceId: AGENT, text, metadata: {} });
+    let finishHook!: () => void;
+    const hookDone = new Promise<void>((resolve) => (finishHook = resolve));
+    hookBehaviour.responseSent = async (_payload, ctx) => {
+      await hookDone;
+      ctx.state?.set("delivered", true);
+    };
+
+    const first = new AbortController();
+    const turn = cannedTurn(msg("a"), first.signal);
+    // The post phase does not wait for the delivery hooks: the reply can leave.
+    await expect(Promise.race([turn.then(() => "returned"), new Promise((r) => setTimeout(() => r("waiting"), 1_000))]))
+      .resolves.toBe("returned");
+
+    hookBehaviour.responseSent = undefined;
+    const next = runPipelinePre(msg("b"), undefined, new AbortController().signal);
+    finishHook();
+    const { ctx } = await next;
+    expect(ctx.stateBuffer?.snapshot()).toMatchObject({ delivered: true });
   });
 });
