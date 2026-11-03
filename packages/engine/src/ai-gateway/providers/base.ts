@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
+import { type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -9,10 +9,12 @@ import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../interm
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
+import { classifyProviderError } from "../logger.js";
 
 const log = createLogger();
 
-type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
+/** A provider model object (never a bare model id), so the gateway can wrap it. */
+type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => Parameters<typeof wrapLanguageModel>[0]["model"];
 
 /**
  * Serialize the tool definitions sent to the model for debug capture.
@@ -756,6 +758,35 @@ function temperatureCallParam(
     : {};
 }
 
+/**
+ * Log every retry the AI SDK makes of a model request. The SDK retries inside
+ * one model call, so neither its callbacks nor `ai_logs` see a retry, and each
+ * one can add seconds to a turn. A request that starts after the previous
+ * request of the same call failed is a retry: a failure the SDK does not retry
+ * ends the call.
+ */
+function retryLogging(providerName: string, modelId: string): LanguageModelMiddleware {
+  let lastFailure: unknown;
+  const attempt = async <T>(run: () => PromiseLike<T>): Promise<T> => {
+    if (lastFailure !== undefined) {
+      log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
+    }
+    try {
+      const result = await run();
+      lastFailure = undefined;
+      return result;
+    } catch (err) {
+      lastFailure = err;
+      throw err;
+    }
+  };
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: ({ doGenerate }) => attempt(doGenerate),
+    wrapStream: ({ doStream }) => attempt(doStream),
+  };
+}
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -791,12 +822,17 @@ export function createProvider(
     const completed = completedCallsUsage();
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
-      model: createModel(modelId, request.apiKeys),
+      model: wrapLanguageModel({
+        model: createModel(modelId, request.apiKeys),
+        middleware: retryLogging(providerName, modelId),
+      }),
       instructions,
       messages,
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
       abortSignal: request.abortSignal,
+      ...(request.timeout ? { timeout: request.timeout } : {}),
+      ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),

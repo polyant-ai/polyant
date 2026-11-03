@@ -21,6 +21,7 @@ import { DEFAULT_PROVIDER } from "./model-catalog.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../instances/instance-meta.js";
 import { createLogger } from "../utils/create-logger.js";
+import { config as processConfig } from "../config.js";
 
 const log = createLogger();
 
@@ -337,6 +338,28 @@ function logFailedCall(
   );
 }
 
+/**
+ * The request as the provider receives it: the messages this model can read,
+ * the resolved provider options, and the call's bounds — the caller's own, or
+ * the default for its kind of call (see `config.llm`). A streamed answer is
+ * bounded by the silence between its chunks; a service call by its total time;
+ * a conversation turn that does not stream by neither, since its tools may run
+ * for minutes.
+ */
+function providerRequest(request: ChatRequest, config: CallConfig, bound: "stream" | "service" | "none"): ChatRequest {
+  const llm = processConfig.llm;
+  const timeout =
+    request.timeout ??
+    (bound === "stream" ? { chunkMs: llm.streamChunkTimeoutMs } : bound === "service" ? { totalMs: llm.serviceCallTimeoutMs } : undefined);
+  return {
+    ...request,
+    messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
+    providerOptions: config.providerOptions,
+    ...(timeout ? { timeout } : {}),
+    maxRetries: request.maxRetries ?? llm.maxRetries,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
@@ -350,11 +373,10 @@ export async function chat(
 
   let response: ChatResponse;
   try {
-    response = await config.provider.chat({
-      ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
-      providerOptions: config.providerOptions,
-    }, config.modelId);
+    response = await config.provider.chat(
+      providerRequest(request, config, options?.callType === "service" ? "service" : "none"),
+      config.modelId,
+    );
   } catch (err) {
     // Exactly one row per failed call: this is the only place chat() invokes
     // the provider, and a thrown error here skips the success log below
@@ -397,11 +419,7 @@ export async function chatStream(
 
   let stream: ChatStreamResult;
   try {
-    stream = await config.provider.chatStream({
-      ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
-      providerOptions: config.providerOptions,
-    }, config.modelId);
+    stream = await config.provider.chatStream(providerRequest(request, config, "stream"), config.modelId);
   } catch (err) {
     // Same exactly-once reasoning as chat(): the request-time failure (before
     // any stream is established) is the only provider call chatStream() makes.

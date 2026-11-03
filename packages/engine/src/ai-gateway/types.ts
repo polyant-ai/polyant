@@ -63,6 +63,15 @@ export interface ChatRequest {
   /** Cancellation signal propagated to Vercel AI SDK (generateText/streamText). */
   abortSignal?: AbortSignal;
   /**
+   * Bounds on the call, in the AI SDK's terms: `totalMs` for the whole call,
+   * `chunkMs` for the longest silence between two chunks of a streamed answer
+   * once it has started. A call that exceeds one fails with a `TimeoutError`.
+   * Unset, the gateway applies its per-call-type default (`config.llm`).
+   */
+  timeout?: { totalMs?: number; chunkMs?: number };
+  /** How many times a failed model request is retried. Unset, the gateway applies `config.llm.maxRetries`. */
+  maxRetries?: number;
+  /**
    * When true, the provider captures the exact request payload (system + messages
    * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
    * instance `debug_enabled` flag — heavy, opt-in, persisted for analysis/debug.

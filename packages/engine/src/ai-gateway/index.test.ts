@@ -653,6 +653,50 @@ describe("AI Gateway", () => {
     });
   });
 
+  describe("bounds on every model call", () => {
+    // Defaults from the process configuration (none of these variables is set in tests).
+    const SERVICE_TOTAL_MS = 300_000;
+    const STREAM_CHUNK_MS = 120_000;
+    const MAX_RETRIES = 2;
+
+    it("bounds a service call's total time and states its retries", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { callType: "service" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("sets no total time on a conversation turn, whose tools may run long", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { callType: "conversation" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toBeUndefined();
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("bounds the silence between two chunks of a streamed answer", async () => {
+      mockProviderChatStream.mockReturnValue({ textStream: (async function* () {})(), response: Promise.resolve(makeChatResponse()) });
+      const stream = await chatStream(makeRequest());
+      await stream.response;
+
+      const sent = mockProviderChatStream.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ chunkMs: STREAM_CHUNK_MS });
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("keeps the bounds a caller sets itself", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ timeout: { totalMs: 15_000 }, maxRetries: 0 }), { callType: "service" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ totalMs: 15_000 });
+      expect(sent.maxRetries).toBe(0);
+    });
+  });
+
   describe("initAIGateway", () => {
     it("initializes logger", () => {
       // Reset the module-level `initialized` flag by re-importing
