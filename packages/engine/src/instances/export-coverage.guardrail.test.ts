@@ -97,6 +97,8 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
     notCarried: {
       value:
         "Carried only for a key a tool or hook declares `sensitive: false`, as the optional `value`. A credential travels as its key, and the import asks for it.",
+      lookup_digest:
+        "Derived from the value with this deployment's encryption key; the import computes its own when it writes the value.",
     },
   },
   instance_channels: { field: "channels" },

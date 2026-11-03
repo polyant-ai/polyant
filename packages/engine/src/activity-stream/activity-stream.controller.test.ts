@@ -240,7 +240,8 @@ describe("GET /api/activity-stream/live — teardown releases resources", () => 
     await controller.live(req, res, callerOfOrgA, undefined);
 
     expect(activityBus.listenerCount()).toBe(listenersBefore + 1);
-    expect(vi.getTimerCount()).toBe(1);
+    // The heartbeat and the lifetime bound.
+    expect(vi.getTimerCount()).toBe(2);
 
     // A broken socket: the next write throws inside flush(), which flips `closed`.
     vi.mocked(res.write).mockImplementation(() => {
@@ -269,6 +270,83 @@ describe("GET /api/activity-stream/live — teardown releases resources", () => 
     expect(vi.getTimerCount()).toBe(0);
     // `res.end()` only on the first (still-open) teardown.
     expect(res.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /api/activity-stream/live — a client that stops reading", () => {
+  let controller: ActivityStreamController;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    controller = new ActivityStreamController();
+    activityBus.__clearBuffer();
+    mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
+    mockListAgentWorkspaceSlugs.mockResolvedValue(new Map([["agent-a", "ws-1"]]));
+  });
+
+  afterEach(() => {
+    closeActivityStreams();
+    vi.useRealTimers();
+  });
+
+  /** A socket whose kernel buffer is full: `write()` answers false until `drain`. */
+  async function connectStalled() {
+    const { res, written } = makeRes();
+    const drainHandlers: Array<() => void> = [];
+    let full = false;
+    vi.mocked(res.write).mockImplementation(((chunk: string) => {
+      written.push(chunk);
+      return !full;
+    }) as never);
+    (res as unknown as { once: unknown }).once = vi.fn((event: string, fn: () => void) => {
+      if (event === "drain") drainHandlers.push(fn);
+    });
+    const { req } = makeReq();
+    await controller.live(req, res, callerOfOrgA, undefined);
+    return {
+      res,
+      written,
+      stall: () => { full = true; },
+      drain: () => { full = false; for (const fn of drainHandlers.splice(0)) fn(); },
+    };
+  }
+
+  it("stops writing once the socket says its buffer is full, and resumes on drain", async () => {
+    const client = await connectStalled();
+    client.stall();
+    activityBus.emitEvent(eventFor("agent-a")); // this write answers false
+    activityBus.emitEvent(eventFor("agent-a"));
+    activityBus.emitEvent(eventFor("agent-a"));
+    expect(dataEvents(client.written)).toHaveLength(1);
+
+    client.drain();
+    expect(dataEvents(client.written)).toHaveLength(3);
+    expect(client.res.end).not.toHaveBeenCalled();
+  });
+
+  it("ends the stream once the frames waiting for a stalled client pass the cap", async () => {
+    const client = await connectStalled();
+    client.stall();
+    for (let i = 0; i < 202; i++) activityBus.emitEvent(eventFor("agent-a"));
+
+    expect(dataEvents(client.written)).toHaveLength(1);
+    expect(client.res.end).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ends the stream after its maximum lifetime, so the client reconnects and is authorized again", async () => {
+    const listenersBefore = activityBus.listenerCount();
+    const { res } = makeRes();
+    const { req } = makeReq();
+    await controller.live(req, res, callerOfOrgA, undefined);
+
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(res.end).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(res.end).toHaveBeenCalled();
+    expect(activityBus.listenerCount()).toBe(listenersBefore);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

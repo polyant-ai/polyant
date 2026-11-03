@@ -37,6 +37,44 @@ export async function getEnabledToolNames(instanceId: InstanceUuid): Promise<Set
   return new Set(rows.map((r) => r.name));
 }
 
+/** An instance's tool rows: which tool, under which name, and why it is enabled. */
+export async function listInstanceToolRows(
+  instanceId: InstanceUuid,
+): Promise<{ toolId: string; name: string; source: string }[]> {
+  return db
+    .select({ toolId: instanceTools.toolId, name: tools.name, source: instanceTools.source })
+    .from(instanceTools)
+    .innerJoin(tools, eq(instanceTools.toolId, tools.id))
+    .where(eq(instanceTools.instanceId, instanceId));
+}
+
+/**
+ * Add `addToolIds` as manual rows and remove `removeToolIds`, in ONE
+ * transaction. As two independent statements, a failure after the insert left
+ * the agent holding both the newly enabled tools and the ones the operator had
+ * just switched off. What this controls is precisely what the agent may do.
+ */
+export async function applyManualToolChanges(
+  instanceId: InstanceUuid,
+  addToolIds: readonly string[],
+  removeToolIds: readonly string[],
+): Promise<void> {
+  if (addToolIds.length === 0 && removeToolIds.length === 0) return;
+  await db.transaction(async (tx) => {
+    if (addToolIds.length > 0) {
+      await tx
+        .insert(instanceTools)
+        .values(addToolIds.map((toolId) => ({ instanceId, toolId, source: "manual" as const })))
+        .onConflictDoNothing();
+    }
+    if (removeToolIds.length > 0) {
+      await tx
+        .delete(instanceTools)
+        .where(and(eq(instanceTools.instanceId, instanceId), inArray(instanceTools.toolId, [...removeToolIds])));
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Recompute
 // ---------------------------------------------------------------------------

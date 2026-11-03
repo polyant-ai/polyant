@@ -110,6 +110,8 @@ function makeStream(events: Record<string, unknown>[]) {
 // Tests
 // ---------------------------------------------------------------------------
 
+const HELLO = [{ role: "user", content: "ciao" }];
+
 describe("InstanceChatStreamController.stream", () => {
   let controller: InstanceChatStreamController;
   let chatCompletionStream: ReturnType<typeof vi.fn>;
@@ -134,7 +136,7 @@ describe("InstanceChatStreamController.stream", () => {
     );
 
     const res = makeRes();
-    await controller.stream("acme", { model: "ignored", messages: [] } as never, makeReq() as never, res as never);
+    await controller.stream("acme", { model: "ignored", messages: HELLO } as never, makeReq() as never, res as never);
 
     const events = parseEvents(res);
     const byEvent = (name: string) => events.filter((e) => e.event === name);
@@ -152,7 +154,7 @@ describe("InstanceChatStreamController.stream", () => {
   it("forces the model field to the URL slug", async () => {
     chatCompletionStream.mockResolvedValue(makeStream([]));
     const res = makeRes();
-    await controller.stream("acme", { model: "evil-override", messages: [], stream: false } as never, makeReq() as never, res as never);
+    await controller.stream("acme", { model: "evil-override", messages: HELLO, stream: false } as never, makeReq() as never, res as never);
 
     expect(chatCompletionStream).toHaveBeenCalledWith(
       expect.objectContaining({ model: "acme", stream: true }),
@@ -162,8 +164,8 @@ describe("InstanceChatStreamController.stream", () => {
 
   it("tells the key check whether the web turn carries call context", async () => {
     chatCompletionStream.mockResolvedValue(makeStream([]));
-    await controller.stream("acme", { messages: [] } as never, makeReq() as never, makeRes() as never);
-    await controller.stream("acme", { messages: [], chat_id: "CA1", context: { phone: "+39000" } } as never,
+    await controller.stream("acme", { messages: HELLO } as never, makeReq() as never, makeRes() as never);
+    await controller.stream("acme", { messages: HELLO, chat_id: "CA1", context: { phone: "+39000" } } as never,
       makeReq() as never, makeRes() as never);
     expect(mockValidateInstanceApiKey.mock.calls.map((call) => call[2])).toEqual([
       { carriesContext: false },
@@ -174,7 +176,7 @@ describe("InstanceChatStreamController.stream", () => {
   it("serves the panel playground without the Web channel or the agent key", async () => {
     chatCompletionStream.mockResolvedValue(makeStream([]));
     const res = makeRes();
-    await controller.playground("acme", { model: "x", messages: [], context: { a: 1 } } as never, res as never);
+    await controller.playground("acme", { model: "x", messages: HELLO, context: { a: 1 } } as never, res as never);
 
     expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
     expect(chatCompletionStream).toHaveBeenCalledWith(
@@ -185,7 +187,7 @@ describe("InstanceChatStreamController.stream", () => {
 
   it("keeps chat/stream gated: a refused key never opens the turn", async () => {
     mockValidateInstanceApiKey.mockRejectedValue(new Error("Invalid API key"));
-    await expect(controller.stream("acme", { messages: [] } as never, makeReq("Bearer bad") as never, makeRes() as never))
+    await expect(controller.stream("acme", { messages: HELLO } as never, makeReq("Bearer bad") as never, makeRes() as never))
       .rejects.toThrow("Invalid API key");
     expect(chatCompletionStream).not.toHaveBeenCalled();
   });
@@ -197,7 +199,7 @@ describe("InstanceChatStreamController.stream", () => {
       return makeStream([]);
     });
     const res = makeRes();
-    await controller.stream("acme", { messages: [] } as never, makeReq() as never, res as never);
+    await controller.stream("acme", { messages: HELLO } as never, makeReq() as never, res as never);
     expect(signal?.aborted).toBe(false);
     closeHandler(res)();
     expect(signal?.aborted).toBe(true);
@@ -227,7 +229,7 @@ describe("InstanceChatStreamController.stream", () => {
         };
       });
       const res = makeRes();
-      const done = controller.stream("acme", { messages: [] } as never, req as never, res as never);
+      const done = controller.stream("acme", { messages: HELLO } as never, req as never, res as never);
       // The generator resumes after `first` only once the relay has taken it.
       await vi.waitFor(() => expect(relayed).toBe(true));
       closeHandler(res)();
@@ -243,7 +245,7 @@ describe("InstanceChatStreamController.stream", () => {
     const res = makeRes();
 
     await expect(
-      controller.stream("acme", { model: "acme", messages: [] } as never, makeReq("Bearer bad") as never, res as never),
+      controller.stream("acme", { model: "acme", messages: HELLO } as never, makeReq("Bearer bad") as never, res as never),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(chatCompletionStream).not.toHaveBeenCalled();
   });
@@ -252,12 +254,81 @@ describe("InstanceChatStreamController.stream", () => {
     chatCompletionStream.mockRejectedValue(new Error("boom"));
     const res = makeRes();
 
-    await controller.stream("acme", { model: "acme", messages: [] } as never, makeReq() as never, res as never);
+    await controller.stream("acme", { model: "acme", messages: HELLO } as never, makeReq() as never, res as never);
 
     const events = parseEvents(res);
     expect(events.find((e) => e.event === "error")?.data).toEqual({ message: "boom" });
     expect(events.at(-1)?.event).toBe("done");
     expect(res.ended).toBe(true);
+  });
+
+  describe("request body", () => {
+    // The history a caller sends on these two routes reaches the model as-is
+    // when no chat_id is given: a URL inside a file or image part would make the
+    // engine download it. Text content is the only shape either client sends.
+    const urlParts = [
+      { type: "image", image: "https://example.com/pixel.png" },
+      { type: "file", data: "https://example.com/page.txt", mediaType: "text/plain" },
+    ];
+
+    for (const part of urlParts) {
+      it(`refuses a ${part.type} part with a URL in the history, before the turn starts`, async () => {
+        const body = {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "earlier" }, part] },
+            { role: "assistant", content: "ok" },
+            { role: "user", content: "what was in it?" },
+          ],
+        };
+        const { BadRequestException } = await import("@nestjs/common");
+        await expect(controller.stream("acme", body as never, makeReq() as never, makeRes() as never))
+          .rejects.toBeInstanceOf(BadRequestException);
+        await expect(controller.playground("acme", body as never, makeRes() as never))
+          .rejects.toBeInstanceOf(BadRequestException);
+        expect(chatCompletionStream).not.toHaveBeenCalled();
+      });
+    }
+
+    it("refuses a history longer than the hundred messages the OpenAI route allows", async () => {
+      const messages = Array.from({ length: 101 }, () => ({ role: "user", content: "hi" }));
+      await expect(controller.playground("acme", { messages } as never, makeRes() as never)).rejects.toThrow(/messages/);
+      expect(chatCompletionStream).not.toHaveBeenCalled();
+    });
+
+    it("accepts the body the panel playground sends", async () => {
+      chatCompletionStream.mockResolvedValue(makeStream([]));
+      const body = {
+        model: "acme",
+        messages: [
+          { role: "system", content: "loaded from history" },
+          { role: "user", content: "ciao" },
+          { role: "assistant", content: "ciao!" },
+          { role: "user", content: "come va?" },
+        ],
+        stream: true,
+        chat_id: "3f1c0a52-8d2e-4a57-9a51-1f4c3b0d9e77",
+      };
+      await controller.playground("acme", body as never, makeRes() as never);
+      expect(chatCompletionStream).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "acme", messages: body.messages, chat_id: body.chat_id }),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("accepts the body a web client sends with call context", async () => {
+      chatCompletionStream.mockResolvedValue(makeStream([]));
+      const body = {
+        model: "acme",
+        chat_id: "CA1",
+        messages: [{ role: "user", content: "pronto" }],
+        context: { phone: "+390000000" },
+      };
+      await controller.stream("acme", body as never, makeReq() as never, makeRes() as never);
+      expect(chatCompletionStream).toHaveBeenCalledWith(
+        expect.objectContaining({ context: body.context, chat_id: "CA1" }),
+        expect.any(AbortSignal),
+      );
+    });
   });
 
   it("disables the socket idle-timeout and heartbeats during output-less stretches, then clears them", async () => {
@@ -278,7 +349,7 @@ describe("InstanceChatStreamController.stream", () => {
 
       const res = makeRes();
       const pings = () => res.writes.filter((w) => w === ": ping\n\n").length;
-      const p = controller.stream("acme", { model: "acme", messages: [] } as never, makeReq() as never, res as never);
+      const p = controller.stream("acme", { model: "acme", messages: HELLO } as never, makeReq() as never, res as never);
 
       // ~2 heartbeats fire while the stream is open with no token output
       // (HEARTBEAT_MS = 25s → pings at 25s and 50s).
