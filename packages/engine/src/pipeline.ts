@@ -14,7 +14,8 @@ import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
-import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
+import { rowsToModelMessages, type ConversationTurnContext, type MessageRow } from "./conversations/store.js";
+import { HISTORY_HARD_CAP, messagesToFold } from "./conversations/history-window.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { contactConversationId } from "./channels/outbound-conversation.js";
@@ -104,6 +105,18 @@ export function missingKeyStream(): StreamOutgoingMessage {
   };
 }
 
+/**
+ * The oldest messages of the history, to fold into the summary after the turn
+ * (see `conversations/history-window.ts`).
+ */
+export interface SummaryFold {
+  messages: ModelMessage[];
+  /** created_at of the last of them: where the summary will reach. */
+  through: Date;
+  /** Where the summary reached when the turn read it. */
+  previousThrough: Date | null;
+}
+
 // ---------------------------------------------------------------------------
 // PipelineContext — everything preparePipeline returns
 // ---------------------------------------------------------------------------
@@ -122,8 +135,8 @@ export interface PipelineContext {
   history: ModelMessage[] | undefined;
   /** True when no message rows were persisted before this turn (first successful turn). */
   isFirstTurn: boolean;
-  hasOverflow: boolean;
-  droppedMessages: ModelMessage[] | undefined;
+  /** Set when this turn takes the history past its window: what to fold into the summary once it is saved. */
+  summaryFold?: SummaryFold;
   instanceConfig: InstanceConfig;
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
@@ -174,25 +187,50 @@ export async function preparePipeline(
   const conversationId = conversationIdOverride
     ?? contactConversationId(instanceId, msg.channelType, msg.channelId);
   const isAutoTaskTurn = isAutoTask(msg.text);
+  const source = (msg.metadata?.source as string) ?? "user";
 
-  // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
+  // The conversation row first (its summary says where the history starts),
+  // then the history; the config and the state meanwhile. Automated tasks
+  // (e.g. Open WebUI title/tag generation) read the row without creating it.
+  const instanceConfigPromise = resolveInstanceConfig(instanceId);
+  const turnPromise = conversationStore
+    .openConversationTurn(
+      conversationId,
+      instanceId,
+      isAutoTaskTurn ? undefined : { channel: msg.channelType, userIdentifier: msg.userName, source },
+    )
+    .catch((err): ConversationTurnContext => {
+      log.error("pipeline", `Failed to open conversation ${conversationId}`, err);
+      return { created: false, contextPrompt: null, summary: null, summaryThrough: null };
+    });
+  // Tool-result replay (opt-in per agent) reads the rows with their steps.
+  const replayPromise = instanceConfigPromise.then((config) => config.toolResultsInHistoryEnabled && !isAutoTaskTurn);
+  const historyPromise = Promise.all([turnPromise, replayPromise]).then(([turn, withSteps]) =>
+    conversationStore
+      .getHistoryWindow(conversationId, { after: turn.summaryThrough, limit: HISTORY_HARD_CAP, withSteps })
+      .catch(() => [] as MessageRow[]),
+  );
+  const [turn, rows, replay, instanceConfig, stateBuffer] = await Promise.all([
+    turnPromise,
+    historyPromise,
+    replayPromise,
+    instanceConfigPromise,
+    isAutoTaskTurn
+      ? Promise.resolve(undefined)
+      : Promise.resolve(deliveryHooks.get(conversationId))
+          .then(() => ConversationStateBuffer.load(conversationId, instanceId))
+          .catch((err) => {
+            log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
+            return new ConversationStateBuffer(conversationId, instanceId);
+          }),
+  ]);
+  const contextPrompt = turn.contextPrompt ?? undefined;
+
   if (!isAutoTaskTurn) {
-    const source = (msg.metadata?.source as string) ?? "user";
-    const ensureResult = await conversationStore
-      .ensureConversation(conversationId, instanceId, {
-        channel: msg.channelType,
-        userIdentifier: msg.userName,
-        source,
-      })
-      .catch((err) => {
-        log.error("pipeline", `Failed to ensure conversation ${conversationId}`, err);
-        return { created: false };
-      });
-
     // Activity-stream emit: lifecycle event when a brand-new conversation row
     // is created (never on subsequent turns of the same conversation).
     // Skipped for synthetic channels covered by other emitters.
-    if (ensureResult.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+    if (turn.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
       resolveInstanceMeta(instanceId)
         .then((instance) => {
           emitConversation({
@@ -230,75 +268,39 @@ export async function preparePipeline(
     }
   }
 
-  // Fetch history, instance config, and context prompt in parallel — all independent
-  // except that the history query depends on the config's tool-result replay flag.
-  // Replay agents read the raw rows ONCE and derive the text history from them,
-  // instead of running the same ordered query twice. The config is the 30s-cached one.
-  const instanceConfigPromise = resolveInstanceConfig(instanceId);
-  const textHistory = () =>
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]);
-  const historyPromise: Promise<{ messages: ModelMessage[]; rows?: MessageRow[] }> =
-    instanceConfigPromise.then(async (config) => {
-      if (config.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
-        try {
-          const rows = await conversationStore.getRecentMessageRows(conversationId, 16);
-          return { messages: rowsToModelMessages(rows), rows };
-        } catch {
-          // Same degradation as before: the text read stands in for the rows.
-        }
-      }
-      return { messages: await textHistory() };
-    });
-  const [{ messages: conversationHistory, rows: replayRows }, instanceConfig, contextPrompt, stateBuffer] =
-    await Promise.all([
-      historyPromise,
-      instanceConfigPromise,
-      conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
-      isAutoTaskTurn
-        ? Promise.resolve(undefined)
-        : Promise.resolve(deliveryHooks.get(conversationId))
-            .then(() => ConversationStateBuffer.load(conversationId, instanceId))
-            .catch((err) => {
-              log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
-              return new ConversationStateBuffer(conversationId, instanceId);
-            }),
-    ]);
-
   // First persisted turn — computed from PERSISTED rows, NOT the metadata
   // fallback below: the OpenAI-compat path passes client-side history that must
   // not suppress the conversation_start hook. Abort-safe by construction: an
   // aborted run persists nothing, so the restarted run still sees zero rows.
-  const isFirstTurn = conversationHistory.length === 0;
+  const isFirstTurn = rows.length === 0 && turn.summaryThrough === null;
 
   // NOTE: the user message is NOT persisted here. `persistTurn()` writes it
   // only after the pipeline succeeds, so that an aborted pipeline
   // (cancel-and-restart) leaves no trace in DB.
 
-  // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
-  const hasOverflow = conversationHistory.length > 15;
+  // The summary covers everything before the history: both go to the model.
+  const conversationSummary = turn.summary ?? undefined;
+  const conversationHistory = rowsToModelMessages(rows);
   let history: ModelMessage[] | undefined;
-  let conversationSummary: string | undefined;
-  let droppedMessages: ModelMessage[] | undefined;
-
-  if (hasOverflow) {
-    conversationSummary =
-      (await conversationStore.getSummary(conversationId).catch(() => null)) ?? undefined;
-    history = conversationHistory.slice(-10);
-    droppedMessages = conversationHistory.slice(0, -10);
+  if (rows.length === 0) {
+    history = msg.metadata?.conversationHistory as ModelMessage[] | undefined;
   } else {
-    conversationSummary = undefined;
-    history = conversationHistory.length > 0
-      ? conversationHistory
-      : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
+    // Tool-result replay rebuilds tool_use/tool_result blocks from the persisted
+    // `steps`, so the model retains tool outputs across turns.
+    history = replay ? buildHistoryWithToolResults(rows) : conversationHistory;
   }
 
-  // Tool-result replay (opt-in per instance): rebuild the in-window history from
-  // the raw rows read above, reconstructing tool_use/tool_result blocks from the
-  // persisted `steps` so the model retains tool outputs across turns. The dropped
-  // messages / summary stay text-only.
-  if (replayRows && replayRows.length > 0) {
-    history = buildHistoryWithToolResults(hasOverflow ? replayRows.slice(-10) : replayRows);
-  }
+  // This turn adds two messages: when that takes the history past its window,
+  // the oldest are folded into the summary after the turn is saved.
+  const fold = isAutoTaskTurn ? 0 : messagesToFold(rows, 2);
+  const summaryFold: SummaryFold | undefined =
+    fold > 0
+      ? {
+          messages: conversationHistory.slice(0, fold),
+          through: rows[fold - 1].createdAt!,
+          previousThrough: turn.summaryThrough,
+        }
+      : undefined;
 
   const langsmith = buildLangsmithConfig(instanceConfig);
 
@@ -329,8 +331,7 @@ export async function preparePipeline(
     commitGate: msg.commitGate,
     history,
     isFirstTurn,
-    hasOverflow,
-    droppedMessages,
+    summaryFold,
     instanceConfig,
     langsmith,
     userAttachments: msg.attachments,
@@ -449,11 +450,10 @@ export interface AfterResponseOptions {
   debugPayload?: LlmDebugPayload;
   /** Pre-generated assistant message UUID (streaming path) — keeps the persisted id stable. */
   assistantMessageId?: string;
+  /** The summary the turn read, which a fold extends. */
   existingSummary?: string;
-  /** When true, the sliding window overflowed — generate/update summary. */
-  needsSummaryUpdate?: boolean;
-  /** Messages that fell outside the retained window (to be summarized). */
-  droppedMessages?: ModelMessage[];
+  /** The oldest messages of the history, to fold into the summary. */
+  summaryFold?: SummaryFold;
   memoryEnabled?: boolean;
   /** The agent's resolved datetime formatting, for the summary's "as of" stamp. */
   datetime?: InstanceConfig["datetime"];
@@ -562,12 +562,13 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
       content: `User: ${opts.userMessage}\nAssistant: ${opts.assistantResponse}`,
     });
 
-    // Update conversation summary (only when sliding window overflows)
-    if (opts.needsSummaryUpdate && opts.droppedMessages?.length) {
+    // Fold the oldest messages of the history into the summary, once per block.
+    if (opts.summaryFold) {
+      const fold = opts.summaryFold;
       const existing = opts.existingSummary
         ? `Previous summary: ${opts.existingSummary}\n\n`
         : "";
-      const droppedText = opts.droppedMessages
+      const droppedText = fold.messages
         .map(m => {
           const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
           return `${label}: ${m.content}`;
@@ -592,9 +593,11 @@ export function afterResponseTail(opts: AfterResponseOptions): void {
           }],
         }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
 
+        // Lands only if no other turn moved the summary meanwhile; until it
+        // lands, turns keep reading from where the summary reached before.
         const summary = summaryResponse.text.trim();
         if (summary) {
-          await conversationStore.updateSummary(opts.conversationId, summary);
+          await conversationStore.advanceSummary(opts.conversationId, summary, fold.through, fold.previousThrough);
         }
       } catch (err) {
         log.error("pipeline", "Summary generation failed", err);
@@ -798,8 +801,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       debugPayload: opts.debugPayload,
       assistantMessageId: opts.assistantMessageId,
       existingSummary: ctx.conversationSummary,
-      needsSummaryUpdate: ctx.hasOverflow,
-      droppedMessages: ctx.droppedMessages,
+      summaryFold: ctx.summaryFold,
       memoryEnabled: ctx.instanceConfig.memoryEnabled,
       datetime: ctx.instanceConfig.datetime,
       provider: ctx.instanceConfig.provider,

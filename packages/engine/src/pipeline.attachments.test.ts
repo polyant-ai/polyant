@@ -20,7 +20,6 @@ vi.mock("./attachments/agent-storage.js", () => ({ uploadAttachment: mockUploadA
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
     appendMessages: mockAppendMessages,
-    updateSummary: vi.fn(async () => undefined),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
@@ -121,8 +120,6 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
       stateBuffer: undefined,
       history: undefined,
       isFirstTurn: true,
-      hasOverflow: false,
-      droppedMessages: undefined,
       instanceConfig: { attachmentStorageEnabled } as PipelineContext["instanceConfig"],
       langsmith: undefined,
       userAttachments: [{ type: "image", data: Buffer.from("jpeg"), mimeType: "image/jpeg" }],

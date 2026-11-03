@@ -267,81 +267,6 @@ describe("ConversationStore", () => {
   });
 
   // =========================================================================
-  // getSummary / updateSummary
-  // =========================================================================
-  describe("getSummary", () => {
-    it("returns summary from DB when cache is empty", async () => {
-      const id = uid();
-      const selChain = createChainMock([{ summary: "A brief summary" }]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("A brief summary");
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-
-    it("returns cached summary without DB call", async () => {
-      const id = uid();
-      const updChain = createChainMock(undefined);
-      mockDb.update.mockReturnValue(updChain as any);
-      await conversationStore.updateSummary(id, "Cached summary");
-      vi.clearAllMocks();
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Cached summary");
-      expect(mockDb.select).not.toHaveBeenCalled();
-    });
-
-    it("returns null when DB returns empty rows", async () => {
-      const id = uid();
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBeNull();
-    });
-
-    it("returns null when DB row has null summary", async () => {
-      const id = uid();
-      const selChain = createChainMock([{ summary: null }]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBeNull();
-    });
-
-    it("does not cache null summaries", async () => {
-      const id = uid();
-      const selChain1 = createChainMock([{ summary: null }]);
-      mockDb.select.mockReturnValue(selChain1 as any);
-      await conversationStore.getSummary(id);
-      vi.clearAllMocks();
-
-      const selChain2 = createChainMock([{ summary: "Now exists" }]);
-      mockDb.select.mockReturnValue(selChain2 as any);
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Now exists");
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-  });
-
-  describe("updateSummary", () => {
-    it("updates DB and populates cache", async () => {
-      const id = uid();
-      const updChain = createChainMock(undefined);
-      mockDb.update.mockReturnValue(updChain as any);
-
-      await conversationStore.updateSummary(id, "Updated summary");
-      expect(mockDb.update).toHaveBeenCalled();
-
-      vi.clearAllMocks();
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Updated summary");
-      expect(mockDb.select).not.toHaveBeenCalled();
-    });
-  });
-
-  // =========================================================================
   // clearContextPrompt
   // =========================================================================
   describe("clearContextPrompt", () => {
@@ -1309,14 +1234,13 @@ describe("ConversationStore", () => {
       expect(result).toBe(false);
     });
 
-    it("clears both title and summary cache", async () => {
+    it("clears the title cache", async () => {
       const id = uid();
 
-      // Prime both caches
+      // Prime the cache
       const updChain = createChainMock(undefined);
       mockDb.update.mockReturnValue(updChain as any);
       await conversationStore.updateTitle(id, "Title to clear");
-      await conversationStore.updateSummary(id, "Summary to clear");
 
       vi.clearAllMocks();
 
@@ -1335,19 +1259,11 @@ describe("ConversationStore", () => {
 
       vi.clearAllMocks();
 
-      // Now getTitle and getSummary should hit DB (cache was cleared)
+      // Now getTitle should hit DB (cache was cleared)
       const selChainTitle = createChainMock([{ title: "Reloaded" }]);
       mockDb.select.mockReturnValue(selChainTitle as any);
       const title = await conversationStore.getTitle(id);
       expect(title).toBe("Reloaded");
-      expect(mockDb.select).toHaveBeenCalled();
-
-      vi.clearAllMocks();
-
-      const selChainSummary = createChainMock([{ summary: "Reloaded" }]);
-      mockDb.select.mockReturnValue(selChainSummary as any);
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Reloaded");
       expect(mockDb.select).toHaveBeenCalled();
     });
   });

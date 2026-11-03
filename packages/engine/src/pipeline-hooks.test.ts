@@ -30,7 +30,6 @@ vi.mock("./conversations/index.js", () => ({
     appendMessages: vi.fn(async (_id: string, _rows: unknown[], options?: { inTransaction?: (tx: unknown) => Promise<void> }) => {
       await options?.inTransaction?.({});
     }),
-    updateSummary: vi.fn(async () => undefined),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
@@ -59,8 +58,6 @@ function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
     stateBuffer: undefined,
     history: undefined,
     isFirstTurn: true,
-    hasOverflow: false,
-    droppedMessages: undefined,
     instanceConfig: {} as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,

@@ -84,8 +84,6 @@ async function finishTurn(
     stateBuffer,
     history: undefined,
     isFirstTurn: true,
-    hasOverflow: false,
-    droppedMessages: undefined,
     instanceConfig: { memoryEnabled: false, attachmentStorageEnabled: false } as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
