@@ -52,7 +52,7 @@ vi.mock("../../instances/config-resolver.js", () => ({
 }));
 vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
 vi.mock("../../channels/channel-manager.js", () => ({
-  channelManager: { stopAllForInstance: mockStopAll },
+  channelManager: { stopAllForInstance: mockStopAll, announceChange: vi.fn() },
 }));
 vi.mock("../../management-audit/management-audit-logger.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../management-audit/management-audit-logger.js")>();

@@ -129,7 +129,9 @@ const { mockPrepareAttachmentCleanup, mockRunAttachmentCleanup, mockStopAllForIn
   mockStopAllForInstance: vi.fn(async () => undefined),
 }));
 vi.mock("../../attachments/attachment-cleanup.js", () => ({ prepareAttachmentCleanup: mockPrepareAttachmentCleanup }));
-vi.mock("../../channels/channel-manager.js", () => ({ channelManager: { stopAllForInstance: mockStopAllForInstance } }));
+vi.mock("../../channels/channel-manager.js", () => ({
+  channelManager: { stopAllForInstance: mockStopAllForInstance, announceChange: vi.fn() },
+}));
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";

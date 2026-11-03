@@ -7,7 +7,7 @@ installFileLogger();
 
 import { config } from "./config.js";
 import { retiredEnvironmentWarnings } from "./config-retired.js";
-import { db } from "./database/client.js";
+import { db, queryClient } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
@@ -501,8 +501,10 @@ async function main() {
   // 4. Start NestJS HTTP server (OpenAI-compatible API)
   const nestApp = await startServer(handleMessage, handleMessageStream);
 
-  // 5. Start per-instance channel adapters from DB
+  // 5. Start per-instance channel adapters from DB, following saves made
+  // through another process from before the configs are read.
   channelManager.setMessageHandler(handleMessage);
+  await channelManager.listenForChanges(queryClient);
 
   const allInstances = await listAllInstances();
   for (const inst of allInstances) {
