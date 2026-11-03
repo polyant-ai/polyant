@@ -15,7 +15,7 @@
  * was "just one boolean".
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
@@ -480,5 +480,61 @@ describe("KnowledgeTab — the switch on a document", () => {
     await userEvent.click(sw);
     await userEvent.click(sw);
     expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeTab — refreshing documents still in processing", () => {
+  const processing = [
+    { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
+  ];
+  const setHidden = (hidden: boolean) => Object.defineProperty(document, "hidden", { value: hidden, configurable: true });
+  /** Let time pass one polling step at a time, so each answer renders before the next step. */
+  const elapse = async (ms: number) => {
+    for (let passed = 0; passed < ms; passed += 3_000) await act(async () => vi.advanceTimersByTime(3_000));
+  };
+
+  beforeEach(() => {
+    // Only the polling interval is driven by hand; everything else keeps real time.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    mockList.mockResolvedValue({ documents: processing });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    setHidden(false);
+  });
+
+  it("asks the engine again every few seconds while a document is processing", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+    const before = mockList.mock.calls.length;
+
+    await elapse(9_000);
+    expect(mockList.mock.calls.length).toBe(before + 3);
+  });
+
+  it("does not ask while the browser tab is hidden, and that time does not count toward giving up", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+    const before = mockList.mock.calls.length;
+
+    setHidden(true);
+    await elapse(10 * 60_000);
+    expect(mockList.mock.calls.length).toBe(before);
+
+    setHidden(false);
+    await elapse(3_000);
+    expect(mockList.mock.calls.length).toBe(before + 1);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it("gives up after about three minutes in view and says so", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+
+    await elapse(4 * 60_000);
+    expect(mockToastError).toHaveBeenCalledWith("knowledge.tab.processingTimeout");
+    const settled = mockList.mock.calls.length;
+    await elapse(60_000);
+    expect(mockList.mock.calls.length).toBe(settled);
   });
 });

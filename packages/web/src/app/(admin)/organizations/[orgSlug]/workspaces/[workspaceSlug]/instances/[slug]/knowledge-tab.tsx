@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   RefreshCw,
@@ -23,6 +23,7 @@ import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from 
 import { providerName } from "@/lib/provider-secrets";
 import { useI18n } from "@/lib/i18n/context";
 import { useResource } from "@/hooks/use-resource";
+import { usePolling } from "@/hooks/use-polling";
 import { downloadBlob } from "@/lib/download";
 import { SectionActions } from "./section-actions";
 import { usePageSaveAction } from "./page-actions-context";
@@ -170,10 +171,6 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // Poll for processing documents (max 60 attempts = ~3 minutes)
-  const pollCountRef = useRef(0);
-  const MAX_POLL_ATTEMPTS = 60;
-
   /*
     Derived from `documents` rather than read off a ref, because it has to be a
     DEPENDENCY. The effect used to read `documentsRef.current` and declare only
@@ -185,29 +182,12 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
     (d) => d.status === "processing" || d.status === "uploading",
   );
 
-  useEffect(() => {
-    if (!hasProcessing) {
-      pollCountRef.current = 0;
-      return;
-    }
-
-    if (pollCountRef.current >= MAX_POLL_ATTEMPTS) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      pollCountRef.current += 1;
-      if (pollCountRef.current >= MAX_POLL_ATTEMPTS) {
-        clearInterval(interval);
-        toast.error(
-          t("knowledge.tab.processingTimeout"),
-        );
-        return;
-      }
-      load();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [hasProcessing, load, t]);
+  // Refresh while a document is processing: every 3 s, for about three minutes in view.
+  usePolling(hasProcessing, load, {
+    intervalMs: 3000,
+    maxAttempts: 60,
+    onGiveUp: () => toast.error(t("knowledge.tab.processingTimeout")),
+  });
 
   const handleUpload = async (filename: string, content: string) => {
     try {
