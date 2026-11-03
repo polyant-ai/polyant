@@ -44,6 +44,10 @@ export const KNOWN_DIFFERENCES = [
     key: "column-only-in-database:knowledge_chunks.content_tsv",
     reason: "generated tsvector column maintained in SQL for full-text search",
   },
+  {
+    key: "column-only-in-database:instance_room.eval_interval_minutes",
+    reason: "unread Room setting left out of the schema; kept until a later release drops it, so the previous version keeps working during a deploy",
+  },
 ];
 
 /** Reduces an SQL fragment to a comparable form: no quotes, qualifiers, casts or parentheses. */
