@@ -565,6 +565,62 @@ export class ConversationStore {
   }
 
   /**
+   * What memory extraction has not read yet: the newest messages after where it
+   * reached (at most `limit`), with up to `context` messages before them so a
+   * reply can be understood. One read; `memoryThrough` is where it reached.
+   */
+  async getMessagesToExtract(
+    conversationId: string,
+    options: { limit: number; context: number },
+  ): Promise<{ context: MessageRow[]; fresh: MessageRow[]; memoryThrough: Date | null }> {
+    const rows = await db
+      .select({
+        role: conversationMessages.role,
+        content: conversationMessages.content,
+        createdAt: conversationMessages.createdAt,
+        memoryThrough: sql<Date | string | null>`(SELECT ${conversations.memoryThrough} FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
+      })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId))
+      .orderBy(desc(conversationMessages.createdAt))
+      .limit(options.limit + options.context);
+
+    const raw = rows[0]?.memoryThrough ?? null;
+    const memoryThrough = raw === null ? null : new Date(raw);
+    const chronological: MessageRow[] = rows
+      .reverse()
+      .map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
+    // Read by millisecond, the precision `memoryThrough` was taken at.
+    const isFresh = (r: MessageRow) => !memoryThrough || (r.createdAt !== null && r.createdAt.getTime() > memoryThrough.getTime());
+    const firstFresh = chronological.findIndex(isFresh);
+    const fresh = firstFresh === -1 ? [] : chronological.slice(firstFresh).slice(-options.limit);
+    const contextEnd = chronological.length - fresh.length;
+    return {
+      context: chronological.slice(Math.max(0, contextEnd - options.context), contextEnd),
+      fresh,
+      memoryThrough,
+    };
+  }
+
+  /**
+   * Record that memory extraction has read up to `through`, only if no other
+   * extraction moved the mark since `previousThrough` was read.
+   */
+  async advanceMemoryThrough(conversationId: string, through: Date, previousThrough: Date | null): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ memoryThrough: through })
+      .where(
+        and(
+          eq(conversations.conversationId, conversationId),
+          previousThrough
+            ? eq(conversations.memoryThrough, previousThrough)
+            : sql`${conversations.memoryThrough} IS NULL`,
+        ),
+      );
+  }
+
+  /**
    * Full-text search across conversation messages.
    *
    * `scope` is required and ANDed, which it was not: with `instanceId` absent

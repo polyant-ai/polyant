@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockChat = vi.fn();
-const mockGetRecentMessages = vi.fn();
+const mockUnreadMessages = vi.fn();
 const mockEmbedMany = vi.fn();
 const mockResolveEmbeddingContext = vi.fn();
 const mockUpsertMemory = vi.fn();
@@ -25,7 +25,13 @@ vi.mock("./memory-store.js", () => ({
 
 vi.mock("../conversations/index.js", () => ({
   conversationStore: {
-    getRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
+    // The unread messages; these tests give the extraction no earlier context.
+    getMessagesToExtract: async (...args: unknown[]) => ({
+      context: [],
+      fresh: await mockUnreadMessages(...args),
+      memoryThrough: null,
+    }),
+    advanceMemoryThrough: async () => undefined,
   },
 }));
 
@@ -53,7 +59,7 @@ describe("extractMemories", () => {
   });
 
   it("loads recent messages, calls LLM, embeds, and upserts results", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "I live in Rome", createdAt: new Date() },
       { role: "assistant", content: "Noted!", createdAt: new Date() },
     ]);
@@ -72,7 +78,7 @@ describe("extractMemories", () => {
 
     const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
-    expect(mockGetRecentMessages).toHaveBeenCalledWith("conv-1", 15);
+    expect(mockUnreadMessages).toHaveBeenCalledWith("conv-1", { limit: 15, context: 2 });
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
         tier: "fast",
@@ -106,7 +112,7 @@ describe("extractMemories", () => {
   });
 
   it("passes langsmith config to chat when provided", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "Test message", createdAt: new Date() },
     ]);
     mockChat.mockResolvedValue({ text: "[]" });
@@ -122,7 +128,7 @@ describe("extractMemories", () => {
   });
 
   it("returns early when no messages found", async () => {
-    mockGetRecentMessages.mockResolvedValue([]);
+    mockUnreadMessages.mockResolvedValue([]);
 
     const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
@@ -133,7 +139,7 @@ describe("extractMemories", () => {
   });
 
   it("filters out messages with empty content", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "Hello", createdAt: new Date() },
       { role: "assistant", content: "", createdAt: new Date() },
     ]);
@@ -159,7 +165,7 @@ describe("extractMemories", () => {
   });
 
   it("returns early when all messages have empty content", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "", createdAt: new Date() },
       { role: "assistant", content: "", createdAt: new Date() },
     ]);
@@ -171,7 +177,7 @@ describe("extractMemories", () => {
   });
 
   it("handles non-string content gracefully", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: { type: "tool_result" }, createdAt: new Date() },
       { role: "assistant", content: "Reply", createdAt: new Date() },
     ]);
@@ -198,7 +204,7 @@ describe("extractMemories", () => {
 
   it("returns empty when LLM extracts nothing (no summary log)", async () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "Hi", createdAt: new Date() },
     ]);
 
@@ -219,7 +225,7 @@ describe("extractMemories", () => {
 
   it("logs a summary line after extraction", async () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "I like pizza", createdAt: new Date() },
     ]);
 
@@ -243,7 +249,7 @@ describe("extractMemories", () => {
   });
 
   it("handles invalid JSON from LLM gracefully (returns empty array)", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "Something", createdAt: new Date() },
     ]);
 
@@ -259,7 +265,7 @@ describe("extractMemories", () => {
   });
 
   it("batch-embeds all extracted facts in one call", async () => {
-    mockGetRecentMessages.mockResolvedValue([
+    mockUnreadMessages.mockResolvedValue([
       { role: "user", content: "I live in Rome and I like pasta", createdAt: new Date() },
     ]);
 
@@ -317,7 +323,7 @@ describe("extractMemories unparseable reply logging", () => {
     const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     mockResolveEmbeddingContext.mockResolvedValue({});
-    mockGetRecentMessages.mockResolvedValue([{ role: "user", content: "x", createdAt: new Date() }]);
+    mockUnreadMessages.mockResolvedValue([{ role: "user", content: "x", createdAt: new Date() }]);
     mockChat.mockResolvedValue({ text: "SECRET-CONVERSATION-ECHO not json" });
     const { extractMemories: fresh } = await import("./extractor.js");
     await fresh("conv-1", asInstanceSlug("user-1"));

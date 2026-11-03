@@ -35,6 +35,7 @@ RULES:
 - Rate importance 1-10 (10 = critical life fact, 1 = trivial)
 - Do NOT extract: greetings, filler, questions without answers, assistant responses
 - Do NOT extract facts that are purely about the current task/request being performed
+- Extract ONLY from the NEW MESSAGES; the EARLIER MESSAGES were already processed and are there only to make the new ones understandable
 - If nothing worth extracting, return an empty array
 - Respond ONLY with a JSON array, no markdown fences, no explanation
 
@@ -42,9 +43,19 @@ OUTPUT FORMAT (strict JSON array):
 [{"content": "...", "category": "...", "importance": N}]`;
 }
 
+function renderTranscript(messages: readonly { role: string; content: string }[]): string {
+  return messages
+    .map((m) => {
+      if (typeof m.content !== "string" || !m.content) return null;
+      return `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
- * Extract memories from recent conversation messages using the project's LLM.
- * Designed to be called fire-and-forget after every supervisor response.
+ * Extract memories from the conversation messages not read yet, using the
+ * project's LLM. Called in the background after every saved turn.
  */
 export async function extractMemories(
   conversationId: string,
@@ -55,23 +66,24 @@ export async function extractMemories(
 ): Promise<UpsertResult[]> {
   const start = Date.now();
 
-  // 1. Load the last 15 messages
-  const recentMessages = await conversationStore.getRecentMessages(conversationId, 15);
-
-  if (recentMessages.length === 0) return [];
+  // 1. The messages not read yet, with two before them for context: each
+  //    message reaches the model once as new, instead of in every one of the
+  //    next seven extractions.
+  const { context, fresh, memoryThrough } = await conversationStore.getMessagesToExtract(conversationId, {
+    limit: 15,
+    context: 2,
+  });
+  const readUpTo = fresh.at(-1)?.createdAt;
+  if (!readUpTo) return [];
 
   // 2. Build conversation transcript for the LLM
-  const transcript = recentMessages
-    .map((m) => {
-      const content = typeof m.content === "string" ? m.content : "";
-      if (!content) return null;
-      const role = m.role === "user" ? "User" : "Assistant";
-      return `${role}: ${content}`;
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  if (!transcript.trim()) return [];
+  const newText = renderTranscript(fresh);
+  if (!newText.trim()) {
+    await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
+    return [];
+  }
+  const earlierText = renderTranscript(context);
+  const transcript = [...(earlierText ? ["EARLIER MESSAGES:", earlierText, ""] : []), "NEW MESSAGES:", newText].join("\n");
 
   // 3. Call LLM for extraction (uses configured provider, tier fast)
   const response = await chat(
@@ -103,6 +115,10 @@ export async function extractMemories(
     }
     return [];
   }
+
+  // The messages are read: the next extraction starts after them, whatever
+  // happens to the facts below.
+  await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
 
   if (facts.length === 0) return [];
 
