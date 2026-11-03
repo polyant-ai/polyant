@@ -118,8 +118,8 @@ export async function resolveWorkspaceIdForPrincipal(
  * (`findInstanceIcon`). Whether there is one is enough for everyone else.
  */
 function selectInstanceColumns() {
-  const { icon: _icon, ...columnsWithoutIcon } = getTableColumns(instances);
-  return { ...columnsWithoutIcon, hasIcon: sql<boolean>`(${instances.icon} IS NOT NULL)` };
+  const { icon, ...columnsWithoutIcon } = getTableColumns(instances);
+  return { ...columnsWithoutIcon, hasIcon: sql<boolean>`(${icon} IS NOT NULL)` };
 }
 
 type InstanceRow = Omit<typeof instances.$inferSelect, "icon"> & { hasIcon: boolean };

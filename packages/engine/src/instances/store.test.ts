@@ -152,21 +152,12 @@ import {
   ensureInstance,
   createInstance,
   updateInstance,
-  deleteInstance,
   listAllInstances,
   listAgentWorkspaceSlugs,
   resolveWorkspaceIdForPrincipal,
   createInstanceWithDefaults,
 } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
-// The table objects themselves, so the cascade test can assert WHICH tables are
-// deleted and in what order rather than how many times `delete` was called.
-import { instances } from "./schema.js";
-import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
-import { memories } from "../memory/schema.js";
-import { knowledgeDocuments } from "../knowledge/schema.js";
-import { scheduledTasks } from "../scheduled-tasks/schema.js";
-import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 import type { TenantScope } from "../authz/scope-filter.js";
 import { NO_TRANSACTION } from "../database/client.js";
