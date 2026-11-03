@@ -235,7 +235,7 @@ describe("buildMcpTools", () => {
       createMCPClient.mockResolvedValue(client);
       const turn = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
 
-      await expect((turn.tools["mcp__gh__create_issue"] as any).execute({}, {})).rejects.toThrow("session expired");
+      await expect(turn.tools["mcp__gh__create_issue"]!.execute!({}, {} as never)).rejects.toThrow("session expired");
       // The turn that saw the failure still holds it: another of its calls may be in flight.
       expect(client.close).not.toHaveBeenCalled();
       await turn.close();
@@ -247,7 +247,7 @@ describe("buildMcpTools", () => {
       const client = okClient(async () => { throw new Error("session expired"); });
       createMCPClient.mockResolvedValue(client);
       const turn = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
-      await expect((turn.tools["mcp__gh__create_issue"] as any).execute({}, {})).rejects.toThrow("session expired");
+      await expect(turn.tools["mcp__gh__create_issue"]!.execute!({}, {} as never)).rejects.toThrow("session expired");
 
       await closeMcpClientPool();
 

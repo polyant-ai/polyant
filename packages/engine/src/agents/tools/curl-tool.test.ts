@@ -397,7 +397,7 @@ describe("curl", () => {
 
   it("gives up the request when the turn is stopped", async () => {
     const controller = new AbortController();
-    const stoppable = buildTool(curlTool, { ...dummyCtx, abortSignal: controller.signal }) as any;
+    const stoppable = buildTool(curlTool, { ...dummyCtx, abortSignal: controller.signal }) as typeof curl;
     mockFetch.mockImplementation(stallUntilAborted);
 
     const pending = stoppable.execute(
