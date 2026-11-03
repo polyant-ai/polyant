@@ -349,13 +349,19 @@ describe("buildSupervisorSystemPrompt", () => {
     expect(turnContext).toContain(`<conversation_state>${JSON.stringify(state)}</conversation_state>`);
   });
 
-  it("keeps the persisted webhook contextPrompt in the cacheable system prefix", async () => {
-    const { system, turnContext } = await buildPrompt({
+  it("keeps the webhook contextPrompt out of the agent's cacheable system prompt", async () => {
+    const { system: agentSystem } = await buildPrompt({});
+    const { system, conversationSystem, turnContext } = await buildPrompt({
       contextPrompt: "Triggered by webhook: order #42 shipped.",
     });
-    expect(system).toContain("## Conversation Context");
-    expect(system).toContain("order #42 shipped");
+    // The agent's prompt is the same as for a conversation with no webhook context.
+    expect(system).toBe(agentSystem);
     expect(turnContext).not.toContain("Conversation Context");
+    // Joined the way a provider without cache markers joins system text, it
+    // reads exactly as when the context was the last section of the prompt.
+    expect(`${system}\n\n${conversationSystem}`).toBe(
+      `${agentSystem}\n\n---\n\n## Conversation Context\n\nTriggered by webhook: order #42 shipped.`,
+    );
   });
 
   it("puts the room mandate in the cacheable system prefix", async () => {

@@ -463,30 +463,44 @@ function buildChatResponse(
 }
 
 /**
- * Fold any `role: "system"` entries sitting inside the `messages` array into the
- * top-level `system` string. Some histories carry a persisted system message
- * mid-conversation (e.g. a webhook trigger stores its rendered context prompt as
- * a system row so it survives multi-turn — see webhook-engine.ts). On a later
- * inbound turn that row is replayed inside `messages`, producing two system
- * blocks separated by user/assistant turns. Bedrock's convertToBedrockChatMessages
- * rejects that outright (AI_UnsupportedFunctionalityError); OpenAI/Anthropic only
- * warn. Merging is semantically identical — system context is position-independent
- * — and clears the AI SDK warning for every provider, so we normalise here once.
+ * Lift any `role: "system"` entries sitting inside the `messages` array out of
+ * it. Some histories carry a persisted system message mid-conversation (e.g. a
+ * webhook trigger stores its rendered context prompt as a system row so it
+ * survives multi-turn — see webhook-engine.ts), and a pre-LLM hook's one-shot
+ * context arrives the same way. Bedrock's convertToBedrockChatMessages rejects
+ * a system message among the turns outright (AI_UnsupportedFunctionalityError);
+ * OpenAI/Anthropic only warn. System context is position-independent, so they
+ * are lifted here once for every provider.
+ *
+ * They are kept apart from the request's own `system` (`systemTail`, in their
+ * original order) because the two are cached differently: `system` is the
+ * agent's prompt, identical for every conversation, while this text belongs to
+ * one conversation. A provider that marks a cache breakpoint puts the marker
+ * after `system` and sends this text after it; every other provider receives
+ * the one string `joinSystemText` makes of the two.
  */
 function foldSystemMessages(
   system: string | undefined,
   messages: ModelMessage[],
-): { system: string | undefined; messages: ModelMessage[] } {
+): { system: string | undefined; systemTail?: string; messages: ModelMessage[] } {
   const inline = messages.filter(
     (m): m is ModelMessage & { role: "system"; content: string } => m.role === "system",
   );
   if (inline.length === 0) return { system, messages };
 
-  const merged = [system, ...inline.map((m) => m.content)].filter(Boolean).join("\n\n");
+  const tail = inline.map((m) => m.content).filter(Boolean).join("\n\n");
   return {
-    system: merged.length > 0 ? merged : undefined,
+    system,
+    ...(tail.length > 0 ? { systemTail: tail } : {}),
     messages: messages.filter((m) => m.role !== "system"),
   };
+}
+
+/** The agent's system prompt and the conversation's own system text as one string, for a provider that marks no cache breakpoint. */
+export function joinSystemText(system: string | undefined, systemTail: string | undefined): string | undefined {
+  if (!systemTail) return system;
+  const merged = [system, systemTail].filter(Boolean).join("\n\n");
+  return merged.length > 0 ? merged : undefined;
 }
 
 /** Content parts of a message as an array (empty string → no parts) — used to
@@ -540,6 +554,8 @@ export function normalizeStrictConversation(messages: ModelMessage[]): ModelMess
  */
 export type PrepareMessages = (input: {
   system: string | undefined;
+  /** System text that belongs to this conversation only (see `foldSystemMessages`); never inside a cached block. */
+  systemTail?: string;
   messages: ModelMessage[];
   modelId: string;
   /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
@@ -754,12 +770,12 @@ export function createProvider(
     // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
     // a no-op for well-formed conversations, so the cached prefix is unchanged.
     const prepared = hooks?.strictTemplate
-      ? { system: folded.system, messages: normalizeStrictConversation(folded.messages) }
+      ? { ...folded, messages: normalizeStrictConversation(folded.messages) }
       : folded;
     // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
     // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
     if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) {
-      return { instructions: prepared.system, messages: prepared.messages };
+      return { instructions: joinSystemText(prepared.system, prepared.systemTail), messages: prepared.messages };
     }
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
