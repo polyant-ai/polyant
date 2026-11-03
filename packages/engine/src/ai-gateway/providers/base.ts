@@ -698,12 +698,30 @@ function errorBodyReason(body: string): string | null {
   }
 }
 
+/** The folded request a failed call sent, and the caller's signal. */
+type CallContext = { system: Instructions | undefined; messages: ModelMessage[]; abortSignal?: AbortSignal };
+
+/**
+ * Whether the caller cancelled the call: its signal is aborted for a reason
+ * other than its own deadline (`AbortSignal.timeout` carries a `TimeoutError`).
+ * The message coordinator does this every time a follow-up message preempts a
+ * turn, so it is a routine path and not a provider failure — the same
+ * distinction the gateway makes when it records the call.
+ */
+function cancelledByCaller(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name !== "TimeoutError";
+}
+
 function logProviderError(
   providerName: string,
   modelId: string,
   err: unknown,
-  ctx?: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx?: CallContext,
 ): void {
+  if (cancelledByCaller(ctx?.abortSignal)) {
+    log.debug("ai-gateway", `${providerName}/${modelId} call cancelled by its caller`);
+    return;
+  }
   const e = err as {
     name?: unknown;
     statusCode?: unknown;
@@ -751,7 +769,7 @@ function logProviderError(
 async function withProviderErrorLog<T>(
   providerName: string,
   modelId: string,
-  ctx: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx: CallContext,
   run: () => T | Promise<T>,
 ): Promise<Awaited<T>> {
   try {
@@ -892,7 +910,7 @@ export function createProvider(
       const start = Date.now();
 
       const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
@@ -924,7 +942,7 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedStreamText(args()),
       );
 
@@ -959,7 +977,7 @@ export function createProvider(
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
-            logProviderError(providerName, modelId, err, { system: instructions, messages });
+            logProviderError(providerName, modelId, err, { system: instructions, messages, abortSignal: request.abortSignal });
             completed.pinTo(err);
             throw err;
           }

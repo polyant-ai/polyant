@@ -83,6 +83,26 @@ describe("bounds on a model call", () => {
       .rejects.toMatchObject({ name: "TimeoutError" });
   });
 
+  it("logs no error when its caller cancels the call, which is a routine path", async () => {
+    vi.stubGlobal("fetch", neverAnswers);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+
+    await expect(AnthropicProvider.chat(request({ abortSignal: controller.signal, maxRetries: 0 }), MODEL)).rejects.toThrow();
+    const stream = await AnthropicProvider.chatStream!(request({ abortSignal: AbortSignal.abort(), maxRetries: 0 }), MODEL);
+    await expect(stream.response).rejects.toThrow();
+
+    expect(mockLog.error).not.toHaveBeenCalled();
+  });
+
+  it("still logs a call its own deadline ended as an error", async () => {
+    vi.stubGlobal("fetch", neverAnswers);
+
+    await expect(AnthropicProvider.chat(request({ abortSignal: AbortSignal.timeout(20), maxRetries: 0 }), MODEL)).rejects.toThrow();
+
+    expect(mockLog.error).toHaveBeenCalled();
+  });
+
   it("retries a request that failed with a retryable error, and logs the retry", async () => {
     let calls = 0;
     vi.stubGlobal("fetch", async () => {
