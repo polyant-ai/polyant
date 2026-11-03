@@ -85,6 +85,18 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     analyticsPoolMax: z.coerce.number().int().min(1).default(3),
     /** Per-statement cap on that pool, so one runaway aggregate cannot hold a connection. */
     analyticsStatementTimeoutMs: z.coerce.number().int().min(1000).default(15_000),
+    /**
+     * Per-statement cap on the main pool, generous so no turn or job statement
+     * meets it, and there so a stuck statement gives its connection back. 0
+     * turns it off. Migrations run on their own connection, without it.
+     */
+    statementTimeoutMs: z.coerce.number().int().min(0).default(60_000),
+    /**
+     * How long a transaction on the main pool may sit idle before Postgres ends
+     * it and frees the connection: one left open by an application error holds
+     * its locks until then. 0 turns it off.
+     */
+    idleInTransactionTimeoutMs: z.coerce.number().int().min(0).default(60_000),
   }),
 
   // HTTP Server (NestJS)
@@ -219,6 +231,8 @@ function loadConfig(): Config {
       poolMax: process.env.POSTGRES_POOL_MAX,
       analyticsPoolMax: process.env.POSTGRES_ANALYTICS_POOL_MAX,
       analyticsStatementTimeoutMs: process.env.POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS,
+      statementTimeoutMs: process.env.POSTGRES_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: process.env.POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     },
     server: {
       port: process.env.API_PORT,
