@@ -1846,6 +1846,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_conversation_messages_debug_created": {
+          "name": "idx_conversation_messages_debug_created",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_messages\".\"debug_payload\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -5800,6 +5816,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "c5b2627b-86cc-4e8b-9caa-9235ee88008e",
+  "id": "9f46683f-f7ed-4edf-94ff-06665b02508d",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

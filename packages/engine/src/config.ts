@@ -193,6 +193,17 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
   }),
 
 
+  // Housekeeping windows that are not platform settings.
+  retention: z.object({
+    /**
+     * Days a debug-mode turn keeps the request it sent to the model
+     * (`conversation_messages.debug_payload`): the full prompt and conversation,
+     * so personal data, and the heaviest column in the database. The message
+     * itself stays; only the payload is cleared.
+     */
+    debugPayloadDays: z.coerce.number().int().min(1).default(7),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -252,6 +263,9 @@ function loadConfig(): Config {
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
+    },
+    retention: {
+      debugPayloadDays: process.env.DEBUG_PAYLOAD_RETENTION_DAYS,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, text, timestamp, jsonb, index, primaryKey, integer } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
@@ -142,6 +143,8 @@ export const conversationMessages = pgTable(
     index("idx_conversation_messages_created_at").on(table.createdAt),
     // One conversation's messages in time order (history reads, windowed scans).
     index("idx_conversation_messages_conversation_created").on(table.conversationId, table.createdAt),
+    // The daily cleanup clears old debug payloads (analytics/cleanup.ts).
+    index("idx_conversation_messages_debug_created").on(table.createdAt).where(sql`${table.debugPayload} IS NOT NULL`),
   ],
 );
 

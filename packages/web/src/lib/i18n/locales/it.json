@@ -541,7 +541,7 @@
   "settings.tab.intermediateTextProgressHint": "Sui canali dal vivo il testo si vede mentre l'agente lavora e non viene conservato: la risposta salvata è il messaggio finale.",
   "settings.tab.intermediateTextReplyHint": "Tutto il testo del turno, in ordine, diventa la risposta. Il messaggio può ripetere la stessa informazione.",
   "settings.tab.debug": "Modalità debug",
-  "settings.tab.debugHelp": "Se attiva, l'engine salva la richiesta esatta inviata al modello (system prompt completo, array dei messaggi e definizioni dei tool) per ogni turno — ispezionabile cliccando un messaggio nel playground o nel dettaglio conversazione. Pesante e memorizza PII a riposo; tienila disattiva se non stai analizzando.",
+  "settings.tab.debugHelp": "Se attiva, l'engine salva la richiesta esatta inviata al modello (system prompt completo, array dei messaggi e definizioni dei tool) per ogni turno — ispezionabile cliccando un messaggio nel playground o nel dettaglio conversazione. Ogni richiesta viene cancellata dopo 7 giorni, salvo un'altra durata impostata dall'installazione. Pesante e memorizza PII a riposo; tienila disattiva se non stai analizzando.",
   "settings.tab.attachmentStorage": "Conserva gli allegati",
   "settings.tab.attachmentStorageHelp": "Se attiva, i file inviati dagli utenti (foto, documenti, note vocali) vengono copiati nel bucket S3 di questo agente e si possono riaprire dalla conversazione. Eliminando la conversazione o l'agente vengono eliminati. Disattiva per impostazione predefinita: il modello vede il file comunque, e non viene conservato nulla.",
   "settings.tab.attachmentStorageBucket": "Bucket S3",

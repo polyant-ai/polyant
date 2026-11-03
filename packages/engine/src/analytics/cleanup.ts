@@ -16,7 +16,10 @@
  * NOT included, deliberately: `conversation_messages`, `memories` and the
  * knowledge tables. Those are product data, not telemetry — ageing them out
  * would change what the product does, which is a decision for an operator and
- * not for a housekeeping job.
+ * not for a housekeeping job. The one exception is the request a debug-mode
+ * turn stores beside its message (`debug_payload`), cleared after its own short
+ * window (`config.retention.debugPayloadDays`): it is diagnostic, and it copies
+ * the whole prompt and conversation at every turn.
  *
  * Pure functions, no scheduling and no side-state: they are wired into the
  * existing daily branch of `RoomScheduler` so there is no second timer.
@@ -24,6 +27,7 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
+import { config } from "../config.js";
 
 export interface AnalyticsCleanupResult {
   aiLogsDeleted: number;
@@ -32,6 +36,7 @@ export interface AnalyticsCleanupResult {
   hookExecutionsDeleted: number;
   scheduledTaskRunsDeleted: number;
   eventBacklogDeleted: number;
+  debugPayloadsCleared: number;
   cutoff: Date;
 }
 
@@ -93,6 +98,26 @@ export async function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
   return (result as unknown as { count?: number }).count ?? 0;
 }
 
+/** Debug payloads cleared per statement: each one is the whole request of a turn. */
+const DEBUG_PAYLOAD_BATCH = 1000;
+
+/** Clear the debug payload of messages older than `cutoff`, a batch per statement; the messages stay. */
+export async function clearOldDebugPayloads(cutoff: Date): Promise<number> {
+  let cleared = 0;
+  for (;;) {
+    const result = await db.execute(sql`
+      update conversation_messages set debug_payload = null
+      where id in (
+        select id from conversation_messages
+        where debug_payload is not null and created_at < ${cutoff.toISOString()}::timestamptz
+        limit ${DEBUG_PAYLOAD_BATCH}
+      )`);
+    const count = (result as unknown as { count?: number }).count ?? 0;
+    cleared += count;
+    if (count < DEBUG_PAYLOAD_BATCH) return cleared;
+  }
+}
+
 /** Run a full cleanup pass. Safe to call repeatedly (idempotent). */
 export async function runAnalyticsCleanup(retentionDays: number): Promise<AnalyticsCleanupResult> {
   const cutoff = computeCutoff(retentionDays);
@@ -103,6 +128,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
+    debugPayloadsCleared,
   ] = await Promise.all([
     deleteOldAiLogs(cutoff),
     deleteOldPipelineTraces(cutoff),
@@ -110,6 +136,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     deleteOldHookExecutions(cutoff),
     deleteOldScheduledTaskRuns(cutoff),
     deleteOldCompletedBacklog(cutoff),
+    clearOldDebugPayloads(computeCutoff(config.retention.debugPayloadDays)),
   ]);
   return {
     aiLogsDeleted,
@@ -118,6 +145,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
+    debugPayloadsCleared,
     cutoff,
   };
 }

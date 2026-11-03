@@ -666,6 +666,13 @@
       "when": 1793264600000,
       "tag": "0101_conversation_lookup_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793264700000,
+      "tag": "0102_debug_payload_cleanup_index",
+      "breakpoints": true
     }
   ]
 }
