@@ -250,7 +250,6 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
 
   it("returns before slow response_sent hooks finish, and the next turn still reads the state they wrote", async () => {
     const channelId = randomUUID();
-    const conversationId = `${AGENT}:web:${channelId}`;
     const msg = (text: string): IncomingMessage => ({ channelType: "web", channelId, instanceId: AGENT, text, metadata: {} });
     let finishHook!: () => void;
     const hookDone = new Promise<void>((resolve) => (finishHook = resolve));
