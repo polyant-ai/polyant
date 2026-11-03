@@ -228,7 +228,7 @@ describe("InstancesController", () => {
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
-        "cacheEnabled", "cacheTtl", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "cacheEnabled", "cacheTtl", "cacheUserTurn", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
@@ -905,6 +905,16 @@ describe("InstancesController", () => {
     it("refuses a value that is not a boolean, before writing anything", async () => {
       await expect(
         controller.update("test-one", { attachmentStorageEnabled: "false" as unknown as boolean }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("update — cacheUserTurn", () => {
+    // A string "false" would reach the column as true and turn the extra cache write on.
+    it("refuses a value that is not a boolean, before writing anything", async () => {
+      await expect(
+        controller.update("test-one", { cacheUserTurn: "false" as unknown as boolean }),
       ).rejects.toThrow(BadRequestException);
       expect(mockUpdateInstance).not.toHaveBeenCalled();
     });

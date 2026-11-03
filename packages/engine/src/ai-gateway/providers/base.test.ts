@@ -669,6 +669,25 @@ describe("createProvider – cache gating (cacheConfig)", () => {
     expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
   });
 
+  // The step marker is the only place the option acts; a flag lost on the way
+  // leaves step 0 unmarked and the user turn paid twice, with no error anywhere.
+  it("hands cacheConfig.userTurn to the provider's step marker", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat(
+      { ...baseRequest, system: "SYS", cacheConfig: { enabled: true, ttl: "1h", userTurn: true } },
+      "gpt-4o",
+    );
+    const prepareStep = spy.mock.calls[0][0].prepareStep as (o: { stepNumber: number; messages: unknown[] }) => unknown;
+    prepareStep({ stepNumber: 0, messages: [{ role: "user", content: "turn" }] });
+
+    expect(hooks.stepMarker).toHaveBeenCalledWith(expect.objectContaining({ stepNumber: 0, userTurn: true }));
+  });
+
   it("enables caching (marker + prepareStep) when cacheConfig is omitted — backward compatible", async () => {
     const spy = vi.mocked(tracedGenerateText);
     spy.mockClear();
