@@ -193,6 +193,29 @@ describe.skipIf(!DB_AVAILABLE)("dashboard figures (integration)", () => {
     ]);
   });
 
+  it("counts tool calls from the messages' steps, not from the turn traces", async () => {
+    // Traces are deleted by the analytics retention and messages are not, so a
+    // call that only a trace records (here a tool no message step names, and a
+    // second call of one that does) must not change the counts.
+    const ghost = JSON.stringify([
+      { name: "ghost:tool", duration_ms: 10, success: true },
+      { name: "crm:lookup", duration_ms: 10, success: true },
+    ]);
+    await queryClient`
+      INSERT INTO pipeline_traces (conversation_id, instance_id, channel, total_ms, context_prep_ms,
+                                   tool_building_ms, llm_call_ms, tool_calls, created_at)
+      VALUES (${`${MARKER}-c1`}, ${AGENT}, 'web', 100, 1, 1, 50, ${ghost}::jsonb, '2026-06-01T10:45:00Z')`;
+    try {
+      const data = await getAnalytics(scope, RANGE, asInstanceSlug(AGENT));
+      expect(data.toolUsage).toEqual([
+        { tool: "crm__lookup", count: 2 },
+        { tool: "calendar__book", count: 1 },
+      ]);
+    } finally {
+      await queryClient`DELETE FROM pipeline_traces WHERE instance_id = ${AGENT} AND created_at = '2026-06-01T10:45:00Z'`;
+    }
+  });
+
   it("compares the organization's agents by spend", async () => {
     const data = await getAnalytics(scope, RANGE, undefined, true);
 
