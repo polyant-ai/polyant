@@ -155,7 +155,7 @@ describe("instances/secrets.store", () => {
 
     it("stores the lookup digest of an agent API key, and replaces it with the value", async () => {
       const chain = createChainMock(undefined);
-      mockDb.insert.mockReturnValue(chain as any);
+      mockDb.insert.mockReturnValue(chain as never);
 
       await setSecret(INSTANCE_UUID, "auth_api_key", "k-1");
 

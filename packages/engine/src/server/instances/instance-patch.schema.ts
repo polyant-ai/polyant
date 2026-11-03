@@ -4,8 +4,9 @@ import { z } from "zod";
 import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
 import { INTERMEDIATE_TEXT_POLICIES } from "../../ai-gateway/intermediate-text.js";
 import { INSTANCE_STT_SETTINGS } from "../../stt-gateway/types.js";
+import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 
-const REASONING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+const REASONING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly ReasoningLevel[];
 
 /** A time zone or a locale is valid when Intl accepts it: the runtime formats dates with it on every turn. */
 function intlAccepts(probe: (value: string) => void): (value: string) => boolean {
