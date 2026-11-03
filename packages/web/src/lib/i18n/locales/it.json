@@ -527,6 +527,8 @@
   "settings.tab.cacheTtl5m": "5 minuti",
   "settings.tab.cacheTtl1h": "1 ora",
   "settings.tab.cacheTtlBedrock": "5 minuti (fisso su Bedrock)",
+  "settings.tab.cacheUserTurn": "Cache del messaggio utente",
+  "settings.tab.cacheUserTurnHelp": "Mette in cache anche il messaggio corrente al primo passo del modello, così il passo successivo lo legge invece di pagarlo di nuovo. Fa risparmiare sugli agenti i cui turni chiamano di solito dei tool e portano un messaggio grande; sui turni chiusi in un solo passo aggiunge una scrittura in cache che non viene mai letta.",
   "settings.tab.toolResultsInHistory": "Risultati dei tool nella history",
   "settings.tab.exactToolHistory": "Ripeti i turni precedenti in modo esatto",
   "settings.tab.exactToolHistoryHelp": "Se attivo, i turni precedenti vengono rimandati esattamente come il modello li ha ricevuti la prima volta: passo per passo, con i risultati dei tool interi. Così le richieste successive possono essere lette dalla cache dei prompt del provider. Il contesto cresce con ogni risultato tenuto intero. Vale solo con i risultati dei tool nella history attivi.",

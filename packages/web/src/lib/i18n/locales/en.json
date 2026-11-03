@@ -527,6 +527,8 @@
   "settings.tab.cacheTtl5m": "5 minutes",
   "settings.tab.cacheTtl1h": "1 hour",
   "settings.tab.cacheTtlBedrock": "5 minutes (fixed on Bedrock)",
+  "settings.tab.cacheUserTurn": "Cache the user turn",
+  "settings.tab.cacheUserTurnHelp": "Also caches the current message on the first model step, so the next step reads it instead of paying it again. Saves on agents whose turns usually call tools and carry a large message; on turns answered in a single step it adds a cache write that is never read.",
   "settings.tab.toolResultsInHistory": "Tool results in history",
   "settings.tab.exactToolHistory": "Replay earlier turns exactly",
   "settings.tab.exactToolHistoryHelp": "When on, earlier turns are sent again exactly as the model first received them: step by step, with whole tool results. Repeated requests can then be read from the provider's prompt cache. The context grows with every tool result kept whole. Applies only with tool results in history on.",

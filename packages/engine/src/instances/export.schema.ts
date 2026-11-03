@@ -154,6 +154,7 @@ export const exportInstanceDataSchema = z.object({
   messageMaxRestarts: z.number().int().min(0).nullable().default(null),
   cacheEnabled: z.boolean().default(true),
   cacheTtl: z.enum(["5m", "1h"]).default("1h"),
+  cacheUserTurn: z.boolean().default(false),
   intermediateText: z.enum(INTERMEDIATE_TEXT_POLICIES).nullable().default(null),
   a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),

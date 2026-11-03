@@ -69,6 +69,7 @@ interface Draft {
   fastMode: boolean;
   cacheEnabled: boolean;
   cacheTtl: string;
+  cacheUserTurn: boolean;
   embeddingProvider: string;
   /** Embedding dimension; one of the embedder's `supportedDims`. */
   embeddingDim: number;
@@ -95,6 +96,7 @@ function draftOf(instance: Instance): Draft {
     fastMode: instance.fastMode ?? false,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    cacheUserTurn: instance.cacheUserTurn ?? false,
     embeddingProvider: instance.embeddingProvider ?? "openai",
     embeddingDim: instance.embeddingDim ?? DEFAULT_EMBEDDING_DIM,
     sttProvider: (instance.sttProvider as STTProvider | null) ?? "openai",
@@ -191,7 +193,7 @@ export function ModelTaskSheet({
   const changed = <K extends keyof Draft>(key: K) => JSON.stringify(draft[key]) !== JSON.stringify(initial[key]);
   const instanceDirty =
     task === "chat"
-      ? (["provider", "model", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "cacheEnabled", "cacheTtl"] as const).some(changed)
+      ? (["provider", "model", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "cacheEnabled", "cacheTtl", "cacheUserTurn"] as const).some(changed)
       : task === "embed"
         ? changed("embeddingProvider") || changed("embeddingDim")
         : changed("sttProvider");
@@ -251,6 +253,7 @@ export function ModelTaskSheet({
                 fastMode: fastChosen,
                 cacheEnabled: draft.cacheEnabled,
                 cacheTtl: draft.cacheTtl,
+                cacheUserTurn: draft.cacheUserTurn,
               }
             : task === "embed"
               ? { embeddingProvider: draft.embeddingProvider, embeddingDim: draft.embeddingDim, confirmWipe }
@@ -569,6 +572,21 @@ export function ModelTaskSheet({
               ) : (
                 <span className="text-xs text-muted-foreground">{t("settings.tab.cacheTtlBedrock")}</span>
               )}
+            </div>
+          )}
+          {(draft.provider === "anthropic" || draft.provider === "bedrock") && draft.cacheEnabled && (
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="task-cache-user-turn" className="text-sm">
+                  {t("settings.tab.cacheUserTurn")}
+                </Label>
+                <p className="text-xs text-muted-foreground">{t("settings.tab.cacheUserTurnHelp")}</p>
+              </div>
+              <Switch
+                id="task-cache-user-turn"
+                checked={draft.cacheUserTurn}
+                onCheckedChange={(checked) => set({ cacheUserTurn: checked })}
+              />
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
 import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../intermediate-text.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
+import type { StepMarkerInput } from "./prompt-caching.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
 
@@ -583,7 +584,7 @@ export interface ProviderHooks {
    * so the tool messages that accumulate within one agentic turn become
    * incrementally cacheable step-to-step. See `makeStepMarker` in prompt-caching.ts.
    */
-  stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
+  stepMarker?: (input: StepMarkerInput) => { messages?: ModelMessage[] };
   /**
    * When true, the folded messages are run through `normalizeStrictConversation`
    * before the call — for providers hosting strict chat templates (Nebius,
@@ -595,13 +596,13 @@ export interface ProviderHooks {
 /**
  * Adapt a provider's `stepMarker` hook to the AI SDK `prepareStep` signature,
  * binding the concrete `modelId` (the SDK's `prepareStep` gives a model object,
- * not its id). Returns undefined when the provider supplies no marker, so
- * OpenAI/Nebius calls stay byte-identical.
+ * not its id) and the instance's `cacheConfig.userTurn`. Returns undefined when
+ * the provider supplies no marker, so OpenAI/Nebius calls stay byte-identical.
  */
-function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
+function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string, userTurn: boolean | undefined) {
   if (!hooks?.stepMarker) return undefined;
   return (o: { stepNumber: number; messages: ModelMessage[] }) =>
-    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId });
+    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId, userTurn });
 }
 
 /**
@@ -785,7 +786,8 @@ export function createProvider(
    */
   const callSetup = (request: ChatRequest, modelId: string) => {
     const { instructions, messages } = prepare(request, modelId);
-    const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+    const prepareStep =
+      request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId, request.cacheConfig?.userTurn);
     const completed = completedCallsUsage();
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({

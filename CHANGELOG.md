@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
+  the current message on the first model step of a turn, so the next step reads
+  it from cache instead of paying it at full input price and then writing it
+  again. It saves on agents whose turns usually call tools and carry a large
+  message; a turn answered in a single step pays a cache write that is never
+  read, so it is off by default. `PATCH /api/instances/:slug` accepts
+  `cacheUserTurn`, export and import carry it (migration `0099`), and the
+  conversation model panel has a switch under the cache lifetime.
 - Exact replay of earlier turns, per agent (`toolHistoryReplay: "exact"`, off by
   default). With tool results in history on, an agent can replay earlier turns
   exactly as the model received them: step by step, with whole tool results,

@@ -191,6 +191,67 @@ describe("Bedrock cache points across a multi-step turn", () => {
   });
 });
 
+describe("Bedrock step marker with cacheConfig.userTurn on", () => {
+  const modelId = "eu.anthropic.claude-sonnet-4-6";
+  const isMarked = (m: unknown) => providerOptionsOf(m) !== undefined;
+
+  it("marks the current user turn on step 0 for a cache-capable model", () => {
+    const out = bedrockStepMarker({
+      stepNumber: 0,
+      messages: [{ role: "user", content: "large current turn" }],
+      modelId,
+      userTurn: true,
+    }).messages;
+    expect(providerOptionsOf(out![0])).toEqual(CACHE_POINT);
+  });
+
+  it("does not mark step 0 on a model without caching (no ValidationException risk)", () => {
+    expect(
+      bedrockStepMarker({
+        stepNumber: 0,
+        messages: [{ role: "user", content: "turn" }],
+        modelId: "qwen.qwen3-32b-v1:0",
+        userTurn: true,
+      }).messages,
+    ).toBeUndefined();
+  });
+
+  // Bedrock answers 400 above four cache points; with history present the user
+  // turn is a third fixed one, so steps 1..3 must sit exactly at the limit.
+  it("keeps instructions, history, user turn and the latest step marked, never above four, from step 0 to 3", () => {
+    const first = applyBedrockPromptCaching({
+      modelId,
+      system: "SYSTEM",
+      messages: [
+        { role: "user", content: "turn 1" },
+        { role: "assistant", content: "reply 1" },
+        { role: "user", content: "turn 2 (current)" },
+      ],
+    });
+    const total = (messages: ModelMessage[]) => (isMarked(first.instructions) ? 1 : 0) + messages.filter(isMarked).length;
+
+    let messages = bedrockStepMarker({ stepNumber: 0, messages: first.messages, modelId, userTurn: true }).messages!;
+    expect(total(messages)).toBe(3);
+    for (let step = 1; step <= 3; step++) {
+      const id = `t${step}`;
+      messages = [
+        ...messages,
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName: "lookup", input: {} }] },
+        {
+          role: "tool",
+          content: [{ type: "tool-result", toolCallId: id, toolName: "lookup", output: { type: "text", value: "ok" } }],
+        },
+      ];
+      messages = bedrockStepMarker({ stepNumber: step, messages, modelId, userTurn: true }).messages!;
+      expect(total(messages)).toBe(4);
+    }
+    expect(providerOptionsOf(messages[1])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[2])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[messages.length - 1])).toEqual(CACHE_POINT);
+    expect(messages.slice(3, -1).filter(isMarked)).toHaveLength(0);
+  });
+});
+
 describe("applyBedrockPromptCaching on Nova", () => {
   it("marks the system prompt but skips a tool-call message in history", () => {
     const { instructions, messages } = applyBedrockPromptCaching({

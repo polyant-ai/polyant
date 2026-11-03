@@ -404,6 +404,7 @@ export const api = {
         messageMaxRestarts?: number | null;
         cacheEnabled?: boolean;
         cacheTtl?: string;
+        cacheUserTurn?: boolean;
         // null clears the policy, handing every channel back its own behaviour.
         intermediateText?: IntermediateTextPolicy | null;
         a2aEnabled?: boolean;

@@ -132,6 +132,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** Also cache the current user turn on the first step of a multi-step turn (Anthropic/Bedrock). */
+  cacheUserTurn?: boolean;
   /**
    * What becomes of text the model writes alongside a tool call. null = never
    * chosen: each channel keeps its own behaviour and the prompt says nothing.

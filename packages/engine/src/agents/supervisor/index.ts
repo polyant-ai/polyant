@@ -88,7 +88,7 @@ export interface SupervisorInput {
   /** The agent's resolved datetime formatting; absent = the deployment default. */
   datetime?: DatetimeSettings;
   /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
-  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
+  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h"; userTurn?: boolean };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   /** The agent's policy for text written alongside a tool call; null/absent = unset. */
