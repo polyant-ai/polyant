@@ -7,8 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Every model call is bounded. A streamed answer fails after
+  `LLM_STREAM_CHUNK_TIMEOUT_MS` (default 120000) without a chunk, a background
+  job that makes one model call after `LLM_SERVICE_CALL_TIMEOUT_MS` (default
+  300000); a call that runs tools over several steps without streaming keeps
+  no total bound. Failed requests are retried `LLM_MAX_RETRIES` times (default
+  2, the AI SDK's own default) and each retry is logged.
+- `ai_logs.purpose` records what a background call was for (`title`,
+  `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
+  `sub_task`, `tool`, `hook`), so service spend can be grouped by it
+  (migration `0099`).
+
+### Changed
+
+- The Anthropic `standard` tier resolves to `claude-sonnet-5` instead of
+  `claude-sonnet-4-6`, at two thirds of the price. Agents with no model of
+  their own, their `spawnTask` sub-agents and standard-tier background calls
+  change model; `claude-sonnet-5` takes no custom temperature.
+- A hook's `ctx.ai` request on the `fast` or `heavy` tier runs on that tier's
+  model of the agent's provider; only `standard` uses the agent's own model.
+- A model that cannot stop reasoning runs at the lowest effort its catalog row
+  lists when thinking is off, instead of its default effort.
+- Background calls write their Anthropic prompt cache at the five-minute
+  lifetime unless they ask for another.
+- `{{toolCatalog}}` lists the equipped tools by name; their descriptions are
+  already in the tool definitions the model receives.
+
 ### Fixed
 
+- On Anthropic and Bedrock, system text that belongs to one conversation (a
+  hook's injected context, a persisted trigger message, a webhook context
+  prompt) is sent after the cached agent prompt instead of inside it, so a new
+  conversation reads the agent's cached tools and system prompt instead of
+  writing its own copy. Providers without cache markers receive the same text
+  as before.
+- A model call aborted while in flight is recorded in `ai_logs` as `aborted`
+  with `error_kind = 'in_flight'` and an estimate of the prompt the provider
+  had received and billed; it used to leave no row.
+- `spawnTask` no longer repeats the task in its sub-agent's system prompt, so
+  delegations share a cached prefix.
+- Bedrock calls without explicit credentials build the AWS default credential
+  chain once instead of on every call.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
 
 ## [1.3.5] - 2026-11-02
