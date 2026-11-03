@@ -945,6 +945,12 @@ describe("InstancesController", () => {
       expect(order).toEqual(["prepare", "delete", "cleanup"]);
     });
 
+    it("drops the agent's cached configuration, so its slug stops answering at once", async () => {
+      mockDeleteInstance.mockResolvedValue(true);
+      await controller.remove("test-one");
+      expect(mockInvalidateCache).toHaveBeenCalledWith("test-one");
+    });
+
     it("leaves the files alone when there was no agent to delete", async () => {
       mockDeleteInstance.mockResolvedValue(false);
 

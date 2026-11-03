@@ -458,8 +458,10 @@ export class InstancesController {
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
     // Slugs are reusable: a cached client would point a new agent of the same
-    // name at this one's bucket.
+    // name at this one's bucket, and a cached config or id would keep the web
+    // gate answering for an agent that no longer exists.
     invalidateAgentS3(asInstanceSlug(slug));
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
     void cleanupAttachments();
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
