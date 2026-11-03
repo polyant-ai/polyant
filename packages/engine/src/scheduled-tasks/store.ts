@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, lte, lt, or, isNull, count, sql } from "drizzle-orm";
+import { eq, and, lte, lt, or, isNull, notInArray, inArray, count, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
@@ -173,30 +173,59 @@ export async function remove(id: string): Promise<void> {
   await db.delete(scheduledTasks).where(eq(scheduledTasks.id, id));
 }
 
-/** Get all tasks that are due for execution.
- *
- *  Joins `instances` on slug and filters by `status = 'active'` so tasks whose
- *  parent instance is disabled never fire (security guard: an operator disabling
- *  an instance immediately silences its scheduled jobs without touching the
- *  `enabled` flag on each task). The join is non-N+1: a single SELECT per tick.
+/**
+ * Due for execution: enabled, not running, `next_run_at` reached, and the parent
+ * instance active. The instance join is a security guard: an operator disabling an
+ * instance immediately silences its scheduled jobs without touching the `enabled` flag
+ * on each task.
  */
-export async function getDueTasks(now: Date): Promise<ScheduledTask[]> {
+function dueAt(now: Date) {
+  return and(
+    eq(scheduledTasks.enabled, true),
+    eq(instances.status, "active"),
+    lte(scheduledTasks.nextRunAt, now),
+    or(isNull(scheduledTasks.lastRunStatus), sql`${scheduledTasks.lastRunStatus} != 'running'`),
+  );
+}
+
+/** How many tasks are due at `now`. For the warning when no slot is free. */
+export async function countDueTasks(now: Date): Promise<number> {
   const rows = await db
-    .select({ task: scheduledTasks })
+    .select({ n: count() })
     .from(scheduledTasks)
     .innerJoin(instances, eq(instances.slug, scheduledTasks.instanceId))
-    .where(
-      and(
-        eq(scheduledTasks.enabled, true),
-        eq(instances.status, "active"),
-        lte(scheduledTasks.nextRunAt, now),
-        or(
-          isNull(scheduledTasks.lastRunStatus),
-          sql`${scheduledTasks.lastRunStatus} != 'running'`,
-        ),
-      ),
-    );
-  return rows.map((r) => r.task);
+    .where(dueAt(now));
+  return rows[0]?.n ?? 0;
+}
+
+/** A run lease expiry `ttlMs` from now, on the database clock. */
+const leaseUntil = (ttlMs: number) => sql`now() + ${ttlMs} * interval '1 millisecond'`;
+
+/**
+ * Claim up to `limit` due tasks in one statement, the longest overdue first, and
+ * return them; their claim is `now`. Rows another replica is claiming at the same
+ * moment are skipped rather than waited for, so replicas ticking together share the
+ * due tasks instead of contending for the same few. `skip` names the tasks still
+ * executing in this process (see the in-process guard in the scheduler).
+ */
+export async function claimDueTasks(
+  now: Date,
+  limit: number,
+  opts: { leaseTtlMs: number; skip: string[] },
+): Promise<ScheduledTask[]> {
+  const due = db
+    .select({ id: scheduledTasks.id })
+    .from(scheduledTasks)
+    .innerJoin(instances, eq(instances.slug, scheduledTasks.instanceId))
+    .where(and(dueAt(now), opts.skip.length > 0 ? notInArray(scheduledTasks.id, opts.skip) : undefined))
+    .orderBy(scheduledTasks.nextRunAt)
+    .limit(limit)
+    .for("update", { of: scheduledTasks, skipLocked: true });
+  return db
+    .update(scheduledTasks)
+    .set({ lastRunStatus: "running", lastRunAt: now, updatedAt: now, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
+    .where(inArray(scheduledTasks.id, due))
+    .returning();
 }
 
 /**
@@ -222,18 +251,14 @@ function isClaim(claim: RunClaim) {
 }
 
 /**
- * Atomically mark a task as running. Returns the claim, or `null` when another run
- * holds the task or (with `dueBy`) the task is no longer due.
- *
- * `dueBy` is for scheduled runs: the tick read the task as due, but by the time this
- * write lands another replica may have run it and moved `next_run_at` forward, and
- * claiming it anyway would run the same occurrence twice. A manual run omits it.
+ * Atomically mark a task as running, for a manual run. Returns the claim, or `null`
+ * when another run holds the task.
  */
-export async function markRunning(id: string, opts: { dueBy?: Date } = {}): Promise<Date | null> {
+export async function markRunning(id: string, opts: { leaseTtlMs: number }): Promise<Date | null> {
   const claim = new Date();
   const result = await db
     .update(scheduledTasks)
-    .set({ lastRunStatus: "running", lastRunAt: claim, updatedAt: claim })
+    .set({ lastRunStatus: "running", lastRunAt: claim, updatedAt: claim, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
     .where(
       and(
         eq(scheduledTasks.id, id),
@@ -241,12 +266,24 @@ export async function markRunning(id: string, opts: { dueBy?: Date } = {}): Prom
           isNull(scheduledTasks.lastRunStatus),
           sql`${scheduledTasks.lastRunStatus} != 'running'`,
         ),
-        opts.dueBy ? lte(scheduledTasks.nextRunAt, opts.dueBy) : undefined,
       ),
     )
     .returning({ id: scheduledTasks.id });
 
   return result.length > 0 ? claim : null;
+}
+
+/**
+ * Extend the lease of the run holding `claim`. False when the run no longer holds the
+ * task. The run's start (`updated_at`) is left alone: the reaper's deadline counts from it.
+ */
+export async function renewRunLease(id: string, claim: RunClaim, leaseTtlMs: number): Promise<boolean> {
+  const rows = await db
+    .update(scheduledTasks)
+    .set({ leaseExpiresAt: leaseUntil(leaseTtlMs) })
+    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running"), isClaim(claim)))
+    .returning({ id: scheduledTasks.id });
+  return rows.length > 0;
 }
 
 /**
@@ -272,6 +309,7 @@ export async function markCompleted(id: string, conversationId: string, claim: R
       totalRuns: sql`${scheduledTasks.totalRuns} + 1`,
       nextRunAt,
       updatedAt: now,
+      leaseExpiresAt: null,
     })
     .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running"), isClaim(claim)))
     .returning({ id: scheduledTasks.id });
@@ -341,6 +379,7 @@ export async function markFailed(id: string, error: string, claim: RunClaim): Pr
       enabled: shouldDisable ? false : undefined,
       nextRunAt,
       updatedAt: now,
+      leaseExpiresAt: null,
     })
     .where(and(
       eq(scheduledTasks.id, id),
@@ -378,13 +417,27 @@ export async function countStuckRunning(since: Date): Promise<number> {
 }
 
 /**
- * Clear the `running` marker so `getDueTasks` sees the task again, WITHOUT touching the
- * error counters or `nextRunAt`.
+ * Running rows whose lease has expired: the process running them stopped renewing it,
+ * so it is gone (or cannot reach the database). A row claimed without a lease is left
+ * to the deadline reaper.
+ */
+export async function findExpiredRunLeases(): Promise<ScheduledTask[]> {
+  return db
+    .select()
+    .from(scheduledTasks)
+    .where(and(eq(scheduledTasks.lastRunStatus, "running"), lt(scheduledTasks.leaseExpiresAt, sql`now()`)))
+    .orderBy(scheduledTasks.updatedAt);
+}
+
+/**
+ * Clear the `running` marker so the task is due again, WITHOUT touching the error
+ * counters or `nextRunAt`.
  *
- * Used by the startup recovery: a run interrupted by a deploy is not the task's fault, so
- * it must not consume a retry, count towards `MAX_CONSECUTIVE_ERRORS`, or push the next
- * run into the future. The interrupted run itself is closed in the run log as an error —
- * the audit says what happened, the schedule carries on as if the tick had not fired.
+ * Used for a run whose lease expired: a run interrupted by a deploy or a crash is not
+ * the task's fault, so it must not consume a retry, count towards
+ * `MAX_CONSECUTIVE_ERRORS`, or push the next run into the future. The interrupted run
+ * itself is closed in the run log as an error — the audit says what happened, the
+ * schedule carries on as if the tick had not fired.
  *
  * Each row is matched on the claim the recovery READ, not on `running` alone: between the
  * read and this write the interrupted run may have been closed and a new run B claimed
@@ -397,7 +450,7 @@ export async function clearRunningMarker(
   if (observed.length === 0) return [];
   const rows = await db
     .update(scheduledTasks)
-    .set({ lastRunStatus: null, updatedAt: new Date() })
+    .set({ lastRunStatus: null, updatedAt: new Date(), leaseExpiresAt: null })
     .where(and(
       eq(scheduledTasks.lastRunStatus, "running"),
       or(...observed.map(({ id, claim }) => and(eq(scheduledTasks.id, id), isClaim(claim)))),

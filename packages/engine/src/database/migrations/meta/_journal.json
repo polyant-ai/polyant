@@ -659,6 +659,13 @@
       "when": 1793264500000,
       "tag": "0100_room_human_message_events",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793264600000,
+      "tag": "0101_scheduled_task_run_lease",
+      "breakpoints": true
     }
   ]
 }

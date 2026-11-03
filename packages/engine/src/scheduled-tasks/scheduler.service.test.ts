@@ -9,7 +9,7 @@
  * - shutdown() clears the interval and resets isRunning.
  * - tick() short-circuits when no due tasks.
  * - tick() respects MAX_CONCURRENT (3) — only schedules executable batch.
- * - startup recovers rows abandoned by a dead process, and leaves live ones alone.
+ * - the tick recovers runs whose lease expired, without counting a failure.
  * - the per-tick reaper fails runs past their own deadline, not past the default one.
  *
  * Uses vi.useFakeTimers() — no real setTimeout is exercised.
@@ -22,7 +22,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // ---------------------------------------------------------------------------
 const { mockStore, mockRunLog, mockChannelManager } = vi.hoisted(() => ({
   mockStore: {
-    getDueTasks: vi.fn(),
+    claimDueTasks: vi.fn(),
+    countDueTasks: vi.fn(),
+    findExpiredRunLeases: vi.fn(),
+    renewRunLease: vi.fn(),
     markRunning: vi.fn(),
     markCompleted: vi.fn(),
     markFailed: vi.fn(),
@@ -97,7 +100,10 @@ describe("SchedulerService", () => {
     // Suppress noisy console logs
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
-    mockStore.getDueTasks.mockReset().mockResolvedValue([]);
+    mockStore.claimDueTasks.mockReset().mockResolvedValue([]);
+    mockStore.countDueTasks.mockReset().mockResolvedValue(0);
+    mockStore.findExpiredRunLeases.mockReset().mockResolvedValue([]);
+    mockStore.renewRunLease.mockReset().mockResolvedValue(true);
     mockStore.markRunning.mockReset().mockResolvedValue(new Date());
     mockStore.markCompleted.mockReset().mockResolvedValue(new Date());
     mockStore.removeAfterRun.mockReset().mockResolvedValue(true);
@@ -152,27 +158,18 @@ describe("SchedulerService", () => {
       expect(schedulerService.isRunning).toBe(true);
     });
 
-    it("arms the tick loop even when a recovered missed task never settles", async () => {
-      // A missed task found at startup runs an ordinary pipeline. If it hangs, the reaper
-      // in the tick loop is its only supervision, and boot must not wait on it either.
-      const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
-      mockStore.getDueTasks.mockResolvedValue([{
-        id: "task-missed",
-        name: "missed",
-        instanceId: "acme",
-        schedule: { type: "cron", expression: "0 6 * * *" },
-        prompt: "noop",
-        keepHistory: false,
-        deleteAfterRun: false,
-        maxRetries: 3,
-        consecutiveErrors: 0,
-      }]);
-      schedulerService.initialize(() => new Promise(() => {}));
+    it("runs nothing and rewrites no row at boot: overdue tasks wait for the tick", async () => {
+      // A replica booting during a deploy must not run, or push forward, tasks another
+      // replica is about to serve. The tick serves the overdue ones, oldest first.
+      schedulerService.initialize(noopHandler);
 
       await schedulerService.start();
 
-      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
-      expect(schedulerService.isRunning).toBe(true);
+      expect(mockStore.claimDueTasks).not.toHaveBeenCalled();
+      expect(mockStore.markRunning).not.toHaveBeenCalled();
+      expect(mockStore.update).not.toHaveBeenCalled();
+      expect(mockStore.clearRunningMarker).not.toHaveBeenCalled();
+      expect(noopHandler).not.toHaveBeenCalled();
     });
 
     it("shutdown() clears the interval and sets isRunning=false", async () => {
@@ -197,14 +194,14 @@ describe("SchedulerService", () => {
   // tick()
   // -----------------------------------------------------------------------
   describe("tick", () => {
-    it("returns immediately when there are no due tasks (no markRunning calls)", async () => {
+    it("returns immediately when there are no due tasks", async () => {
       schedulerService.initialize(noopHandler);
-      mockStore.getDueTasks.mockResolvedValue([]);
+      mockStore.claimDueTasks.mockResolvedValue([]);
 
       await schedulerService.tick();
 
-      expect(mockStore.getDueTasks).toHaveBeenCalledTimes(1);
-      expect(mockStore.markRunning).not.toHaveBeenCalled();
+      expect(mockStore.claimDueTasks).toHaveBeenCalledTimes(1);
+      expect(noopHandler).not.toHaveBeenCalled();
     });
 
     it("returns immediately when messageHandler is null", async () => {
@@ -212,22 +209,51 @@ describe("SchedulerService", () => {
 
       await schedulerService.tick();
 
-      expect(mockStore.getDueTasks).not.toHaveBeenCalled();
+      expect(mockStore.claimDueTasks).not.toHaveBeenCalled();
+    });
+
+    it("claims at most the free slots, under a lease of the installation's orphan grace", async () => {
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.tick();
+
+      expect(mockStore.claimDueTasks).toHaveBeenCalledWith(expect.any(Date), 3, { leaseTtlMs: 900_000, skip: [] });
+    });
+
+    it("renews the lease of a running task every quarter of its TTL, and stops when it ends", async () => {
+      let finish!: () => void;
+      schedulerService.initialize(() => new Promise((resolve) => {
+        finish = () => resolve({ text: "", toolCalls: [], usage: undefined } as never);
+      }));
+      mockStore.claimDueTasks.mockResolvedValue([{
+        id: "task-long", name: "long", instanceId: "acme", schedule: { type: "cron", expression: "0 6 * * *" },
+        prompt: "noop", keepHistory: false, deleteAfterRun: false, maxRetries: 3, consecutiveErrors: 0,
+      }]);
+
+      const ticking = schedulerService.tick();
+      await vi.advanceTimersByTimeAsync(900_000);
+      expect(mockStore.renewRunLease).toHaveBeenCalledTimes(4);
+      expect(mockStore.renewRunLease).toHaveBeenCalledWith("task-long", expect.any(Date), 900_000);
+
+      finish();
+      await ticking;
+      await vi.advanceTimersByTimeAsync(900_000);
+      expect(mockStore.renewRunLease).toHaveBeenCalledTimes(4);
     });
   });
 
   // -----------------------------------------------------------------------
-  // Crash-safety: startup recovery
+  // Crash-safety: runs whose lease expired
   // -----------------------------------------------------------------------
-  describe("startup recovery of orphaned rows", () => {
+  describe("recovery of interrupted runs", () => {
     const orphan = (over: Record<string, unknown> = {}) => ({
       id: "task-orphan",
       name: "daily",
       instanceId: "acme",
       schedule: { type: "cron", expression: "0 6 * * *" },
       lastRunStatus: "running",
-      updatedAt: new Date(Date.now() - 60 * 60_000),
-      lastRunAt: new Date(Date.now() - 60 * 60_000),
+      updatedAt: new Date(Date.now() - 60_000),
+      lastRunAt: new Date(Date.now() - 60_000),
       maxRunMs: null,
       keepHistory: false,
       deleteAfterRun: false,
@@ -236,40 +262,26 @@ describe("SchedulerService", () => {
       ...over,
     });
 
-    it("clears the running marker and closes the dangling run, before looking for work", async () => {
-      // The order matters and is the whole point: `getDueTasks` skips rows marked
-      // `running`, so a recovery that ran after the missed-task pass would leave exactly
-      // the interrupted tasks unseen.
+    it("clears the running marker and closes the dangling run, before claiming work", async () => {
+      // The claim skips rows marked `running`, so a recovery that ran after it would
+      // leave exactly the interrupted tasks unserved for another tick.
       const calls: string[] = [];
-      mockStore.findStuckRunning.mockImplementation(async () => {
-        calls.push("findStuckRunning");
-        return [orphan()];
-      });
+      mockStore.findExpiredRunLeases.mockResolvedValue([orphan()]);
       mockStore.clearRunningMarker.mockImplementation(async () => {
         calls.push("clearRunningMarker");
         return ["task-orphan"];
       });
-      mockRunLog.findDanglingRuns.mockImplementation(async () => {
-        calls.push("findDanglingRuns");
-        return [{ id: "run-orphan", taskId: "task-orphan" }];
-      });
-      mockRunLog.failDanglingRuns.mockImplementation(async () => {
-        calls.push("failDanglingRuns");
-        return 1;
-      });
-      mockStore.getDueTasks.mockImplementation(async () => {
-        calls.push("getDueTasks");
+      mockRunLog.findDanglingRuns.mockResolvedValue([{ id: "run-orphan", taskId: "task-orphan" }]);
+      mockStore.claimDueTasks.mockImplementation(async () => {
+        calls.push("claimDueTasks");
         return [];
       });
 
       schedulerService.initialize(noopHandler);
-      await schedulerService.start();
+      await schedulerService.tick();
 
-      expect(calls.indexOf("clearRunningMarker")).toBeLessThan(calls.indexOf("getDueTasks"));
-      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(
-        ["run-orphan"],
-        expect.stringContaining("orphaned"),
-      );
+      expect(calls).toEqual(["clearRunningMarker", "claimDueTasks"]);
+      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["run-orphan"], expect.stringContaining("interrupted"));
     });
 
     it("clears only the claim it read, and closes only the runs it observed before clearing", async () => {
@@ -278,7 +290,7 @@ describe("SchedulerService", () => {
       // the claim it read and reads the dangling runs while the marker still holds.
       const task = orphan();
       const calls: string[] = [];
-      mockStore.findStuckRunning.mockResolvedValue([task]);
+      mockStore.findExpiredRunLeases.mockResolvedValue([task]);
       mockRunLog.findDanglingRuns.mockImplementation(async () => {
         calls.push("findDanglingRuns");
         return [{ id: "run-a", taskId: "task-orphan" }];
@@ -289,7 +301,7 @@ describe("SchedulerService", () => {
       });
       schedulerService.initialize(noopHandler);
 
-      await schedulerService.start();
+      await schedulerService.tick();
 
       expect(mockStore.clearRunningMarker).toHaveBeenCalledWith([{ id: "task-orphan", claim: task.lastRunAt }]);
       expect(calls).toEqual(["findDanglingRuns", "clearRunningMarker"]);
@@ -299,47 +311,21 @@ describe("SchedulerService", () => {
     it("does NOT count a failure for an interrupted run", async () => {
       // An interrupted run is a deploy's fault, not the task's: counting it would burn a
       // retry, push `nextRunAt` away, and after enough deploys disable the task outright.
-      mockStore.findStuckRunning.mockResolvedValue([orphan()]);
+      mockStore.findExpiredRunLeases.mockResolvedValue([orphan()]);
       mockStore.clearRunningMarker.mockResolvedValue(["task-orphan"]);
 
       schedulerService.initialize(noopHandler);
-      await schedulerService.start();
+      await schedulerService.tick();
 
       expect(mockStore.markFailed).not.toHaveBeenCalled();
     });
 
-    it("respects the deploy overlap window: the cutoff is in the past, never now", async () => {
-      // A row younger than the grace may belong to the OUTGOING process, still legitimately
-      // running it. Recovering it means running the task twice — for a task that delivers
-      // something outward, worse than running it late.
-      mockStore.findStuckRunning.mockResolvedValue([]);
-      schedulerService.initialize(noopHandler);
-      await schedulerService.start();
-
-      const cutoff = mockStore.findStuckRunning.mock.calls[0]![0] as Date;
-      // Default grace is 15 minutes; assert the shape (a past cutoff), not the constant.
-      expect(cutoff.getTime()).toBeLessThan(Date.now() - 60_000);
-    });
-
-    it("does not reclaim a run still inside its deadline, even after the deploy grace", async () => {
-      mockStore.findStuckRunning.mockResolvedValue([
-        orphan({ updatedAt: new Date(Date.now() - 20 * 60_000) }),
-        orphan({ id: "long-running", updatedAt: new Date(Date.now() - 40 * 60_000), maxRunMs: 60 * 60_000 }),
-      ]);
-      schedulerService.initialize(noopHandler);
-
-      await schedulerService.start();
-
-      expect(mockStore.clearRunningMarker).not.toHaveBeenCalled();
-      expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
-    });
-
     it("closes only rows whose running marker was actually cleared", async () => {
-      mockStore.findStuckRunning.mockResolvedValue([orphan()]);
+      mockStore.findExpiredRunLeases.mockResolvedValue([orphan()]);
       mockStore.clearRunningMarker.mockResolvedValue([]);
       schedulerService.initialize(noopHandler);
 
-      await schedulerService.start();
+      await schedulerService.tick();
 
       expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
     });
@@ -413,13 +399,13 @@ describe("SchedulerService", () => {
       expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("60000 ms"), expect.anything());
     });
 
-    it("runs before the due-task query, so a reaped row can run in the same tick", async () => {
+    it("runs before the due-task claim, so a reaped row can run in the same tick", async () => {
       const calls: string[] = [];
       mockStore.findStuckRunning.mockImplementation(async () => {
         calls.push("reap");
         return [];
       });
-      mockStore.getDueTasks.mockImplementation(async () => {
+      mockStore.claimDueTasks.mockImplementation(async () => {
         calls.push("due");
         return [];
       });

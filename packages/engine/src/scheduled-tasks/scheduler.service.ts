@@ -50,6 +50,9 @@ const TICK_INTERVAL_MS = 30_000; // Check for due tasks every 30s
  */
 const MAX_CONCURRENT = 3;
 
+/** Floor for a run's lease: it is renewed at a quarter of it. */
+const MIN_RUN_LEASE_MS = 60_000;
+
 class SchedulerService {
   private messageHandler: MessageHandler | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -61,77 +64,71 @@ class SchedulerService {
     this.messageHandler = messageHandler;
   }
 
-  /** Load tasks and start the tick loop */
+  /**
+   * Start the tick loop. The boot does nothing else: a run another process left
+   * behind is recovered by the tick once its lease expires, and overdue tasks are
+   * served by the tick in order of how late they are.
+   */
   async start(): Promise<void> {
     if (!this.messageHandler) {
       throw new Error("SchedulerService: initialize() must be called before start()");
     }
 
-    scheduledTaskLog.info("SchedulerService", "starting...");
-
-    // Arm the tick loop FIRST. The tick carries the reaper, the only supervision a hung
-    // run has; armed after the missed-task pass, a recovered pipeline that never settles
-    // would keep both the reaper and every later tick from ever starting.
     this.timer = setInterval(() => {
       this.tick().catch((err) => scheduledTaskLog.error("SchedulerService", "tick error:", err));
     }, TICK_INTERVAL_MS);
     this.started = true;
 
-    // Recover rows abandoned by a process that is gone. MUST run before
-    // handleMissedTasks: `getDueTasks` skips rows marked `running`, so without this the
-    // missed-task pass would not see exactly the tasks that were interrupted.
-    await this.recoverOrphanedRuns();
-
-    // Missed tasks run in the background: their pipelines are ordinary runs, supervised
-    // by the reaper above, and boot must not wait on one that hangs.
-    this.handleMissedTasks().catch((err) =>
-      scheduledTaskLog.error("SchedulerService", "missed-task pass failed:", err),
-    );
-
     scheduledTaskLog.info("SchedulerService", `running (tick every ${TICK_INTERVAL_MS / 1000}s)`);
   }
 
-  /** Main loop: find and execute due tasks */
+  /**
+   * How long a run's lease lasts: the installation's orphan grace, so a run left
+   * behind by a dead process is recovered that long after its last renewal. A run
+   * renews at a quarter of it, so it has a floor.
+   */
+  private async leaseTtlMs(): Promise<number> {
+    const { schedulerOrphanGraceMs } = await resolvePlatformSettings();
+    return Math.max(schedulerOrphanGraceMs, MIN_RUN_LEASE_MS);
+  }
+
+  /** Main loop: recover abandoned runs, then claim and execute due tasks */
   async tick(): Promise<void> {
     if (!this.messageHandler) return;
 
-    // Free rows whose run overran its deadline before looking for work: a reaped row can
+    // Free abandoned and overrunning rows before looking for work: a freed row can
     // become due again in this very tick, and the free-slot metric must reflect reality.
+    await this.recoverInterruptedRuns();
     await this.reapOverrunningRuns();
 
     const now = new Date();
-    const dueTasks = await store.getDueTasks(now);
-
-    if (dueTasks.length === 0) return;
-
-    // Limit concurrency
     const available = MAX_CONCURRENT - this.running.size;
     if (available <= 0) {
       // Not an error, and that is the problem: no exception is thrown while every slot is
       // held, so the only signal that the loop has stopped is this line and the free-slot
       // count on /health/scheduler. Failure here is the ABSENCE of success.
-      scheduledTaskLog.warn(
-        "SchedulerService",
-        `all ${MAX_CONCURRENT} concurrency slots busy, ${dueTasks.length} task(s) waiting — ` +
-          "no task will run this tick",
-      );
+      const waiting = await store.countDueTasks(now);
+      if (waiting > 0) {
+        scheduledTaskLog.warn(
+          "SchedulerService",
+          `all ${MAX_CONCURRENT} concurrency slots busy, ${waiting} task(s) waiting — ` +
+            "no task will run this tick",
+        );
+      }
       return;
     }
 
-    const batch = dueTasks.slice(0, available);
+    const leaseTtlMs = await this.leaseTtlMs();
+    const claimed = await store.claimDueTasks(now, available, { leaseTtlMs, skip: [...this.running] });
 
     // Execute in parallel (up to available slots)
-    await Promise.allSettled(
-      batch.map((task) => this.executeTask(task)),
-    );
+    await Promise.allSettled(claimed.map((task) => this.runClaimed(task, now, "scheduled", leaseTtlMs)));
   }
 
-  /** Execute a single scheduled task */
-  private async executeTask(task: ScheduledTask, triggerType: TriggerType = "scheduled"): Promise<void> {
-    // Guard: parent instance must be active. The scheduled tick already filters
-    // via JOIN in `getDueTasks`, but `runNow` (manual trigger) bypasses that
-    // query — and a race could let a task slip through between the tick query
-    // and lock acquisition. We re-check here defensively.
+  /** Claim and execute a task on demand (Run Now). */
+  private async executeTask(task: ScheduledTask, triggerType: TriggerType): Promise<void> {
+    // Guard: parent instance must be active. The scheduled tick filters on it when it
+    // claims; a manual run does not go through that query.
     const instance = await findInstanceBySlug(asInstanceSlug(task.instanceId));
     if (!instance || instance.status !== "active") {
       scheduledTaskLog.info(
@@ -147,7 +144,8 @@ class SchedulerService {
     // concurrently — one of the two deliveries being a duplicate. It is per PROCESS:
     // with several replicas, a reaped row can still be claimed by another one while
     // the hung run lives on here. `max_run_ms` is the deadline a task declares, so
-    // a run that overruns it accepts that duplicate.
+    // a run that overruns it accepts that duplicate. The scheduled claim skips these
+    // tasks for the same reason.
     if (this.running.has(task.id)) {
       scheduledTaskLog.warn(
         "SchedulerService",
@@ -156,12 +154,38 @@ class SchedulerService {
       return;
     }
 
-    // Atomic lock — prevents double execution. A scheduled run also re-checks that
-    // the task is still due: another replica may have run it since the tick read it.
-    const claim = await store.markRunning(task.id, triggerType === "scheduled" ? { dueBy: new Date() } : {});
+    const leaseTtlMs = await this.leaseTtlMs();
+    const claim = await store.markRunning(task.id, { leaseTtlMs });
     if (!claim) return;
+    await this.runClaimed(task, claim, triggerType, leaseTtlMs);
+  }
 
+  /**
+   * Execute a task this process holds the claim on, renewing its lease while the run
+   * goes on. A process that dies stops renewing, and any replica's tick then takes
+   * the run as interrupted.
+   */
+  private async runClaimed(task: ScheduledTask, claim: Date, triggerType: TriggerType, leaseTtlMs: number): Promise<void> {
     this.running.add(task.id);
+    const heartbeat = setInterval(() => {
+      store
+        .renewRunLease(task.id, claim, leaseTtlMs)
+        .then((held) => {
+          if (!held) scheduledTaskLog.warn("SchedulerService", `task "${task.name}" (${task.id}) lost its claim while running`);
+        })
+        .catch((err) => scheduledTaskLog.warn("SchedulerService", `lease renewal failed for "${task.name}": ${errMsg(err)}`));
+    }, leaseTtlMs / 4);
+    heartbeat.unref();
+    try {
+      await this.executeClaimed(task, claim, triggerType);
+    } finally {
+      clearInterval(heartbeat);
+      this.running.delete(task.id);
+    }
+  }
+
+  /** The run itself, once claimed: the pipeline, the outcome on the task, the delivery. */
+  private async executeClaimed(task: ScheduledTask, claim: Date, triggerType: TriggerType): Promise<void> {
     const timestamp = Date.now();
 
     // keepHistory=true → stable conversationId (accumulates history across runs)
@@ -291,73 +315,57 @@ class SchedulerService {
           scheduledTaskLog.error("SchedulerService", `failed to log run failure:`, logErr),
         );
       }
-    } finally {
-      this.running.delete(task.id);
     }
   }
 
   /**
-   * Startup recovery: rows left `running` by a process that is gone.
+   * Per-tick recovery: runs whose lease expired, because the process running them is
+   * gone (a deploy, an OOM kill, a crash) or cannot reach the database.
    *
-   * `markRunning` marks a row `running` and, before this, nothing ever cleared it —
-   * `getDueTasks` excludes those rows, so a task interrupted by a deploy, an OOM kill or
-   * a crash went silent permanently, with no error emitted anywhere. It is a generic bug,
-   * not one specific to any product: every deployment that restarts the engine while a
-   * task runs has been hitting it.
-   *
-   * Only rows older than `orphanGraceMs` are touched. During a rolling deploy the previous
-   * process may still be legitimately running its task; recovering it would run it twice,
-   * which for a task that delivers something outward is worse than running it late.
+   * Every replica does this on every tick, so a run interrupted during a rolling deploy
+   * is recovered by the process that survives it, a lease TTL later, without waiting for
+   * the next boot. A run whose process is alive renews its lease and is never touched.
    *
    * The marker is cleared WITHOUT counting a failure: an interrupted run is not the task's
    * fault, so it consumes no retry and does not push `nextRunAt` away. The run itself is
-   * closed as an error in the run log, so the audit still says what happened.
+   * closed as an error in the run log, so the audit still says what happened. A run still
+   * executing in this process is left alone even with an expired lease: it is alive, and
+   * this process must not start it again next to itself.
    */
-  private async recoverOrphanedRuns(): Promise<void> {
-    const { schedulerOrphanGraceMs, schedulerDefaultMaxRunMs } = await resolvePlatformSettings();
-    const now = Date.now();
-    const cutoff = new Date(now - schedulerOrphanGraceMs);
-    const candidates = await store.findStuckRunning(cutoff);
-    // The outgoing replica may still own a run beyond the deploy grace. Never
-    // reclaim it before its own deadline (which may exceed the platform default).
-    const stuck = candidates.filter((task) =>
-      now - (task.updatedAt?.getTime() ?? now) >= Math.max(
-        schedulerOrphanGraceMs,
-        task.maxRunMs ?? schedulerDefaultMaxRunMs,
-      ),
-    );
-    if (stuck.length === 0) return;
+  private async recoverInterruptedRuns(): Promise<void> {
+    const expired = (await store.findExpiredRunLeases()).filter((task) => !this.running.has(task.id));
+    if (expired.length === 0) return;
 
     // The dangling runs are read BEFORE the markers are cleared, and each marker is
     // cleared only on the claim read above: once a marker is cleared a new run may claim
     // the task, and neither its marker nor its run-log row is this recovery's to close.
-    const dangling = await runLog.findDanglingRuns(stuck.map((t) => t.id));
+    const dangling = await runLog.findDanglingRuns(expired.map((t) => t.id));
     const clearedIds = await store.clearRunningMarker(
-      stuck.map((t) => ({ id: t.id, claim: t.lastRunAt })),
+      expired.map((t) => ({ id: t.id, claim: t.lastRunAt })),
     );
     if (clearedIds.length === 0) return;
     const closed = await runLog.failDanglingRuns(
       dangling.filter((run) => clearedIds.includes(run.taskId)).map((run) => run.id),
-      "orphaned: the process running this task did not survive to report an outcome",
+      "interrupted: the process running this task stopped renewing its lease",
     );
 
     scheduledTaskLog.warn(
       "SchedulerService",
-      `recovered ${clearedIds.length} orphaned task row(s) and closed ${closed} dangling run(s): ` +
-        stuck.map((t) => `"${t.name}" (${t.instanceId})`).join(", "),
+      `recovered ${clearedIds.length} interrupted task row(s) and closed ${closed} dangling run(s): ` +
+        expired.filter((t) => clearedIds.includes(t.id)).map((t) => `"${t.name}" (${t.instanceId})`).join(", "),
     );
   }
 
   /**
    * Per-tick reaper: runs that are still `running` past their deadline.
    *
-   * The startup recovery only helps when the process restarts. A run that hangs in a live
+   * The lease recovery only sees processes that stopped. A run that hangs in a live
    * process — an HTTP call with no timeout is the usual cause — holds its row forever and
    * one of the three concurrency slots with it. Past `max_run_ms` (per task, falling back
    * to the platform setting) the row is marked failed so the task is not
    * silenced beyond the deadline it declared.
    *
-   * Unlike the startup path this DOES count as a failure: the run had its declared time
+   * Unlike the lease recovery this DOES count as a failure: the run had its declared time
    * and did not finish, which is the task's own behaviour, and the retry backoff plus
    * `MAX_CONSECUTIVE_ERRORS` are the right response to a task that hangs every time.
    *
@@ -428,29 +436,6 @@ class SchedulerService {
       stuckRunning: await store.countStuckRunning(cutoff),
       orphanGraceMs: schedulerOrphanGraceMs,
     };
-  }
-
-  /** On startup, handle any tasks that were missed during downtime */
-  private async handleMissedTasks(): Promise<void> {
-    const now = new Date();
-    const dueTasks = await store.getDueTasks(now);
-
-    if (dueTasks.length === 0) return;
-
-    scheduledTaskLog.info("SchedulerService", `${dueTasks.length} missed task(s) found on startup`);
-
-    // Execute missed tasks one at a time to avoid overloading
-    for (const task of dueTasks.slice(0, 5)) {
-      await this.executeTask(task);
-    }
-
-    // For remaining missed tasks, just advance their nextRunAt to the future
-    await Promise.all(
-      dueTasks.slice(5).map((task) => {
-        const schedule = task.schedule as ScheduleConfig;
-        return computeNextRun(schedule, now) ? store.update(task.id, { schedule }) : undefined;
-      }),
-    );
   }
 
   /** Execute a task immediately with "manual" trigger type (for Run Now API) */

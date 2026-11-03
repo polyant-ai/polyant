@@ -184,7 +184,7 @@ describe("scheduled-tasks/store", () => {
       // returning() resolves to [{ id }] when one row was updated
       mockDb.update.mockReturnValue(createChainMock([{ id: TASK_ID }]) as never);
 
-      const result = await markRunning(TASK_ID);
+      const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeInstanceOf(Date);
       expect(mockDb.update).toHaveBeenCalledTimes(1);
@@ -194,7 +194,7 @@ describe("scheduled-tasks/store", () => {
       // returning() resolves to [] when WHERE clause filtered out the row
       mockDb.update.mockReturnValue(createChainMock([]) as never);
 
-      const result = await markRunning(TASK_ID);
+      const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeNull();
     });
