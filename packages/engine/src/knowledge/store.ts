@@ -499,8 +499,46 @@ export async function insertChunksAndFinalize(
 // ── Search ─────────────────────────────────────────────────────────
 
 /**
+ * Whether this database's pgvector can keep walking its HNSW index until a
+ * filtered query has its rows (`hnsw.iterative_scan`, pgvector 0.8.0). Read once
+ * per process from the installed extension version: a server library newer
+ * than the installed version only costs the exact fallback below.
+ */
+let hnswIterativeScan: Promise<boolean> | undefined;
+
+function hnswIterativeScanAvailable(): Promise<boolean> {
+  hnswIterativeScan ??= db
+    .execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)
+    .then((rows) => {
+      const version = (rows as unknown as Array<{ extversion?: string }>)[0]?.extversion ?? "";
+      const [major = 0, minor = 0] = version.split(".").map(Number);
+      return major > 0 || minor >= 8;
+    })
+    .catch((err: unknown) => {
+      hnswIterativeScan = undefined;
+      throw err;
+    });
+  return hnswIterativeScan;
+}
+
+/** Pin the capability read from the database; `undefined` reads it again. */
+export function _setHnswIterativeScanForTests(available: boolean | undefined): void {
+  hnswIterativeScan = available === undefined ? undefined : Promise.resolve(available);
+}
+
+/**
  * Semantic search: find nearest chunks and return with parent document filename.
  * Used as one of the two backends fused by `searchKnowledge()` in search.ts.
+ *
+ * The 1024-dim column has one HNSW index for the whole table, and the planner
+ * picks it once an agent holds thousands of chunks. The index returns its
+ * `hnsw.ef_search` (40) nearest rows of every agent and the agent filter runs
+ * after it, so an agent owning a fraction of those rows got that fraction of
+ * `limit`. The query therefore runs in a transaction that keeps it complete:
+ * with `iterative_scan = strict_order` the index keeps scanning, in distance
+ * order, until `limit` rows pass the filter (or `hnsw.max_scan_tuples`, 20,000
+ * by default, have been visited); on a pgvector without it the index is off
+ * for the query and the agent's chunks are scanned exactly.
  */
 export async function searchByVector(
   queryEmbedding: number[],
@@ -510,23 +548,31 @@ export async function searchByVector(
 ): Promise<KnowledgeSearchResult[]> {
   const activeCol = activeKnowledgeChunkColumn(dimensions);
   const distance = cosineDistance(activeCol, queryEmbedding);
+  const iterativeScan = await hnswIterativeScanAvailable();
 
-  const rows = await db
-    .select({
-      id: knowledgeChunks.id,
-      content: knowledgeChunks.content,
-      chunkIndex: knowledgeChunks.chunkIndex,
-      filename: knowledgeDocuments.filename,
-      distance: sql<number>`${distance}`,
-    })
-    .from(knowledgeChunks)
-    .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-    // Exclude rows whose active vector column is NULL: their cosine distance is
-    // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
-    // knowledge search results when fewer than `limit` rows match.
-    .where(and(eq(knowledgeChunks.instanceId, instanceId), eq(knowledgeDocuments.enabled, true), isNotNull(activeCol)))
-    .orderBy(distance)
-    .limit(limit);
+  const rows = await db.transaction(async (tx) => {
+    // SET LOCAL lasts until the end of this transaction; outside one it would
+    // be a silent no-op.
+    await tx.execute(
+      iterativeScan ? sql`SET LOCAL hnsw.iterative_scan = strict_order` : sql`SET LOCAL enable_indexscan = off`,
+    );
+    return await tx
+      .select({
+        id: knowledgeChunks.id,
+        content: knowledgeChunks.content,
+        chunkIndex: knowledgeChunks.chunkIndex,
+        filename: knowledgeDocuments.filename,
+        distance: sql<number>`${distance}`,
+      })
+      .from(knowledgeChunks)
+      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+      // Exclude rows whose active vector column is NULL: their cosine distance is
+      // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
+      // knowledge search results when fewer than `limit` rows match.
+      .where(and(eq(knowledgeChunks.instanceId, instanceId), eq(knowledgeDocuments.enabled, true), isNotNull(activeCol)))
+      .orderBy(distance)
+      .limit(limit);
+  });
 
   return rows.map((r) => ({
     id: r.id,

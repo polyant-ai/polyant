@@ -26,6 +26,7 @@ const { mockDb } = vi.hoisted(() => {
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    execute: vi.fn(),
     transaction: vi.fn(),
   };
   mockDb.transaction.mockImplementation(
@@ -270,6 +271,7 @@ describe("insertChunksAndFinalize", () => {
 
 describe("searchByVector", () => {
   it("maps distance to a rounded similarity score", async () => {
+    mockDb.execute.mockResolvedValue([{ extversion: "0.8.1" }]);
     mockDb.select.mockReturnValue(
       createChainMock([
         { id: "c1", content: "abc", chunkIndex: 0, filename: "a.md", distance: 0.15 },
