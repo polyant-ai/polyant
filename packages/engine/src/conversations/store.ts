@@ -575,10 +575,17 @@ export class ConversationStore {
    *
    * `updatedSince`/`updatedUntil` bound the half-open window `[since, until)`
    * on `updated_at` — the field this list already sorts by and that the
-   * `idx_conversations_instance_updated` index covers, so windowed polling
+   * `idx_conversations_instance_updated_id` index covers, so windowed polling
    * (e.g. an external analytics pull) stays index-supported. Note `updated_at`
    * tracks last *activity* (bumped when the post-turn summary/title regenerates),
    * not every message insert, so incremental pullers should overlap windows.
+   *
+   * The page is chosen first, agent by agent: each agent's newest
+   * `limit + offset` conversations come from a descent of that index, and only
+   * the page's rows are joined with their agent and their AI usage. Walking one
+   * index over the whole table instead made an organization pay for the rows of
+   * every other organization ahead of its own. `id` breaks ties, so pages
+   * neither repeat nor skip a conversation.
    */
   async listConversations(options: {
     instanceId?: InstanceSlug;
@@ -594,22 +601,22 @@ export class ConversationStore {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
 
-    const conditions: ReturnType<typeof sql>[] = [];
-    if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
-    if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    // Filters on the conversation row, applied inside each agent's descent.
+    const rowConditions: ReturnType<typeof sql>[] = [];
+    if (options.source) rowConditions.push(sql`c.source = ${options.source}`);
     if (options.userIdentifier) {
-      conditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
+      rowConditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
     }
-    if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
-    if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    if (options.updatedSince) rowConditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
+    if (options.updatedUntil) rowConditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    const rowFilter = rowConditions.length > 0 ? sql`AND ${sql.join(rowConditions, sql` AND `)}` : sql``;
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
     // Applied UNCONDITIONALLY, and the scope is required: there is no absent
     // branch left to fall through to an unfiltered cross-org listing.
-    conditions.push(tenantScopedAgentCondition(options.scope, "c.instance_id"));
-    const instanceFilter = conditions.length > 0
-      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-      : sql``;
+    const agentConditions = [tenantScopedAgentCondition(options.scope, "instances.slug")];
+    if (options.instanceId) agentConditions.push(sql`instances.slug = ${options.instanceId}`);
+    const agents = sql`SELECT instances.slug FROM instances WHERE ${sql.join(agentConditions, sql` AND `)}`;
 
     const [rows, countResult] = await Promise.all([
       // message_count is the conversation's own counter (migration
@@ -617,6 +624,18 @@ export class ConversationStore {
       // fan-out join over conversation_messages would force Postgres to
       // aggregate the whole messages table before ORDER BY/LIMIT.
       db.execute(sql`
+        WITH page AS (
+          SELECT c.id, c.updated_at
+          FROM (${agents}) a
+          CROSS JOIN LATERAL (
+            SELECT c.id, c.updated_at FROM conversations c
+            WHERE c.instance_id = a.slug ${rowFilter}
+            ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+            LIMIT ${limit + offset}
+          ) c
+          ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -637,7 +656,8 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
@@ -651,12 +671,11 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        ${instanceFilter}
-        ORDER BY c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
-        SELECT COUNT(*)::int AS total FROM conversations c ${instanceFilter}
+        SELECT COUNT(*)::int AS total FROM conversations c
+        WHERE c.instance_id IN (${agents}) ${rowFilter}
       `),
     ]);
 

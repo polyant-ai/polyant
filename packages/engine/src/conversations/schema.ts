@@ -25,8 +25,8 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
-    // Conversation list filters by instance_id and orders by updated_at DESC.
-    index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
+    // Conversation list: each agent's page, in the list's order (id breaks ties).
+    index("idx_conversations_instance_updated_id").on(table.instanceId, table.updatedAt.desc().nullsLast(), table.id.desc()),
     // Message-level analytics: the tenant's conversations active in a window.
     index("idx_conversations_instance_last_message").on(table.instanceId, table.lastMessageAt),
   ],
