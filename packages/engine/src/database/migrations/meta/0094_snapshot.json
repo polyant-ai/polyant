@@ -517,6 +517,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_traces_conversation": {
+          "name": "idx_traces_conversation",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3931,6 +3946,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_memories_source_conv": {
+          "name": "idx_memories_source_conv",
+          "columns": [
+            {
+              "expression": "source_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -5770,6 +5800,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "a7c689df-a7e7-404d-80f0-994c637a4b84",
+  "id": "c5b2627b-86cc-4e8b-9caa-9235ee88008e",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }
