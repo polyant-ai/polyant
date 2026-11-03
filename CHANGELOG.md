@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delegations share a cached prefix.
 - Bedrock calls without explicit credentials build the AWS default credential
   chain once instead of on every call.
+- The engine never downloads a URL found in a message part. A URL the
+  provider fetches itself is passed on; any other fails the call. The AI SDK
+  used to download such URLs on the engine, with no time limit and up to 2 GiB
+  each.
+- A model call its caller cancels (a follow-up message preempting a turn) is
+  logged as one debug line instead of two error lines.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
 
 ## [1.3.5] - 2026-11-02
