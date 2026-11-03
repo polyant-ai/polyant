@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
-import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
+import {
+  applyManualToolChanges,
+  getEnabledToolNames,
+  listInstanceToolRows,
+} from "../../instances/instance-tools.store.js";
 import { listAvailableTools, pluginsForTools } from "../../agents/tools/registry.js";
 import { resolveCatalogToolIds } from "../../agents/tools/tools-sync.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
-import { db } from "../../database/client.js";
-import { instanceTools } from "../../instances/instance-tools.schema.js";
-import { tools } from "../../agents/tools/tools.schema.js";
-import { eq, and, inArray } from "drizzle-orm";
 import {
   collectInstanceRequiredSecrets,
   enabledHookSecretSources,
@@ -39,6 +39,21 @@ export async function assertAgentTargetsAreSiblings(
   }
 }
 
+/**
+ * Every tool the registry offers, with whether this agent has it and why. How
+ * the panel names each plugin these tools come from rides along, so the list
+ * reads the same after a save as after a reload.
+ */
+function toolsView(rows: readonly { name: string; source: string }[]) {
+  const sourceByName = new Map(rows.map((r) => [r.name, r.source]));
+  const result = listAvailableTools().map((t) => ({
+    ...t,
+    enabled: sourceByName.has(t.name),
+    source: sourceByName.get(t.name) ?? null,
+  }));
+  return { tools: result, plugins: pluginsForTools(result.map((t) => t.name)) };
+}
+
 @Controller("api/instances")
 export class InstanceToolsController {
   @RequirePermission(Permission.TOOL_READ)
@@ -66,24 +81,7 @@ export class InstanceToolsController {
   @Get(":slug/tools")
   async getTools(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-
-    // Query instance_tools with source info
-    const enabledRows = await db
-      .select({ name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
-
-    const enabledMap = new Map(enabledRows.map((r) => [r.name, r.source]));
-    const allTools = listAvailableTools();
-    const result = allTools.map((t) => ({
-      ...t,
-      enabled: enabledMap.has(t.name),
-      source: enabledMap.get(t.name) ?? null,
-    }));
-    // How the panel names each plugin these tools come from. Same shape after a
-    // PATCH, so the list reads the same after a save as after a reload.
-    return { tools: result, plugins: pluginsForTools(result.map((t) => t.name)) };
+    return toolsView(await listInstanceToolRows(instance.id));
   }
 
   @RequirePermission(Permission.TOOL_WRITE)
@@ -95,12 +93,7 @@ export class InstanceToolsController {
     const instance = await findInstanceOrFail(slug);
     const enabledSet = new Set(body.enabled);
 
-    // Get current instance tools with source info
-    const currentRows = await db
-      .select({ toolId: instanceTools.toolId, name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
+    const currentRows = await listInstanceToolRows(instance.id);
 
     const currentByName = new Map(currentRows.map((r) => [r.name, r]));
 
@@ -149,61 +142,7 @@ export class InstanceToolsController {
       }
     }
 
-    /*
-      The add and the remove are ONE transaction.
-
-      They were two independent statements with no lock. A failure after the
-      insert left the agent holding both the newly enabled tools and the ones
-      the operator had just switched off — and two concurrent PATCHes (two admin
-      tabs, or the panel plus a script) each read the same `currentRows`, so the
-      second one's delete removed tools the first had just added. What that
-      endpoint controls is precisely what the agent is allowed to do.
-
-      `recomputeInstanceTools`, the same table's sibling, already states the
-      requirement in a comment and uses a transaction. This path was written
-      against `db` directly.
-    */
-    if (toAdd.length > 0 || toRemove.length > 0) {
-      await db.transaction(async (tx) => {
-        if (toAdd.length > 0) {
-          await tx
-            .insert(instanceTools)
-            .values(
-              toAdd.map((name) => ({
-                instanceId: instance.id,
-                toolId: idsByName.get(name)!,
-                source: "manual" as const,
-              })),
-            )
-            .onConflictDoNothing();
-        }
-        if (toRemove.length > 0) {
-          await tx
-            .delete(instanceTools)
-            .where(
-              and(
-                eq(instanceTools.instanceId, instance.id),
-                inArray(instanceTools.toolId, toRemove),
-              ),
-            );
-        }
-      });
-    }
-
-    // Return updated tool list with source
-    const updatedRows = await db
-      .select({ name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
-
-    const updatedMap = new Map(updatedRows.map((r) => [r.name, r.source]));
-    const allTools = listAvailableTools();
-    const resultTools = allTools.map((t) => ({
-      ...t,
-      enabled: updatedMap.has(t.name),
-      source: updatedMap.get(t.name) ?? null,
-    }));
-    return { tools: resultTools, plugins: pluginsForTools(resultTools.map((t) => t.name)) };
+    await applyManualToolChanges(instance.id, toAdd.map((name) => idsByName.get(name)!), toRemove);
+    return toolsView(await listInstanceToolRows(instance.id));
   }
 }
