@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { loadConversationState, flushConversationState } from "./state.store.js";
+import type { DbExecutor } from "../database/client.js";
 
 /** Reserved key holding the server-seeded, trusted channel identity. Tools read
  *  it via `ctx.state.channel`; it is never written by the LLM. */
@@ -181,12 +182,13 @@ export class ConversationStateBuffer {
   }
 
   /** Persist dirty/removed keys. Caller (runPipelinePost) only calls this on a
-   *  successful, non-aborted run. No-op when nothing changed. */
-  async flush(): Promise<void> {
+   *  successful, non-aborted run — inside the turn's transaction when given one.
+   *  No-op when nothing changed. */
+  async flush(executor?: DbExecutor): Promise<void> {
     if (this.dirty.size === 0 && this.removed.size === 0) return;
     const set: Record<string, unknown> = {};
     for (const key of this.dirty) set[key] = this.data[key];
-    await flushConversationState(this.conversationId, this.instanceId, set, [...this.removed]);
+    await flushConversationState(this.conversationId, this.instanceId, set, [...this.removed], executor);
     this.dirty.clear();
     this.removed.clear();
   }

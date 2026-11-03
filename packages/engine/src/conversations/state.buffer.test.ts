@@ -42,7 +42,7 @@ describe("ConversationStateBuffer", () => {
     const buf = new ConversationStateBuffer("c1", "inst", { existing: 1 });
     buf.api().set("contactId", "123");
     await buf.flush();
-    expect(flushMock).toHaveBeenCalledWith("c1", "inst", { contactId: "123" }, []);
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", { contactId: "123" }, [], undefined);
   });
 
   it("should_not_touch_store_when_nothing_changed", async () => {
@@ -55,7 +55,7 @@ describe("ConversationStateBuffer", () => {
     const buf = new ConversationStateBuffer("c1", "inst", { old: "x" });
     buf.api().delete("old");
     await buf.flush();
-    expect(flushMock).toHaveBeenCalledWith("c1", "inst", {}, ["old"]);
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", {}, ["old"], undefined);
   });
 
   it("should_treat_set_then_delete_as_removal", async () => {
@@ -63,7 +63,7 @@ describe("ConversationStateBuffer", () => {
     buf.api().set("k", "v");
     buf.api().delete("k");
     await buf.flush();
-    expect(flushMock).toHaveBeenCalledWith("c1", "inst", {}, ["k"]);
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", {}, ["k"], undefined);
   });
 
   it("should_return_defensive_copy_from_getAll", () => {
@@ -121,6 +121,7 @@ describe("ConversationStateBuffer", () => {
       "inst",
       { [CHANNEL_STATE_KEY]: { type: "whatsapp", id: "+41" } },
       [],
+      undefined,
     );
   });
 

@@ -24,7 +24,10 @@ vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn() }));
 vi.mock("./analytics/trace.store.js", () => ({ traceStore: { record: vi.fn() } }));
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
-    appendMessages: vi.fn(async () => undefined),
+    // Runs the writes that share the turn's transaction, as the real store does.
+    appendMessages: vi.fn(async (_id: string, _rows: unknown[], options?: { inTransaction?: (tx: unknown) => Promise<void> }) => {
+      await options?.inTransaction?.({});
+    }),
     updateSummary: vi.fn(async () => undefined),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
@@ -262,7 +265,7 @@ describe("runPipelinePost persistence gate", () => {
 
     expect(traceStore.record).toHaveBeenCalledOnce();
     expect(flush).toHaveBeenCalled();
-    await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
+    expect(conversationStore.appendMessages).toHaveBeenCalled();
   });
 
   it("persists nothing when the run is aborted while response_generated hooks run", async () => {
@@ -283,7 +286,20 @@ describe("runPipelinePost persistence gate", () => {
     expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
   });
 
-  it("writes no messages when the run is aborted while the state flush is awaited", async () => {
+  it("writes nothing when the channel's commit gate refuses the turn", async () => {
+    const commitGate = vi.fn(() => false);
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, commitGate, contextPrompt: "one-shot" });
+
+    await runPipelinePost(postOptions(ctx));
+
+    expect(commitGate).toHaveBeenCalledOnce();
+    expect(flush).not.toHaveBeenCalled();
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(traceStore.record).not.toHaveBeenCalled();
+    expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
+  });
+
+  it("saves a turn that passed the commit point even when an abort lands while it is being saved", async () => {
     const ac = new AbortController();
     const abortingFlush = vi.fn(async () => {
       ac.abort();
@@ -292,9 +308,15 @@ describe("runPipelinePost persistence gate", () => {
 
     await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
 
-    expect(abortingFlush).toHaveBeenCalledOnce();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(abortingFlush).toHaveBeenCalled();
+    expect(conversationStore.appendMessages).toHaveBeenCalledOnce();
+  });
+
+  it("fails the turn when it cannot be saved, so the reply is not delivered", async () => {
+    vi.mocked(conversationStore.appendMessages).mockRejectedValueOnce(new Error("db down"));
+
+    await expect(runPipelinePost(postOptions(ctxWith({})))).rejects.toThrow("db down");
+    expect(traceStore.record).not.toHaveBeenCalled();
   });
 });
 

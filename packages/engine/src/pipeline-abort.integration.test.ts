@@ -15,11 +15,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { HookEvent, HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 
 const hookBehaviour = vi.hoisted(() => ({
   responseGenerated: undefined as undefined | ((ctx: HookRunContext) => void),
+  responseSent: undefined as undefined | ((payload: HookEventPayload) => void),
 }));
 
 vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
@@ -28,10 +29,11 @@ vi.mock("./hooks/hook-runner.js", async (importOriginal) => {
     ...actual,
     runHooks: async (
       event: HookEvent,
-      _payload: HookEventPayload,
+      payload: HookEventPayload,
       ctx: HookRunContext,
     ): Promise<HookExecutionSummary[]> => {
       if (event === "response_generated") hookBehaviour.responseGenerated?.(ctx);
+      if (event === "response_sent") hookBehaviour.responseSent?.(payload);
       return [];
     },
   };
@@ -43,7 +45,9 @@ import { resolveDatabaseAvailability } from "./database/test-db.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
-import { runPipelinePost, type PipelineContext } from "./pipeline.js";
+import { runPipelinePost, runPipelinePre, type PipelineContext } from "./pipeline.js";
+import { MessageCoordinator } from "./channels/message-coordinator.js";
+import type { IncomingMessage } from "./channels/types.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-abort-gate";
@@ -104,6 +108,33 @@ async function finishTurn(
   });
 }
 
+/**
+ * A turn as the channel handler runs it, with a canned reply standing in for
+ * the model: the real context preparation, then the real post phase.
+ */
+async function cannedTurn(msg: IncomingMessage, signal: AbortSignal): Promise<{ text: string }> {
+  const pre = await runPipelinePre(msg, undefined, signal);
+  const { finalText } = await runPipelinePost({
+    ctx: pre.ctx,
+    contextPrepMs: pre.contextPrepMs,
+    messageText: pre.messageText,
+    channel: msg.channelType,
+    resultText: `R(${pre.messageText})`,
+    usage: { promptTokens: 0, completionTokens: 0 },
+    durationMs: 0,
+    toolBuildingMs: 0,
+    isStreaming: false,
+    abortSignal: signal,
+  });
+  return { text: finalText };
+}
+
+async function messages(conversationId: string): Promise<string[]> {
+  const rows = await queryClient<{ role: string; content: string }[]>`
+    SELECT role, content FROM conversation_messages WHERE conversation_id = ${conversationId} ORDER BY created_at`;
+  return rows.map((r) => `${r.role}:${r.content}`);
+}
+
 async function messageRoles(conversationId: string): Promise<string[]> {
   const rows = await queryClient<{ role: string }[]>`
     SELECT role FROM conversation_messages WHERE conversation_id = ${conversationId} ORDER BY created_at`;
@@ -125,6 +156,11 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
   });
 
   afterAll(teardown);
+
+  afterEach(() => {
+    hookBehaviour.responseGenerated = undefined;
+    hookBehaviour.responseSent = undefined;
+  });
 
   it("writes the turn's messages and the hook's state when nothing aborts it", async () => {
     const conversationId = `${MARKER}-${randomUUID()}`;
@@ -163,5 +199,44 @@ describe.skipIf(!DB_AVAILABLE)("post-response abort gate (integration)", () => {
 
     expect(await messageRoles(conversationId)).toEqual([]);
     expect(await storedState(conversationId)).toBeUndefined();
+  });
+
+  it("delivers and keeps a saved reply when the next fragment arrives while the turn is being saved", async () => {
+    const channelId = randomUUID();
+    const conversationId = `${AGENT}:whatsapp:${channelId}`;
+    const sent: string[] = [];
+    const coordinator = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 30, typingDelayMs: 10_000, maxRestarts: 3 }),
+      handler: cannedTurn,
+      sendOutbound: async (_agent, _channel, _id, text) => {
+        sent.push(text);
+      },
+    });
+    const fragment = (text: string): IncomingMessage => ({
+      channelType: "whatsapp",
+      channelId,
+      instanceId: AGENT,
+      text,
+      metadata: {},
+    });
+    // The contact's second fragment lands after the first turn was saved,
+    // while its response_sent hooks run.
+    let injected = false;
+    hookBehaviour.responseSent = () => {
+      if (injected) return;
+      injected = true;
+      void coordinator.onMessage(fragment("b"));
+    };
+
+    await coordinator.onMessage(fragment("a"));
+
+    await vi.waitFor(async () => expect((await messages(conversationId)).length).toBeGreaterThanOrEqual(4), {
+      timeout: 5_000,
+    });
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(1));
+    // Each saved reply was the one delivered, and "a" was saved once.
+    expect(await messages(conversationId)).toEqual(["user:a", "assistant:R(a)", "user:b", "assistant:R(b)"]);
+    await vi.waitFor(() => expect(sent).toEqual(["R(a)", "R(b)"]));
+    coordinator.shutdown();
   });
 });

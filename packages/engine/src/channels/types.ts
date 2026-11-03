@@ -84,6 +84,15 @@ export interface IncomingMessage {
    * cannot take back?" has an answer that no other event can race.
    */
   toolGate?: (toolName: string) => boolean;
+
+  /**
+   * Asked once, synchronously, right before the turn writes anything (its
+   * conversation state, its messages). False: the turn was cancelled and
+   * writes nothing. True: the turn is no longer cancelled, so what it saves is
+   * also what it delivers. Set only in-process, like `toolGate`, by whoever can
+   * cut the turn short.
+   */
+  commitGate?: () => boolean;
 }
 
 /** Why a turn produced a warning instead of an answer. Channels ignore it; API bridges map it to an error status. */

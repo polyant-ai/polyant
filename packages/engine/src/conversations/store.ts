@@ -394,6 +394,10 @@ export class ConversationStore {
       /** Exact LLM request payload (DEBUG mode only). NULL otherwise. */
       debugPayload?: LlmDebugPayload;
     }>,
+    options?: {
+      /** Other writes that must commit or roll back with these rows (the turn's state). */
+      inTransaction?: (tx: DbTransaction) => Promise<void>;
+    },
   ): Promise<void> {
     if (messages.length === 0) return;
 
@@ -403,6 +407,7 @@ export class ConversationStore {
     // stale and is missed by incremental pulls. Before this, only title/summary
     // writes moved the column — never the messages themselves.
     await db.transaction(async (tx) => {
+      await options?.inTransaction?.(tx);
       const inserted = await tx.insert(conversationMessages).values(
         messages.map((m) => ({
           ...(m.id ? { id: m.id } : {}),

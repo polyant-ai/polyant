@@ -116,6 +116,8 @@ export interface PipelineContext {
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
   /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
   stateBuffer: ConversationStateBuffer | undefined;
+  /** The channel's point of no return (`IncomingMessage.commitGate`), asked once before the turn is saved. */
+  commitGate?: () => boolean;
   history: ModelMessage[] | undefined;
   /** True when no message rows were persisted before this turn (first successful turn). */
   isFirstTurn: boolean;
@@ -302,6 +304,7 @@ export async function preparePipeline(
     contextPrompt,
     channelIdentity,
     stateBuffer,
+    commitGate: msg.commitGate,
     history,
     isFirstTurn,
     hasOverflow,
@@ -447,11 +450,12 @@ export interface AfterResponseOptions {
 }
 
 /**
- * Persist the user message and the reply, in one transaction, and throw when
- * that fails: the caller must then treat the turn as failed and not deliver a
+ * Persist the user message and the reply — with the run's buffered
+ * conversation state, when given — in one transaction, and throw when that
+ * fails: the caller must then treat the turn as failed and not deliver a
  * reply that the history does not hold. No-op for automated Open WebUI tasks.
  */
-export async function persistTurn(opts: AfterResponseOptions): Promise<void> {
+export async function persistTurn(opts: AfterResponseOptions, state?: ConversationStateBuffer): Promise<void> {
   if (isAutoTask(opts.userMessage)) return;
 
   // No pre-check: `uploadAttachment` answers `null` for an agent with no
@@ -513,7 +517,7 @@ export async function persistTurn(opts: AfterResponseOptions): Promise<void> {
       debugPayload: opts.debugPayload,
       metadata: opts.provenance,
     },
-  ]);
+  ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
 }
 
 /**
@@ -745,63 +749,19 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
   const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
-  // The coordinator can abort while the hooks above were awaited (a new fragment
-  // arrived). Re-check before any write: an aborted run persists nothing.
-  if (opts.abortSignal?.aborted) {
+  // Point of no return, right before the first write. A run that was cancelled
+  // meanwhile (a newer fragment arrived while the hooks above were awaited)
+  // writes nothing. A run that passes is no longer cancelled: a fragment that
+  // arrives while the turn is being saved gets a run of its own, instead of
+  // discarding a reply that is already in the history. Without a gate (no
+  // coordinator) the abort signal decides, once, here.
+  const committed = ctx.commitGate ? ctx.commitGate() : !opts.abortSignal?.aborted;
+  if (!committed) {
     return { finalText, hookExecutions };
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
-
-  // Fire-and-forget: record pipeline trace
-  if (persist && !isAutoTask(opts.messageText)) {
-    const sttFields = extractSttFields(ctx.inboundMetadata);
-    const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
-    traceStore.record({
-      conversationId: ctx.conversationId,
-      messageId: opts.assistantMessageId,
-      instanceId: ctx.instanceId,
-      channel: opts.channel,
-      contextPrepMs: opts.contextPrepMs,
-      toolBuildingMs: opts.toolBuildingMs,
-      llmCallMs: opts.durationMs,
-      totalMs,
-      ttfbMs: opts.ttfbMs,
-      promptTokens: opts.usage.promptTokens,
-      completionTokens: opts.usage.completionTokens,
-      cachedInputTokens: opts.usage.cachedInputTokens,
-      cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
-      cacheCreation5mInputTokens: opts.usage.cacheCreation5mInputTokens,
-      model: opts.model,
-      provider: opts.provider,
-      cost: opts.cost,
-      thinking: opts.thinking,
-      temperature: opts.temperature,
-      toolCalls: opts.toolCallTraces,
-      isStreaming: opts.isStreaming,
-      parentConversationId: agentCall?.callerConversationId,
-      parentTraceId: agentCall?.parentTraceId,
-      ...sttFields,
-    });
-  }
-
-  // Persist conversation state (commit-on-success): reached only when not aborted
-  // (the abort gates above already returned). Awaited — a single fast upsert — so a
-  // tool's derived value is durable before the next turn reads it.
-  if (persist && ctx.stateBuffer) {
-    try {
-      await ctx.stateBuffer.flush();
-    } catch (err) {
-      log.error("pipeline", `Failed to flush conversation state for ${ctx.conversationId}`, err);
-    }
-  }
-
-  // The flush is awaited, so the coordinator may have aborted meanwhile. The state
-  // upsert is idempotent for the restarted run; the messages must not be written.
-  if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
-  }
 
   if (persist) {
     const turn: AfterResponseOptions = {
@@ -828,7 +788,42 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       provenance,
       receivedAt: new Date(ctx.pipelineStart),
     };
-    await persistTurn(turn);
+    // The conversation state (commit-on-success) is written in the same
+    // transaction as the messages: a tool's derived value is durable before the
+    // next turn reads it, and never without the turn that produced it.
+    await persistTurn(turn, ctx.stateBuffer);
+
+    if (!isAutoTask(opts.messageText)) {
+      const sttFields = extractSttFields(ctx.inboundMetadata);
+      const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
+      traceStore.record({
+        conversationId: ctx.conversationId,
+        messageId: opts.assistantMessageId,
+        instanceId: ctx.instanceId,
+        channel: opts.channel,
+        contextPrepMs: opts.contextPrepMs,
+        toolBuildingMs: opts.toolBuildingMs,
+        llmCallMs: opts.durationMs,
+        totalMs,
+        ttfbMs: opts.ttfbMs,
+        promptTokens: opts.usage.promptTokens,
+        completionTokens: opts.usage.completionTokens,
+        cachedInputTokens: opts.usage.cachedInputTokens,
+        cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
+        cacheCreation5mInputTokens: opts.usage.cacheCreation5mInputTokens,
+        model: opts.model,
+        provider: opts.provider,
+        cost: opts.cost,
+        thinking: opts.thinking,
+        temperature: opts.temperature,
+        toolCalls: opts.toolCallTraces,
+        isStreaming: opts.isStreaming,
+        parentConversationId: agentCall?.callerConversationId,
+        parentTraceId: agentCall?.parentTraceId,
+        ...sttFields,
+      });
+    }
+
     afterResponseTail(turn);
 
     // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
