@@ -44,7 +44,7 @@ const DEBOUNCED_CHANNELS: ReadonlySet<ChannelType> = new Set<ChannelType>(["what
 type InstanceAdapters = Map<string, Map<string, ChannelAdapter>>;
 
 /** The Postgres notification channel that carries "an agent's channel changed". */
-export const CHANNEL_CHANGE_NOTIFICATION = "polyant_channel_change";
+const CHANNEL_CHANGE_NOTIFICATION = "polyant_channel_change";
 
 /**
  * The part of a postgres.js client the cross-process channel signal uses:
