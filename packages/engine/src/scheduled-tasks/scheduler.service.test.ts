@@ -73,6 +73,7 @@ vi.mock("./schedule-utils.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { schedulerService } from "./scheduler.service.js";
+import { drainBackgroundTurns } from "../channels/background-turns.js";
 
 // The platform policies are a row; this suite has no database. The values are
 // the shipped defaults, so the assertions read the same as before they moved.
@@ -181,6 +182,34 @@ describe("SchedulerService", () => {
 
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
       expect(schedulerService.isRunning).toBe(false);
+    });
+
+    it("a run in flight at shutdown is waited for by the shutdown drain, then completes", async () => {
+      let finish!: () => void;
+      schedulerService.initialize(() => new Promise((resolve) => {
+        finish = () => resolve({ text: "done", toolCalls: [], usage: undefined } as never);
+      }));
+      mockStore.claimDueTasks.mockResolvedValue([{
+        id: "task-live", name: "live", instanceId: "acme", schedule: { type: "cron", expression: "0 6 * * *" },
+        prompt: "noop", keepHistory: false, deleteAfterRun: false, maxRetries: 3, consecutiveErrors: 0,
+      }]);
+      const ticking = schedulerService.tick();
+      await vi.advanceTimersByTimeAsync(0);
+
+      schedulerService.shutdown();
+      let drainEnded = false;
+      const drained = drainBackgroundTurns(10_000).then((outcome) => {
+        drainEnded = true;
+        return outcome;
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(drainEnded).toBe(false);
+      expect(mockStore.markCompleted).not.toHaveBeenCalled();
+
+      finish();
+      await expect(drained).resolves.toEqual({ pending: 0 });
+      await ticking;
+      expect(mockStore.markCompleted).toHaveBeenCalledWith("task-live", expect.any(String), expect.any(Date));
     });
 
     it("shutdown() when not started is a safe no-op (does not throw)", () => {

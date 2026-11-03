@@ -554,8 +554,10 @@ async function main() {
           // shutdowns below always run before the platform kills the process.
           // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
           // webhooks) are no longer open requests, and their sender will not retry
-          // them: wait for those within the same grace period.
-          name: "HTTP server and acknowledged turns",
+          // them; Room cycles and scheduled-task runs already started have no request
+          // at all. Wait for those within the same grace period. One still running
+          // after it is cut, and its lease lets another replica take it up.
+          name: "HTTP server and background turns",
           run: async () => {
             const streams = closeActivityStreams();
             const [{ forced }, background] = await Promise.all([
@@ -564,7 +566,7 @@ async function main() {
             ]);
             log.info("boot", `HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
             if (background.pending > 0) {
-              log.warn("boot", `${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+              log.warn("boot", `${background.pending} background turn(s) still running after the grace period; they are cut off`);
             }
           },
         },

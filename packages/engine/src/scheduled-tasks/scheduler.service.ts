@@ -13,6 +13,7 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { trackBackgroundTurn } from "../channels/background-turns.js";
 import { createLogger } from "../utils/create-logger.js";
 import { errMsg } from "../utils/error.js";
 
@@ -177,7 +178,10 @@ class SchedulerService {
     }, leaseTtlMs / 4);
     heartbeat.unref();
     try {
-      await this.executeClaimed(task, claim, triggerType);
+      // Shutdown waits for it within its grace period, like an acknowledged channel turn.
+      const run = this.executeClaimed(task, claim, triggerType);
+      trackBackgroundTurn(run);
+      await run;
     } finally {
       clearInterval(heartbeat);
       this.running.delete(task.id);

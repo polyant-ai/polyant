@@ -14,6 +14,7 @@ import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { withLease } from "../background/work-lease.js";
+import { trackBackgroundTurn } from "../channels/background-turns.js";
 import { createLogger } from "../utils/create-logger.js";
 
 const roomLog = createLogger();
@@ -102,7 +103,10 @@ class RoomScheduler {
    * the same time. Returns false when another process holds it.
    */
   private async cycle(room: RoomConfig, instanceSlug: InstanceSlug): Promise<boolean> {
-    return withLease(roomLeaseKey(room.instanceId), {}, (owner) => executeRoomCycle(room, instanceSlug, owner));
+    // Shutdown waits for it within its grace period, like an acknowledged channel turn.
+    const cycle = withLease(roomLeaseKey(room.instanceId), {}, (owner) => executeRoomCycle(room, instanceSlug, owner));
+    trackBackgroundTurn(cycle);
+    return cycle;
   }
 
   private async processRoom(room: RoomConfig): Promise<void> {

@@ -51,6 +51,7 @@ vi.mock("../utils/create-logger.js", async (importOriginal) => ({
 /* ── import under test ─────────────────────────────────────────── */
 
 import { roomScheduler } from "./room-scheduler.js";
+import { drainBackgroundTurns, pendingBackgroundTurns } from "../channels/background-turns.js";
 import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
@@ -105,6 +106,24 @@ describe("RoomScheduler", () => {
 
       roomScheduler.shutdown();
       expect(mockRoomLog.info).toHaveBeenCalledWith("Scheduler", "shut down");
+    });
+  });
+
+  describe("shutdown", () => {
+    it("a cycle in flight at shutdown is counted by the shutdown drain until it ends", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map([["inst-a", 1]]));
+      let finish!: () => void;
+      mockExecuteRoomCycle.mockImplementation(() => new Promise<void>((r) => { finish = r; }));
+
+      await (roomScheduler as any).tick();
+      await vi.waitFor(() => expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1));
+      roomScheduler.shutdown();
+      expect(pendingBackgroundTurns()).toBeGreaterThan(0);
+
+      const drained = drainBackgroundTurns(10_000);
+      finish();
+      await expect(drained).resolves.toEqual({ pending: 0 });
     });
   });
 

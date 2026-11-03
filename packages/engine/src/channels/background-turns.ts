@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Work the engine has already acknowledged to the sender and is still doing.
+ * Work the engine has already started on its own and is still doing.
  *
  * The Telegram, Slack and Twilio webhooks, and the generic event webhook,
  * answer 200 first and run the turn afterwards, so the sender does not deliver
  * the same message again. Once acknowledged, the sender will not retry: a turn
- * that the shutdown sequence cuts off is lost. The HTTP server's grace period
- * waits only for open requests, which these turns no longer are, so shutdown
- * waits for the work registered here as well.
+ * that the shutdown sequence cuts off is lost. A Room cycle and a scheduled-task
+ * run are the same kind of work: no request waits on them, and cutting one off
+ * throws away a model call already paid for. The HTTP server's grace period
+ * waits only for open requests, so shutdown waits for the work registered here
+ * as well.
  */
 const pending = new Set<Promise<unknown>>();
 
