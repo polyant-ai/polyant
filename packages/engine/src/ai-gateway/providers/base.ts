@@ -833,6 +833,7 @@ export function createProvider(
       abortSignal: request.abortSignal,
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
+      ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),

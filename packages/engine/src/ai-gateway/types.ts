@@ -72,6 +72,12 @@ export interface ChatRequest {
   /** How many times a failed model request is retried. Unset, the gateway applies `config.llm.maxRetries`. */
   maxRetries?: number;
   /**
+   * Cap on the tokens the model may generate per step. On a model that reasons,
+   * the reasoning counts against it too, so a cap sized for the answer alone
+   * can cut the call off before the answer. Unset = the provider's default.
+   */
+  maxOutputTokens?: number;
+  /**
    * When true, the provider captures the exact request payload (system + messages
    * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
    * instance `debug_enabled` flag — heavy, opt-in, persisted for analysis/debug.
