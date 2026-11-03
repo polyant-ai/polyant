@@ -51,9 +51,6 @@ export const CHANNEL_MAX_LENGTH: Record<"telegram" | "slack" | "whatsapp", numbe
   whatsapp: 1600,
 };
 
-/** Metadata key used to override the auto-generated conversationId in the pipeline. */
-export const METADATA_CONVERSATION_ID_OVERRIDE = "conversationIdOverride";
-
 export interface IncomingMessage {
   /** Channel this message came from */
   channelType: MessageChannelType;
@@ -63,6 +60,14 @@ export interface IncomingMessage {
 
   /** Instance ID (determines which workspace/personality to use) */
   instanceId: InstanceSlug;
+
+  /**
+   * The conversation this message continues, when the channel keys it on more
+   * than `channelId` (a Slack thread). Set only by server-side channel adapters
+   * from provider data, never from request fields or `metadata`, which carry
+   * caller input: a caller-chosen id would write into another conversation.
+   */
+  conversationId?: string;
 
   /** User display name (when available) */
   userName?: string;

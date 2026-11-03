@@ -169,8 +169,9 @@ async function main() {
       }
     }
 
-    // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, undefined, abortSignal);
+    // Phase 1: Context preparation. A reply to a webhook-triggered message
+    // continues the trigger's conversation, which holds its context.
+    const pre = await runPipelinePre(msg, activeTrigger, abortSignal);
     // Pre-generate the assistant message id so the pipeline trace can be linked
     // to the persisted message by id (not fragile ordinal matching).
     return runBufferedTurn(msg, pre, abortSignal, randomUUID());

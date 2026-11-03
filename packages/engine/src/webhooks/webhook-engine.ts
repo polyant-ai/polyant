@@ -235,7 +235,13 @@ export async function triggerConversation(
   // In internal mode (no channel) the response is only persisted, never sent.
   if (hasChannel && finalText && !result?.replyHandled) {
     try {
-      await channelManager.sendOutbound(instanceSlug, definition.outboundChannel!, renderedTarget!, finalText);
+      const delivery = await channelManager.sendOutbound(instanceSlug, definition.outboundChannel!, renderedTarget!, finalText);
+      // The contact can answer from an id other than the target (a Slack user id
+      // answered on its DM, a WhatsApp target with its `whatsapp:` prefix): the
+      // adapter reports it, and the reply is routed to this conversation too.
+      if (delivery && delivery.channelId !== renderedTarget) {
+        registerTrigger(instanceSlug, definition.outboundChannel!, delivery.channelId, conversationId);
+      }
       webhookLog.info("TriggerEngine", `sent to ${definition.outboundChannel}:${renderedTarget}`);
     } catch (err) {
       webhookLog.error("TriggerEngine", `send failed for ${definition.outboundChannel}:${renderedTarget}`, err);
