@@ -78,8 +78,23 @@ describe("requireLiveAdapter", () => {
     });
   });
 
+  it("reads the channel row once, without a separate lookup of the agent, on every webhook", async () => {
+    live.set("shop/telegram", {});
+
+    await requireLiveAdapter("shop", "telegram", unavailable());
+
+    expect(mockGetChannelConfig).toHaveBeenCalledTimes(1);
+    expect(mockResolveInstanceId).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ["instance not found", () => mockResolveInstanceId.mockResolvedValue(undefined)],
+    [
+      "instance not found",
+      () => {
+        mockResolveInstanceId.mockResolvedValue(undefined);
+        mockGetChannelConfig.mockResolvedValue(null);
+      },
+    ],
     ["channel not configured or disabled", () => mockGetChannelConfig.mockResolvedValue({ enabled: false, config: {} })],
     ["adapter not active", () => undefined],
   ])("answers the same 404 when %s, and logs the real reason", async (reason, arrange) => {

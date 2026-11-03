@@ -29,12 +29,14 @@ export async function requireLiveAdapter<A extends ChannelAdapter>(
   unavailable: { message: string; log?: (reason: AdapterUnavailableReason) => void },
 ): Promise<{ adapter: A; config: Record<string, unknown> }> {
   const slug = asInstanceSlug(instanceSlug);
-  const [id, channel] = await Promise.all([resolveInstanceId(slug), getChannelConfig(slug, channelType)]);
+  // The channel read resolves the agent itself; the agent is looked up apart
+  // only to log why a webhook is refused, never on the path every message takes.
+  const channel = await getChannelConfig(slug, channelType);
   const refuse = (reason: AdapterUnavailableReason): NotFoundException => {
     unavailable.log?.(reason);
     return new NotFoundException(unavailable.message);
   };
-  if (!id) throw refuse("instance not found");
+  if (!channel && !(await resolveInstanceId(slug))) throw refuse("instance not found");
   if (!channel?.enabled) throw refuse("channel not configured or disabled");
   const adapter = channelManager.getAdapter(slug, channelType) as A | undefined;
   if (!adapter) throw refuse("adapter not active");
