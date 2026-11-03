@@ -408,6 +408,7 @@ export const api = {
         intermediateText?: IntermediateTextPolicy | null;
         a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
+        toolHistoryReplay?: "compact" | "exact";
         debugEnabled?: boolean;
         attachmentStorageEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram" | "disabled";

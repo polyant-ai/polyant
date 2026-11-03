@@ -141,6 +141,11 @@ export interface Instance {
   a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /**
+   * How earlier turns are replayed when tool results are in history: "compact"
+   * rebuilds them with truncated results, "exact" replays them as they were sent.
+   */
+  toolHistoryReplay: "compact" | "exact";
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
   debugEnabled: boolean;
   /** When true, files users send are copied to the agent's bucket so they can be reopened. */

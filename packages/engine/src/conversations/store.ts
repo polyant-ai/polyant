@@ -3,7 +3,7 @@
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { db, type DbTransaction } from "../database/client.js";
-import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
+import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ExactReplay, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import type { CostBreakdown } from "../ai-gateway/types.js";
 import { aiLogs } from "../ai-gateway/logger.js";
@@ -31,6 +31,8 @@ export interface MessageRow {
   steps?: StepDetail[] | null;
   /** Aggregated reasoning at the message level. NULL when not produced/persisted. */
   reasoning?: ReasoningDetail[] | null;
+  /** The row's messages as sent to the model; NULL unless the agent replays its history exactly. */
+  exactReplay?: ExactReplay | null;
   createdAt: Date | null;
 }
 
@@ -393,6 +395,8 @@ export class ConversationStore {
       metadata?: Record<string, unknown>;
       /** Exact LLM request payload (DEBUG mode only). NULL otherwise. */
       debugPayload?: LlmDebugPayload;
+      /** The row's messages as sent to the model (exact history replay only). NULL otherwise. */
+      exactReplay?: ExactReplay;
     }>,
   ): Promise<void> {
     if (messages.length === 0) return;
@@ -417,6 +421,7 @@ export class ConversationStore {
           attachments: m.attachments ? stripNulDeep(m.attachments) : null,
           metadata: m.metadata ? stripNulDeep(m.metadata) : null,
           debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
+          exactReplay: m.exactReplay ? stripNulDeep(m.exactReplay) : null,
         })),
       ).returning({ createdAt: conversationMessages.createdAt });
 
@@ -505,6 +510,7 @@ export class ConversationStore {
         content: conversationMessages.content,
         steps: conversationMessages.steps,
         reasoning: conversationMessages.reasoning,
+        exactReplay: conversationMessages.exactReplay,
         createdAt: conversationMessages.createdAt,
       })
       .from(conversationMessages)
@@ -517,6 +523,7 @@ export class ConversationStore {
       content: r.content,
       steps: (r.steps as StepDetail[] | null) ?? null,
       reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
+      exactReplay: r.exactReplay ?? null,
       createdAt: r.createdAt ?? null,
     }));
   }

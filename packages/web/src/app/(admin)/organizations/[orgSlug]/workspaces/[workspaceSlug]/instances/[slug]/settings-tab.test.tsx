@@ -59,6 +59,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     messageTypingDelayMs: null,
     messageMaxRestarts: null,
     toolResultsInHistoryEnabled: false,
+    toolHistoryReplay: "compact",
     debugEnabled: false,
     intermediateText: null,
     ...overrides,
@@ -143,6 +144,24 @@ describe("SettingsTab (behaviour parameters)", () => {
 
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ intermediateText: null })),
+    );
+  });
+
+  it("offers exact replay only while tool results are in history", () => {
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+    expect(screen.getByRole("switch", { name: "settings.tab.exactToolHistory" })).toBeDisabled();
+  });
+
+  it("saves exact replay as the agent's tool history replay", async () => {
+    const user = userEvent.setup();
+    mocks.update.mockResolvedValueOnce({ instance: makeInstance({ toolResultsInHistoryEnabled: true, toolHistoryReplay: "exact" }) });
+    renderWithProvider(<SettingsTab instance={makeInstance({ toolResultsInHistoryEnabled: true })} onUpdate={vi.fn()} />);
+
+    await user.click(screen.getByRole("switch", { name: "settings.tab.exactToolHistory" }));
+    await user.click(screen.getByText("common.save"));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", expect.objectContaining({ toolHistoryReplay: "exact" })),
     );
   });
 

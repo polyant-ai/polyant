@@ -152,6 +152,7 @@ const fullInstance = {
   thinkingEnabled: false,
   stateInPromptEnabled: false,
   toolResultsInHistoryEnabled: false,
+  toolHistoryReplay: "compact",
   icon: "data:image/png;base64,AAA=",
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
@@ -228,7 +229,7 @@ describe("InstancesController", () => {
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
-        "cacheEnabled", "cacheTtl", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "cacheEnabled", "cacheTtl", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "toolHistoryReplay", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.

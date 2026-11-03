@@ -19,6 +19,7 @@ import {
 } from "./agent-settings.js";
 import { invalidateAllInstanceMeta, invalidateInstanceMeta } from "./instance-meta.js";
 import { isIntermediateTextPolicy, type IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
+import type { ToolHistoryReplay } from "../conversations/tool-history.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -83,6 +84,8 @@ export interface InstanceConfig {
   a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /** How earlier turns are replayed when `toolResultsInHistoryEnabled` is on: rebuilt and truncated, or exactly as sent. */
+  toolHistoryReplay: ToolHistoryReplay;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
   /** When true, inbound attachments are copied to the agent's bucket. Default false — opt-in. */
@@ -178,6 +181,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       intermediateText: null,
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
+      toolHistoryReplay: "compact",
       debugEnabled: false,
       attachmentStorageEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
@@ -272,6 +276,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     intermediateText: isIntermediateTextPolicy(instance.intermediateText) ? instance.intermediateText : null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    toolHistoryReplay: instance.toolHistoryReplay === "exact" ? "exact" : "compact",
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optout: {

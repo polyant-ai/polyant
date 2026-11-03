@@ -39,6 +39,7 @@ export const UPDATABLE_INSTANCE_KEYS = [
   "intermediateText",
   "a2aEnabled",
   "toolResultsInHistoryEnabled",
+  "toolHistoryReplay",
   "debugEnabled",
   "attachmentStorageEnabled",
   "icon",

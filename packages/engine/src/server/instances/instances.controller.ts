@@ -72,6 +72,11 @@ import {
   isIntermediateTextPolicy,
   type IntermediateTextPolicy,
 } from "../../ai-gateway/intermediate-text.js";
+import {
+  TOOL_HISTORY_REPLAY_MODES,
+  isToolHistoryReplay,
+  type ToolHistoryReplay,
+} from "../../conversations/tool-history.js";
 
 const log = createLogger();
 
@@ -120,6 +125,7 @@ function toInstanceDto(instance: Instance) {
     intermediateText: instance.intermediateText ?? null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    toolHistoryReplay: instance.toolHistoryReplay,
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optoutEnabled: instance.optoutEnabled,
@@ -407,6 +413,7 @@ export class InstancesController {
       intermediateText?: IntermediateTextPolicy | null;
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
+      toolHistoryReplay?: ToolHistoryReplay;
       debugEnabled?: boolean;
       attachmentStorageEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
@@ -451,6 +458,11 @@ export class InstancesController {
     if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
       throw new BadRequestException(
         `intermediateText must be null or one of ${INTERMEDIATE_TEXT_POLICIES.map((p) => `"${p}"`).join(", ")}`,
+      );
+    }
+    if (body.toolHistoryReplay !== undefined && !isToolHistoryReplay(body.toolHistoryReplay)) {
+      throw new BadRequestException(
+        `toolHistoryReplay must be one of ${TOOL_HISTORY_REPLAY_MODES.map((m) => `"${m}"`).join(", ")}`,
       );
     }
     this.validateAgentSettings(body);

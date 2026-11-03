@@ -3,6 +3,7 @@
 import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer, real } from "drizzle-orm/pg-core";
 import { workspaces } from "../organizations/organization.schema.js";
 import type { IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
+import type { ToolHistoryReplay } from "../conversations/tool-history.js";
 
 export const instances = pgTable("instances", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -89,6 +90,13 @@ export const instances = pgTable("instances", {
    * false keeps the history text-only (see conversations/store.ts getRecentMessages).
    */
   toolResultsInHistoryEnabled: boolean("tool_results_in_history_enabled").notNull().default(false),
+  /**
+   * How earlier turns are replayed when `toolResultsInHistoryEnabled` is on:
+   * "compact" (default) rebuilds them from `steps` with truncated results;
+   * "exact" replays them as they were sent, so the provider's prompt cache can
+   * read the history (see conversations/tool-history.ts). Ignored when the flag is off.
+   */
+  toolHistoryReplay: text("tool_history_replay").$type<ToolHistoryReplay>().notNull().default("compact"),
   /**
    * When true, the engine persists the exact LLM request payload per assistant
    * turn (full system prompt, the messages array sent to the model, and the tool

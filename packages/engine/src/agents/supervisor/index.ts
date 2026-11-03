@@ -31,6 +31,7 @@ import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import { buildConversationApi } from "../../conversations/conversation-history-api.js";
+import { requestPrefixKey, withoutStaleReasoning, type ExactTurn } from "../../conversations/tool-history.js";
 import { makeOAuthAccess } from "../tools/oauth-access.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
@@ -197,6 +198,13 @@ export interface SupervisorOutput {
    * on — threaded to the pipeline and persisted on the assistant message row.
    */
   debugPayload?: LlmDebugPayload;
+  /**
+   * The turn's messages as the model received them: the user message (content
+   * parts and volatile tail included), the step-by-step response messages, and
+   * the fingerprint of the system prompt, tools and model they ran under.
+   * Persisted only by agents that replay their history exactly.
+   */
+  exactTurn?: ExactTurn;
 }
 
 /** Shared mutable signals accumulated across tool calls within a single supervise() run. */
@@ -491,6 +499,8 @@ interface SupervisorContext {
   tools: Record<string, Tool>;
   systemPrompt: string;
   messages: ModelMessage[];
+  /** Fingerprint of the system prompt, tools and model of this request (see `requestPrefixKey`). */
+  prefixKey: string;
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
@@ -639,12 +649,23 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     // Build user message — multimodal when attachments are present. The per-turn
     // volatile context rides the tail of this message (see buildUserContent).
     const userContent = buildUserContent(input.message, turnContext, input.attachments);
+    const history = input.conversationHistory ?? [];
+    const prefixKey = requestPrefixKey({
+      system: systemPrompt,
+      messages: history,
+      tools,
+      provider: input.provider,
+      model: input.model,
+    });
+    // An exactly replayed turn keeps its signed thinking blocks only while the
+    // prefix they are bound to is unchanged; a history without such turns comes
+    // back as the same array.
     const messages: ModelMessage[] = [
-      ...(input.conversationHistory ?? []),
+      ...withoutStaleReasoning(history, prefixKey),
       { role: "user", content: userContent },
     ];
 
-    return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
+    return { instanceId: instanceSlug, tools, systemPrompt, messages, prefixKey, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
   } catch (err) {
     await mcp.close().catch(() => { /* best-effort */ });
     throw err;
@@ -714,6 +735,11 @@ function toSupervisorOutput(
     replyHandled: ctx.signals.replyHandled || undefined,
     replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
     ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+    exactTurn: {
+      user: ctx.messages[ctx.messages.length - 1],
+      response: response.responseMessages ?? [],
+      prefixKey: ctx.prefixKey,
+    },
   };
 }
 

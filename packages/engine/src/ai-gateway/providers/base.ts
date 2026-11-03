@@ -294,6 +294,20 @@ async function finalStepReasoningAsync(result: unknown): Promise<unknown[] | und
   return final?.reasoning ?? (r.reasoning ? await r.reasoning : undefined);
 }
 
+/**
+ * The turn's response messages, across every step. v7 exposes them as
+ * `responseMessages` (a Promise on the streamed result) and deprecates the
+ * final step's `response.messages`, which v6 accumulated the same way.
+ */
+async function responseMessagesOf(result: unknown): Promise<ModelMessage[] | undefined> {
+  const r = (result ?? {}) as {
+    responseMessages?: ModelMessage[] | PromiseLike<ModelMessage[]>;
+    response?: { messages?: ModelMessage[] } | PromiseLike<{ messages?: ModelMessage[] }>;
+  };
+  const messages = (await r.responseMessages) ?? (await r.response)?.messages;
+  return Array.isArray(messages) && messages.length > 0 ? messages : undefined;
+}
+
 function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
   if (!Array.isArray(rawSteps)) return [];
   return rawSteps.map((raw): SdkStep => {
@@ -818,6 +832,8 @@ export function createProvider(
         providerName,
       );
       if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+      const responseMessages = await responseMessagesOf(result);
+      if (responseMessages) response.responseMessages = responseMessages;
       return response;
     },
 
@@ -860,6 +876,8 @@ export function createProvider(
               providerName,
             );
             if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+            const responseMessages = await responseMessagesOf(result);
+            if (responseMessages) response.responseMessages = responseMessages;
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).

@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
+import { TOOL_HISTORY_REPLAY_MODES } from "../conversations/tool-history.js";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -156,6 +157,7 @@ export const exportInstanceDataSchema = z.object({
   intermediateText: z.enum(INTERMEDIATE_TEXT_POLICIES).nullable().default(null),
   a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
+  toolHistoryReplay: z.enum(TOOL_HISTORY_REPLAY_MODES).default("compact"),
   debugEnabled: z.boolean().default(false),
   /**
    * Optional with no default: a bundle from a build that predates the switch

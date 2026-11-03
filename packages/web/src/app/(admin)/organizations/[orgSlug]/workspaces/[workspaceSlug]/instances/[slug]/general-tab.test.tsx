@@ -115,6 +115,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     intermediateText: null,
     a2aEnabled: false,
     toolResultsInHistoryEnabled: false,
+    toolHistoryReplay: "compact",
     debugEnabled: false,
     attachmentStorageEnabled: false,
     optoutEnabled: false,

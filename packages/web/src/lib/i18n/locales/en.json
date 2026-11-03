@@ -528,6 +528,8 @@
   "settings.tab.cacheTtl1h": "1 hour",
   "settings.tab.cacheTtlBedrock": "5 minutes (fixed on Bedrock)",
   "settings.tab.toolResultsInHistory": "Tool results in history",
+  "settings.tab.exactToolHistory": "Replay earlier turns exactly",
+  "settings.tab.exactToolHistoryHelp": "When on, earlier turns are sent again exactly as the model first received them: step by step, with whole tool results. Repeated requests can then be read from the provider's prompt cache. The context grows with every tool result kept whole. Applies only with tool results in history on.",
   "settings.tab.toolResultsInHistoryHelp": "When on, prior-turn tool results are replayed (truncated) into the model's context so it remembers what tools returned across turns. Off replays only the assistant's text. Uses more tokens per turn.",
   "settings.tab.intermediateText": "Text written alongside tools",
   "settings.tab.intermediateTextHelp": "What happens to text the model writes in the same step as a tool call.",

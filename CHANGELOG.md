@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Exact replay of earlier turns, per agent (`toolHistoryReplay: "exact"`, off by
+  default). With tool results in history on, an agent can replay earlier turns
+  exactly as the model received them: step by step, with whole tool results,
+  the user message with the context it was sent with, and the thinking blocks.
+  The next request then starts with the prefix the provider already cached, so
+  the history is read from the prompt cache instead of written to it every turn.
+  The context grows with every tool result kept whole, which is why it is opt-in.
+
 ### Fixed
 
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
