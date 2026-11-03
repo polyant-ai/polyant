@@ -183,13 +183,15 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
 
   // Bounds on the model calls the AI gateway makes (milliseconds). The AI SDK
   // sets no timeout of its own, so a provider that stopped answering held the
-  // turn until the socket died. A conversation turn that does not stream gets
-  // no total bound: its tools may legitimately run for minutes.
+  // turn until the socket died. A call that runs tools over several steps and
+  // does not stream (a conversation turn, a sub-agent) gets no total bound: its
+  // tools may legitimately run for minutes.
   llm: z.object({
     // Streamed answers: the longest silence between two chunks of one model
     // response, once it has started (tool execution between steps not counted).
     streamChunkTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
-    // Service calls (titles, summaries, memory, matchers, tool sub-calls): the whole call.
+    // Single-call service jobs (titles, summaries, memory, matchers, a tool's or a
+    // hook's own model call): the whole call.
     serviceCallTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
     // Retries of a failed model request. 2 is the AI SDK's own default; each retry is logged.
     maxRetries: z.coerce.number().int().min(0).max(10).default(2),

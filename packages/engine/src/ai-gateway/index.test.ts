@@ -696,6 +696,26 @@ describe("AI Gateway", () => {
     });
   });
 
+  describe("prompt cache lifetime of a service call", () => {
+    // A service call's prefix is rarely read again an hour later: writing it
+    // at the one-hour lifetime costs 2× input against 1.25× at five minutes.
+    it("asks for the five-minute cache on a service call that names no cache setting", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { callType: "service", purpose: "sub_task" });
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).cacheConfig).toEqual({ enabled: true, ttl: "5m" });
+    });
+
+    it("keeps a service call's own cache setting, and leaves a conversation turn's alone", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ cacheConfig: { enabled: false, ttl: "1h" } }), { callType: "service", purpose: "title" });
+      await chat(makeRequest());
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).cacheConfig).toEqual({ enabled: false, ttl: "1h" });
+      expect((mockProviderChat.mock.calls[1][0] as ChatRequest).cacheConfig).toBeUndefined();
+    });
+  });
+
   describe("bounds on every model call", () => {
     // Defaults from the process configuration (none of these variables is set in tests).
     const SERVICE_TOTAL_MS = 300_000;
@@ -709,6 +729,13 @@ describe("AI Gateway", () => {
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
       expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("sets no total time on a service call that runs tools over several steps", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ maxSteps: 10 }), { callType: "service", purpose: "sub_task" });
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).timeout).toBeUndefined();
     });
 
     it("sets no total time on a conversation turn, whose tools may run long", async () => {

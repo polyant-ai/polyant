@@ -391,24 +391,41 @@ function inFlightCall(promptTokens: number, conversationId: string | undefined):
   return { ...call, calls: [{ ...call, fast: false }] };
 }
 
+const SERVICE_CACHE: NonNullable<ChatRequest["cacheConfig"]> = { enabled: true, ttl: "5m" };
+
 /**
  * The request as the provider receives it: the messages this model can read,
- * the resolved provider options, and the call's bounds — the caller's own, or
- * the default for its kind of call (see `config.llm`). A streamed answer is
- * bounded by the silence between its chunks; a service call by its total time;
- * a conversation turn that does not stream by neither, since its tools may run
- * for minutes.
+ * the resolved provider options, and the defaults for its kind of call where
+ * the caller set none (see `config.llm`).
+ *
+ * Bounds: a streamed answer by the silence between its chunks; a single-call
+ * service job by its total time; a call that runs tools over several steps (a
+ * conversation turn, a sub-agent) by neither, since its tools may run for
+ * minutes. Cache: a service call's prefix is rarely read again within the hour,
+ * so it is written at the five-minute lifetime (1.25× input on Anthropic)
+ * rather than the default hour (2×).
  */
-function providerRequest(request: ChatRequest, config: CallConfig, bound: "stream" | "service" | "none"): ChatRequest {
+function providerRequest(
+  request: ChatRequest,
+  config: CallConfig,
+  call: { streamed: boolean; service: boolean },
+): ChatRequest {
   const llm = processConfig.llm;
+  const cacheConfig = request.cacheConfig ?? (call.service ? SERVICE_CACHE : undefined);
+  const singleCall = (request.maxSteps ?? 1) <= 1;
   const timeout =
     request.timeout ??
-    (bound === "stream" ? { chunkMs: llm.streamChunkTimeoutMs } : bound === "service" ? { totalMs: llm.serviceCallTimeoutMs } : undefined);
+    (call.streamed
+      ? { chunkMs: llm.streamChunkTimeoutMs }
+      : call.service && singleCall
+        ? { totalMs: llm.serviceCallTimeoutMs }
+        : undefined);
   return {
     ...request,
     messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
     providerOptions: config.providerOptions,
     ...(timeout ? { timeout } : {}),
+    ...(cacheConfig ? { cacheConfig } : {}),
     maxRetries: request.maxRetries ?? llm.maxRetries,
   };
 }
@@ -427,7 +444,7 @@ export async function chat(
   let response: ChatResponse;
   try {
     response = await config.provider.chat(
-      providerRequest(request, config, options?.callType === "service" ? "service" : "none"),
+      providerRequest(request, config, { streamed: false, service: options?.callType === "service" }),
       config.modelId,
     );
   } catch (err) {
@@ -472,7 +489,10 @@ export async function chatStream(
 
   let stream: ChatStreamResult;
   try {
-    stream = await config.provider.chatStream(providerRequest(request, config, "stream"), config.modelId);
+    stream = await config.provider.chatStream(
+      providerRequest(request, config, { streamed: true, service: options?.callType === "service" }),
+      config.modelId,
+    );
   } catch (err) {
     // Same exactly-once reasoning as chat(): the request-time failure (before
     // any stream is established) is the only provider call chatStream() makes.

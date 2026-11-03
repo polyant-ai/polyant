@@ -79,9 +79,10 @@ export function createTaskTool(subAgentTools: Record<string, Tool>, options: Tas
             provider,
             model,
             abortSignal,
-            system: `You are a specialized agent. Execute the following task precisely and completely.
-
-Task: ${task}
+            // The task is the user message only: the system prompt and the tool
+            // definitions stay the same for every delegation, so a provider
+            // reads that prefix from its cache instead of writing it anew.
+            system: `You are a specialized agent. Execute the task in the user message precisely and completely.
 
 Rules:
 - Use the available tools when necessary
