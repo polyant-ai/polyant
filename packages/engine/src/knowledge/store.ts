@@ -115,8 +115,14 @@ export async function updateDocumentStatus(
   return rows.length > 0;
 }
 
-/** List documents (without rawContent for performance). */
-export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
+/**
+ * One page of an agent's documents, newest first, without rawContent.
+ * `nextOffset` is where the next page starts, or null after the last one.
+ */
+export async function listDocuments(
+  instanceId: InstanceSlug,
+  page: { limit: number; offset: number },
+): Promise<{ documents: Omit<KnowledgeDocument, "rawContent">[]; nextOffset: number | null }> {
   const rows = await db
     .select({
       id: knowledgeDocuments.id,
@@ -135,8 +141,15 @@ export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<Know
     })
     .from(knowledgeDocuments)
     .where(eq(knowledgeDocuments.instanceId, instanceId))
-    .orderBy(desc(knowledgeDocuments.createdAt));
-  return rows as Omit<KnowledgeDocument, "rawContent">[];
+    .orderBy(desc(knowledgeDocuments.createdAt), desc(knowledgeDocuments.id))
+    // One row past the page says whether another page follows.
+    .limit(page.limit + 1)
+    .offset(page.offset);
+  const more = rows.length > page.limit;
+  return {
+    documents: (more ? rows.slice(0, page.limit) : rows) as Omit<KnowledgeDocument, "rawContent">[],
+    nextOffset: more ? page.offset + page.limit : null,
+  };
 }
 
 /**

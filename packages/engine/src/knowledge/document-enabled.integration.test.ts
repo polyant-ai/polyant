@@ -14,6 +14,7 @@ import { createDocument, getKnowledgeForExport, listDocuments, searchByKeyword, 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const SLUG = asInstanceSlug(`itest-kdoc-${Date.now()}`);
 const OTHER = asInstanceSlug(`itest-kdoc-other-${Date.now()}`);
+const PAGE = { limit: 50, offset: 0 };
 const VECTOR = `[${Array.from({ length: 1024 }, (_, i) => (i === 0 ? 1 : 0)).join(",")}]`;
 
 async function seed(slug: typeof SLUG, filename: string, text: string): Promise<string> {
@@ -44,14 +45,14 @@ describe.skipIf(!DB_AVAILABLE)("knowledge document on/off (integration)", () => 
   });
 
   it("a new document is on and found by both backends", async () => {
-    expect((await listDocuments(SLUG))[0]?.enabled).toBe(true);
+    expect((await listDocuments(SLUG, PAGE)).documents[0]?.enabled).toBe(true);
     expect(await sources()).toEqual({ vector: ["guide.md"], keyword: ["guide.md"] });
   });
 
   it("a document switched off is still stored and listed but no longer found", async () => {
     expect(await setDocumentEnabled(docId, SLUG, false)).toBe(true);
     expect(await sources()).toEqual({ vector: [], keyword: [] });
-    const [doc] = await listDocuments(SLUG);
+    const [doc] = (await listDocuments(SLUG, PAGE)).documents;
     expect(doc).toMatchObject({ filename: "guide.md", enabled: false });
     expect((await getKnowledgeForExport(SLUG))[0]).toMatchObject({ filename: "guide.md", enabled: false });
   });
@@ -68,6 +69,6 @@ describe.skipIf(!DB_AVAILABLE)("knowledge document on/off (integration)", () => 
 
   it("creates a document switched off when asked, for an import that carried the flag", async () => {
     const doc = await createDocument({ instanceId: SLUG, filename: "off.md", mimeType: "text/plain", sizeBytes: 1, rawContent: "x", contentHash: "off", enabled: false });
-    expect((await listDocuments(SLUG)).find((d) => d.id === doc.id)?.enabled).toBe(false);
+    expect((await listDocuments(SLUG, PAGE)).documents.find((d) => d.id === doc.id)?.enabled).toBe(false);
   });
 });

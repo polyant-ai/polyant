@@ -32,7 +32,7 @@ vi.mock("../../embeddings-gateway/index.js", () => ({ resolveEmbeddingContext: m
 // resolved through the database by `knowledge/doc-cap.ts`. Mocking the resolver
 // keeps this suite about what it was always about — what the controller does at
 // the boundary — without standing up a database to learn the number.
-vi.mock("../../knowledge/doc-cap.js", () => ({ resolveKnowledgeDocCap: async () => 3 }));
+vi.mock("../../knowledge/doc-cap.js", () => ({ DEFAULT_KNOWLEDGE_DOC_CAP: 500, resolveKnowledgeDocCap: async () => 3 }));
 vi.mock("../../knowledge/index.js", () => ({
   createDocument: mockCreateDocument,
   listDocuments: vi.fn(),
