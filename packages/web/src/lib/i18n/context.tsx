@@ -25,6 +25,8 @@ function persistLocale(locale: Locale) {
   document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
 }
 
+const pluralRules = new Map<Locale, Intl.PluralRules>();
+
 /**
  * Looks a key up and fills its `{placeholders}`. Reads the locale's catalogue
  * once it has loaded (`I18nProvider` waits for it); before that a key reads as
@@ -46,7 +48,9 @@ export function translate(
   // `count` arrives as a number or, from older call sites, as its string form.
   const count = params?.count === undefined || params.count === "" ? Number.NaN : Number(params.count);
   if (Number.isFinite(count)) {
-    const category = new Intl.PluralRules(locale).select(count);
+    let rules = pluralRules.get(locale);
+    if (!rules) pluralRules.set(locale, (rules = new Intl.PluralRules(locale)));
+    const category = rules.select(count);
     if (category !== "other") value = table[`${key}_${category}`];
   }
   value ??= table[key] ?? key;
