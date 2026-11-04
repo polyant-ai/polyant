@@ -771,6 +771,13 @@
       "when": 1793726800000,
       "tag": "0116_webhook_deliveries_received_index",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1793726900000,
+      "tag": "0117_drop_superseded_indexes",
+      "breakpoints": true
     }
   ]
 }
