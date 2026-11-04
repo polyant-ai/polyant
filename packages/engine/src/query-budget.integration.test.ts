@@ -99,6 +99,7 @@ async function turn(text: string): Promise<string> {
     stateBuffer: ctx.stateBuffer,
     cacheConfig: ctx.instanceConfig.cacheConfig,
     allowOAuth: true,
+    mcpServers: pre.mcpServers,
   });
   const { finalText } = await runPipelinePost({
     ctx,
