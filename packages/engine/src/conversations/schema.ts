@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, timestamp, jsonb, index, primaryKey, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, json, jsonb, index, primaryKey, integer } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
   "conversations",
@@ -16,7 +16,7 @@ export const conversations = pgTable(
     userIdentifier: text("user_identifier"),
     contextPrompt: text("context_prompt"),
     // created_at of the last message `summary` covers: the turn's history starts
-    // right after it, so summary and history meet with no gap (migration 0100).
+    // right after it, so summary and history meet with no gap (migration 0102).
     summaryThrough: timestamp("summary_through", { withTimezone: true }),
     // created_at of the last message memory extraction has read.
     memoryThrough: timestamp("memory_through", { withTimezone: true }),
@@ -112,6 +112,24 @@ export interface LlmDebugPayload {
   tools: { name: string; description?: string; parameters?: unknown }[];
 }
 
+/**
+ * The messages one row contributed to a model request, exactly as they were
+ * sent, kept for agents that replay their history exactly (`tool_history_replay
+ * = 'exact'`). A user row holds the user message with its content parts (the
+ * volatile `<context>` tail included); an assistant row holds the turn's
+ * step-by-step assistant and tool messages (the AI SDK's response messages).
+ */
+export interface ExactReplay {
+  /** AI SDK `ModelMessage`s, in the order they were sent. */
+  messages: unknown[];
+  /**
+   * Assistant rows: a fingerprint of the system prompt, tool set and model the
+   * turn ran with. A replayed thinking block is bound to that prefix, so its
+   * reasoning is dropped once the fingerprint no longer matches the request.
+   */
+  prefixKey?: string;
+}
+
 export const conversationMessages = pgTable(
   "conversation_messages",
   {
@@ -142,6 +160,12 @@ export const conversationMessages = pgTable(
      * fetched on-demand via the per-message debug endpoint.
      */
     debugPayload: jsonb("debug_payload").$type<LlmDebugPayload>(),
+    /**
+     * The row's messages as sent to the model (see `ExactReplay`). NULL unless the
+     * agent replays its history exactly. `json`, not `jsonb`: jsonb reorders object
+     * keys, and a tool input re-serialized in another key order is another prefix.
+     */
+    exactReplay: json("exact_replay").$type<ExactReplay>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [

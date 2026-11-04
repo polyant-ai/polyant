@@ -18,7 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
-  (migration `0102`).
+  (migration `0104`).
+- Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
+  the current message on the first model step of a turn, so the next step reads
+  it from cache instead of paying it at full input price and then writing it
+  again. It saves on agents whose turns usually call tools and carry a large
+  message; a turn answered in a single step pays a cache write that is never
+  read, so it is off by default. `PATCH /api/instances/:slug` accepts
+  `cacheUserTurn`, export and import carry it (migration `0099`), and the
+  conversation model panel has a switch under the cache lifetime.
+- Exact replay of earlier turns, per agent (`toolHistoryReplay: "exact"`, off by
+  default). With tool results in history on, an agent can replay earlier turns
+  exactly as the model received them: step by step, with whole tool results,
+  the user message with the context it was sent with, and the thinking blocks.
+  The next request then starts with the prefix the provider already cached, so
+  the history is read from the prompt cache instead of written to it every turn.
+  The context grows with every tool result kept whole, which is why it is opt-in.
 
 ### Changed
 
@@ -46,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overdue tasks: the tick serves them. A running task holds a lease that its
   process renews; when the process dies, any replica's tick clears the run within
   the installation's orphan grace (never less than a minute), closes it in the run
-  log as interrupted and counts no failure (migration `0105`).
+  log as interrupted and counts no failure (migration `0107`).
 - Shutdown waits for Room cycles and scheduled-task runs already started, within
   the same grace period as acknowledged channel turns.
 - A Room cycle titles its conversation from what it handled instead of asking the
@@ -81,14 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A model call its caller cancels (a follow-up message preempting a turn) is
   logged as one debug line instead of two error lines.
 - Room cycles across replicas. A cycle holds a lease on its Room (migration
-  `0103`), so two engine processes no longer run cycles of the same Room side by
+  `0105`), so two engine processes no longer run cycles of the same Room side by
   side or leave empty conversations behind. Events claimed by a cycle that ended
   without completing them, or whose process died, go back to pending on the next
   tick once its lease has expired; the boot no longer puts back the events of a
   cycle another process is running. The daily housekeeping runs once per
   installation instead of once per process start.
 - A message from a Room's contact that arrives while a cycle runs is queued for
-  the next cycle instead of being dropped (migration `0104`), and a burst of
+  the next cycle instead of being dropped (migration `0106`), and a burst of
   fragments on WhatsApp or Telegram reaches the Room once.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
 

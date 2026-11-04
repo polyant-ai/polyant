@@ -8,6 +8,7 @@ import { z } from "zod";
 import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
 import { scheduleConfigSchema } from "../scheduled-tasks/schedule-utils.js";
 import { INSTANCE_STT_SETTINGS } from "../stt-gateway/types.js";
+import { TOOL_HISTORY_REPLAY_MODES } from "../conversations/tool-history.js";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -155,9 +156,11 @@ export const exportInstanceDataSchema = z.object({
   messageMaxRestarts: z.number().int().min(0).nullable().default(null),
   cacheEnabled: z.boolean().default(true),
   cacheTtl: z.enum(["5m", "1h"]).default("1h"),
+  cacheUserTurn: z.boolean().default(false),
   intermediateText: z.enum(INTERMEDIATE_TEXT_POLICIES).nullable().default(null),
   a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
+  toolHistoryReplay: z.enum(TOOL_HISTORY_REPLAY_MODES).default("compact"),
   debugEnabled: z.boolean().default(false),
   /**
    * Optional with no default: a bundle from a build that predates the switch

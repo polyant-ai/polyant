@@ -13,7 +13,12 @@ import { chat } from "./ai-gateway/index.js";
 import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
-import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import {
+  buildExactHistory,
+  buildHistoryWithToolResults,
+  toExactUserMessage,
+  type ExactTurn,
+} from "./conversations/tool-history.js";
 import { rowsToModelMessages, type ConversationTurnContext, type MessageRow } from "./conversations/store.js";
 import { HISTORY_HARD_CAP, messagesToFold } from "./conversations/history-window.js";
 import { extractMemories } from "./memory/index.js";
@@ -204,11 +209,17 @@ export async function preparePipeline(
       log.error("pipeline", `Failed to open conversation ${conversationId}`, err);
       return { created: false, contextPrompt: null, summary: null, summaryThrough: null };
     });
-  // Tool-result replay (opt-in per agent) reads the rows with their steps.
+  // Tool-result replay (opt-in per agent) reads the rows with their steps, and
+  // exact replay with the messages each row was sent as.
   const replayPromise = instanceConfigPromise.then((config) => config.toolResultsInHistoryEnabled && !isAutoTaskTurn);
-  const historyPromise = Promise.all([turnPromise, replayPromise]).then(([turn, withSteps]) =>
+  const historyPromise = Promise.all([turnPromise, replayPromise, instanceConfigPromise]).then(([turn, withSteps, config]) =>
     conversationStore
-      .getHistoryWindow(conversationId, { after: turn.summaryThrough, limit: HISTORY_HARD_CAP, withSteps })
+      .getHistoryWindow(conversationId, {
+        after: turn.summaryThrough,
+        limit: HISTORY_HARD_CAP,
+        withSteps,
+        withExactReplay: withSteps && config.toolHistoryReplay === "exact",
+      })
       .catch(() => [] as MessageRow[]),
   );
   const [turn, rows, replay, instanceConfig, stateBuffer] = await Promise.all([
@@ -287,8 +298,15 @@ export async function preparePipeline(
     history = msg.metadata?.conversationHistory as ModelMessage[] | undefined;
   } else {
     // Tool-result replay rebuilds tool_use/tool_result blocks from the persisted
-    // `steps`, so the model retains tool outputs across turns.
-    history = replay ? buildHistoryWithToolResults(rows) : conversationHistory;
+    // `steps`, so the model retains tool outputs across turns. Exact replay sends
+    // each row's messages as they were sent; a thinking block is bound to
+    // everything before it, so reasoning is replayed only while the history
+    // still starts where the conversation does (nothing folded, nothing cut).
+    history = !replay
+      ? conversationHistory
+      : instanceConfig.toolHistoryReplay === "exact"
+        ? buildExactHistory(rows, { keepReasoning: turn.summaryThrough === null && rows.length < HISTORY_HARD_CAP })
+        : buildHistoryWithToolResults(rows);
   }
 
   // This turn adds two messages: when that takes the history past its window,
@@ -460,6 +478,8 @@ export interface AfterResponseOptions {
   /** Message arrival time (pipeline start). Used as the user row's created_at so the
    * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant). */
   receivedAt?: Date;
+  /** The turn as the model received it; set only for agents that replay their history exactly. */
+  exactTurn?: ExactTurn;
 }
 
 /**
@@ -516,6 +536,7 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
       content: opts.userMessage,
       attachments: attachmentMetas,
       metadata: opts.inboundMetadata,
+      ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
       ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
     },
     {
@@ -529,6 +550,11 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
       reasoning: opts.reasoning,
       debugPayload: opts.debugPayload,
       metadata: opts.provenance,
+      // A reply a hook wrote is not what the model produced: that row replays
+      // compactly, from the text the user received.
+      ...(opts.exactTurn && opts.exactTurn.response.length > 0 && !opts.provenance
+        ? { exactReplay: { messages: opts.exactTurn.response, prefixKey: opts.exactTurn.prefixKey } }
+        : {}),
     },
   ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
 }
@@ -756,6 +782,8 @@ export interface PipelinePostOptions {
    *  runPipelinePost does NOT re-run those hooks and does NOT re-apply replace —
    *  the caller already produced the final `resultText`. */
   responseGenerated?: ResponseGeneratedOutcome;
+  /** The turn as the model received it (`SupervisorOutput.exactTurn`); persisted only on exact replay. */
+  exactTurn?: ExactTurn;
 }
 
 export interface PipelinePostResult {
@@ -831,6 +859,10 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       inboundMetadata: ctx.inboundMetadata,
       provenance,
       receivedAt: new Date(ctx.pipelineStart),
+      exactTurn:
+        ctx.instanceConfig.toolResultsInHistoryEnabled && ctx.instanceConfig.toolHistoryReplay === "exact"
+          ? opts.exactTurn
+          : undefined,
     };
     // The conversation state (commit-on-success) is written in the same
     // transaction as the messages: a tool's derived value is durable before the

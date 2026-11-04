@@ -3,7 +3,7 @@
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { db, type DbTransaction } from "../database/client.js";
-import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
+import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ExactReplay, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import type { CostBreakdown } from "../ai-gateway/types.js";
 import { aiLogs } from "../ai-gateway/logger.js";
@@ -40,6 +40,8 @@ export interface MessageRow {
   content: string;
   /** Per-step breakdown of a multi-step assistant turn. NULL for user/system rows. */
   steps?: StepDetail[] | null;
+  /** The row's messages as sent to the model; NULL unless the agent replays its history exactly. */
+  exactReplay?: ExactReplay | null;
   createdAt: Date | null;
 }
 
@@ -454,6 +456,8 @@ export class ConversationStore {
       metadata?: Record<string, unknown>;
       /** Exact LLM request payload (DEBUG mode only). NULL otherwise. */
       debugPayload?: LlmDebugPayload;
+      /** The row's messages as sent to the model (exact history replay only). NULL otherwise. */
+      exactReplay?: ExactReplay;
     }>,
     options?: {
       /** Other writes that must commit or roll back with these rows (the turn's state). */
@@ -483,6 +487,7 @@ export class ConversationStore {
           attachments: m.attachments ? stripNulDeep(m.attachments) : null,
           metadata: m.metadata ? stripNulDeep(m.metadata) : null,
           debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
+          exactReplay: m.exactReplay ? stripNulDeep(m.exactReplay) : null,
         })),
       ).returning({ createdAt: conversationMessages.createdAt });
 
@@ -535,11 +540,12 @@ export class ConversationStore {
   /**
    * The messages after the millisecond `after` (all of them when null), oldest
    * first, at most the newest `limit`. `withSteps` adds each assistant turn's steps, for the
-   * agents that replay tool results.
+   * agents that replay tool results; `withExactReplay` adds each row's messages as sent, for
+   * the agents that replay them exactly.
    */
   async getHistoryWindow(
     conversationId: string,
-    options: { after: Date | null; limit: number; withSteps: boolean },
+    options: { after: Date | null; limit: number; withSteps: boolean; withExactReplay?: boolean },
   ): Promise<MessageRow[]> {
     const rows = await db
       .select({
@@ -547,6 +553,7 @@ export class ConversationStore {
         content: conversationMessages.content,
         createdAt: conversationMessages.createdAt,
         ...(options.withSteps ? { steps: conversationMessages.steps } : {}),
+        ...(options.withExactReplay ? { exactReplay: conversationMessages.exactReplay } : {}),
       })
       .from(conversationMessages)
       .where(
@@ -566,6 +573,7 @@ export class ConversationStore {
       role: r.role,
       content: r.content,
       ...("steps" in r ? { steps: (r.steps as StepDetail[] | null) ?? null } : {}),
+      ...("exactReplay" in r ? { exactReplay: r.exactReplay ?? null } : {}),
       createdAt: r.createdAt ?? null,
     }));
   }

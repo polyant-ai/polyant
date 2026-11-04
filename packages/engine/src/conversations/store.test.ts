@@ -365,7 +365,7 @@ describe("ConversationStore", () => {
 
       expect(mockDb.insert).toHaveBeenCalled();
       expect(insChain.values).toHaveBeenCalledWith([
-        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null, debugPayload: null },
+        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null, debugPayload: null, exactReplay: null },
         {
           conversationId: id,
           role: "assistant",
@@ -375,6 +375,7 @@ describe("ConversationStore", () => {
           attachments: null,
           metadata: null,
           debugPayload: null,
+          exactReplay: null,
         },
       ]);
     });

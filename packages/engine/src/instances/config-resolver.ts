@@ -19,6 +19,7 @@ import {
 } from "./agent-settings.js";
 import { invalidateAllInstanceMeta, invalidateInstanceMeta } from "./instance-meta.js";
 import { isIntermediateTextPolicy, type IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
+import type { ToolHistoryReplay } from "../conversations/tool-history.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -76,13 +77,15 @@ export interface InstanceConfig {
   dedupSimilarityThreshold: number;
   messageTimings: MessageTimingSettings;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
-  cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  cacheConfig: { enabled: boolean; ttl: CacheTtl; userTurn: boolean };
   /** What becomes of text written alongside a tool call; null = unset, the pre-policy behaviour. */
   intermediateText: IntermediateTextPolicy | null;
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
   a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /** How earlier turns are replayed when `toolResultsInHistoryEnabled` is on: rebuilt and truncated, or exactly as sent. */
+  toolHistoryReplay: ToolHistoryReplay;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
   /** When true, inbound attachments are copied to the agent's bucket. Default false — opt-in. */
@@ -182,10 +185,11 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       datetime: resolveDatetimeSettings(UNSET_AGENT_SETTINGS),
       dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
       messageTimings: resolveMessageTimings(UNSET_AGENT_SETTINGS),
-      cacheConfig: { enabled: true, ttl: "1h" },
+      cacheConfig: { enabled: true, ttl: "1h", userTurn: false },
       intermediateText: null,
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
+      toolHistoryReplay: "compact",
       debugEnabled: false,
       attachmentStorageEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
@@ -272,10 +276,12 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     cacheConfig: {
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
+      userTurn: instance.cacheUserTurn,
     },
     intermediateText: isIntermediateTextPolicy(instance.intermediateText) ? instance.intermediateText : null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    toolHistoryReplay: instance.toolHistoryReplay === "exact" ? "exact" : "compact",
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optout: {

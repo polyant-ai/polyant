@@ -132,6 +132,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** Also cache the current user turn on the first step of a multi-step turn (Anthropic/Bedrock). */
+  cacheUserTurn?: boolean;
   /**
    * What becomes of text the model writes alongside a tool call. null = never
    * chosen: each channel keeps its own behaviour and the prompt says nothing.
@@ -141,6 +143,11 @@ export interface Instance {
   a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /**
+   * How earlier turns are replayed when tool results are in history: "compact"
+   * rebuilds them with truncated results, "exact" replays them as they were sent.
+   */
+  toolHistoryReplay: "compact" | "exact";
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
   debugEnabled: boolean;
   /** When true, files users send are copied to the agent's bucket so they can be reopened. */

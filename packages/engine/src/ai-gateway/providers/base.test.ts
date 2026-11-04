@@ -565,6 +565,46 @@ describe("createProvider – cumulative usage across SDK majors", () => {
   });
 });
 
+/**
+ * An agent on exact history replay stores the turn's response messages as the
+ * SDK fed them back between steps. AI SDK 7 exposes them as `responseMessages`
+ * (a Promise on the streamed result).
+ */
+describe("createProvider – the turn's response messages", () => {
+  const messages = [
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "t1", toolName: "read", input: {} }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", toolName: "read", output: { type: "text", value: "ok" } }] },
+    { role: "assistant", content: [{ type: "text", text: "hello" }] },
+  ];
+
+  it("chat: returns every step's response messages", async () => {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({ ...fakeGenerateTextResult, responseMessages: messages } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res.responseMessages).toEqual(messages);
+  });
+
+  it("chatStream: returns every step's response messages once the stream is done", async () => {
+    vi.mocked(tracedStreamText).mockResolvedValueOnce({ ...fakeStreamTextResult, responseMessages: Promise.resolve(messages) } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect((await stream.response).responseMessages).toEqual(messages);
+  });
+
+  it("leaves the field out when the SDK reports none", async () => {
+    vi.mocked(tracedGenerateText).mockResolvedValueOnce({ ...fakeGenerateTextResult } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res).not.toHaveProperty("responseMessages");
+  });
+});
+
 describe("createProvider – temperature forwarding", () => {
   it("passes temperature to generateText when set", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);
@@ -667,6 +707,25 @@ describe("createProvider – cache gating (cacheConfig)", () => {
 
     expect(hooks.prepareMessages).toHaveBeenCalledWith(expect.objectContaining({ ttl: "5m" }));
     expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
+  });
+
+  // The step marker is the only place the option acts; a flag lost on the way
+  // leaves step 0 unmarked and the user turn paid twice, with no error anywhere.
+  it("hands cacheConfig.userTurn to the provider's step marker", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat(
+      { ...baseRequest, system: "SYS", cacheConfig: { enabled: true, ttl: "1h", userTurn: true } },
+      "gpt-4o",
+    );
+    const prepareStep = spy.mock.calls[0][0].prepareStep as (o: { stepNumber: number; messages: unknown[] }) => unknown;
+    prepareStep({ stepNumber: 0, messages: [{ role: "user", content: "turn" }] });
+
+    expect(hooks.stepMarker).toHaveBeenCalledWith(expect.objectContaining({ stepNumber: 0, userTurn: true }));
   });
 
   it("enables caching (marker + prepareStep) when cacheConfig is omitted — backward compatible", async () => {
