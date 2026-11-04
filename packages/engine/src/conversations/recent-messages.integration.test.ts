@@ -46,7 +46,7 @@ describe.skipIf(!DB_AVAILABLE)("recent conversation history (integration)", () =
   });
 
   it("returns the same window with the stored detail of each message", async () => {
-    const rows = await conversationStore.getRecentMessageRows(MINE, 3);
+    const rows = await conversationStore.getHistoryWindow(MINE, { after: null, limit: 3, withSteps: true });
 
     expect(rows.map((r) => r.content)).toEqual(["message 4", "message 5", "message 6"]);
   });
