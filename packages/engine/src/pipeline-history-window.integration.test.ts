@@ -112,6 +112,46 @@ describe.skipIf(!DB_AVAILABLE)("conversation history window (integration)", () =
     expect(summaryCalls.count).toBeLessThanOrEqual(3);
   });
 
+  // More messages after the summary than a turn reads: summaries that kept
+  // failing, or rows written without a turn (reminders, webhook replies).
+  it("summarizes the messages a turn did not read when more than it reads have piled up", async () => {
+    const channelId = randomUUID();
+    const conversationId = `${AGENT}:web:${channelId}`;
+    const msg: IncomingMessage = { channelType: "web", channelId, instanceId: AGENT, text: "next", metadata: {} };
+    await runPipelinePre(msg, undefined, new AbortController().signal);
+    await queryClient`
+      INSERT INTO conversation_messages (conversation_id, role, content, created_at)
+      SELECT ${conversationId}, CASE WHEN n % 2 = 1 THEN 'user' ELSE 'assistant' END, 'p' || n,
+             now() - interval '1 day' + n * interval '1 minute'
+      FROM generate_series(1, 50) n`;
+
+    const signal = new AbortController().signal;
+    const pre = await runPipelinePre(msg, undefined, signal);
+    await runPipelinePost({
+      ctx: pre.ctx,
+      contextPrepMs: pre.contextPrepMs,
+      messageText: pre.messageText,
+      channel: "web",
+      resultText: "R(next)",
+      usage: { promptTokens: 0, completionTokens: 0 },
+      durationMs: 0,
+      toolBuildingMs: 0,
+      isStreaming: false,
+      abortSignal: signal,
+    });
+    await drainBackgroundTurns(5_000);
+
+    // Every message is either in the summary or in the next turn's history.
+    const next = await runPipelinePre(msg, undefined, new AbortController().signal);
+    const history = texts(next.ctx.history);
+    const summary = next.ctx.conversationSummary ?? "";
+    const lines = (text: string) => text.split("\n").map((line) => line.replace(/^(User|Assistant|System): /, ""));
+    const missing = Array.from({ length: 50 }, (_, i) => `p${i + 1}`).filter(
+      (text) => !history.includes(text) && !lines(summary).includes(text),
+    );
+    expect(missing).toEqual([]);
+  });
+
   it("starts a turn on an existing conversation without rewriting its row, and still reads its context prompt", async () => {
     const channelId = randomUUID();
     const conversationId = `${AGENT}:web:${channelId}`;

@@ -11,18 +11,44 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const extraction = vi.hoisted(() => ({ transcripts: [] as string[] }));
+const extraction = vi.hoisted(() => ({
+  transcripts: [] as string[],
+  /** Extract one fact per new user message, instead of none. */
+  factPerUserMessage: false,
+  /** How many of the next embedding requests fail, as a provider that is down does. */
+  embeddingFailures: 0,
+}));
 
 vi.mock("../ai-gateway/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ai-gateway/index.js")>();
   return {
     ...actual,
     chat: async (request: { messages: Array<{ content: string }> }) => {
-      extraction.transcripts.push(request.messages[0].content);
-      return { text: "[]" };
+      const transcript = request.messages[0].content;
+      extraction.transcripts.push(transcript);
+      if (!extraction.factPerUserMessage) return { text: "[]" };
+      const fresh = transcript.split("NEW MESSAGES:")[1] ?? "";
+      const facts = fresh
+        .split("\n")
+        .filter((line) => line.startsWith("User: "))
+        .map((line) => ({ content: `The user said: ${line.slice("User: ".length)}`, category: "fact", importance: 8 }));
+      return { text: JSON.stringify(facts) };
     },
   };
 });
+
+// The embedding provider is the external boundary: a distinct unit vector per fact.
+vi.mock("../embeddings-gateway/index.js", () => ({
+  resolveEmbeddingContext: async () => ({ dimensions: 1024, providerName: "openai", credentials: { provider: "openai", apiKey: "test" } }),
+  embedMany: async (texts: string[]) => {
+    if (extraction.embeddingFailures > 0) {
+      extraction.embeddingFailures -= 1;
+      throw Object.assign(new Error("rate limited"), { statusCode: 429 });
+    }
+    return texts.map((_, i) => Array.from({ length: 1024 }, (__, d) => (d === (vectorSeed + i) % 1024 ? 1 : 0)));
+  },
+}));
+let vectorSeed = 0;
 
 import { queryClient } from "../database/client.js";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
@@ -35,7 +61,15 @@ const MARKER = "itest-memory-extract";
 const AGENT = asInstanceSlug(`${MARKER}-agent`);
 
 async function teardown(): Promise<void> {
+  await queryClient`DELETE FROM memories WHERE instance_id = ${AGENT}`;
+  await queryClient`DELETE FROM conversation_messages WHERE conversation_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM conversations WHERE conversation_id LIKE ${MARKER + "%"}`;
+}
+
+async function memoriesOf(conversationId: string): Promise<string[]> {
+  const rows = await queryClient<{ content: string }[]>`
+    SELECT content FROM memories WHERE source_conversation_id = ${conversationId} ORDER BY content`;
+  return rows.map((r) => r.content);
 }
 
 describe.skipIf(!DB_AVAILABLE)("memory extraction reads each message once (integration)", () => {
@@ -43,6 +77,9 @@ describe.skipIf(!DB_AVAILABLE)("memory extraction reads each message once (integ
   afterAll(teardown);
   beforeEach(() => {
     extraction.transcripts.length = 0;
+    extraction.factPerUserMessage = false;
+    extraction.embeddingFailures = 0;
+    vectorSeed += 16;
   });
 
   it("sends only the messages it has not read, with two before them, and nothing when none are new", async () => {
@@ -70,5 +107,47 @@ describe.skipIf(!DB_AVAILABLE)("memory extraction reads each message once (integ
     expect(fresh).not.toContain("question 2");
     expect(earlier).toContain("question 2");
     expect(second).not.toContain("question 1");
+  });
+
+  it("reads the same messages again when the facts could not be embedded", async () => {
+    extraction.factPerUserMessage = true;
+    const conversationId = `${MARKER}-${randomUUID()}`;
+    await conversationStore.ensureConversation(conversationId, AGENT, { channel: "web" });
+    await conversationStore.appendMessages(conversationId, [
+      { role: "user", content: "my plate is AB123CD" },
+      { role: "assistant", content: "noted" },
+    ]);
+
+    extraction.embeddingFailures = 1;
+    await expect(extractMemories(conversationId, AGENT)).rejects.toThrow("rate limited");
+    await extractMemories(conversationId, AGENT);
+
+    expect(extraction.transcripts).toHaveLength(2);
+    expect(extraction.transcripts[1].split("NEW MESSAGES:")[1]).toContain("my plate is AB123CD");
+    expect(await memoriesOf(conversationId)).toEqual(["The user said: my plate is AB123CD"]);
+  });
+
+  it("reads the message of a turn saved after a later turn of the same conversation", async () => {
+    const conversationId = `${MARKER}-${randomUUID()}`;
+    await conversationStore.ensureConversation(conversationId, AGENT, { channel: "web" });
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 4, 10, 0, s));
+    // Two turns overlap. B started second and is saved first; its extraction runs.
+    await conversationStore.appendMessages(conversationId, [
+      { role: "user", content: "B: my plate is AB123CD", createdAt: at(1) },
+      { role: "assistant", content: "ok B", createdAt: at(2) },
+    ]);
+    await extractMemories(conversationId, AGENT);
+    // A started first (its user row is stamped at its arrival) and is saved after.
+    await conversationStore.appendMessages(conversationId, [
+      { role: "user", content: "A: I am allergic to penicillin", createdAt: at(0) },
+      { role: "assistant", content: "ok A", createdAt: at(3) },
+    ]);
+    await extractMemories(conversationId, AGENT);
+
+    expect(extraction.transcripts).toHaveLength(2);
+    const fresh = extraction.transcripts[1].split("NEW MESSAGES:")[1];
+    expect(fresh).toContain("A: I am allergic to penicillin");
+    expect(fresh).toContain("ok A");
+    expect(fresh).not.toContain("B: my plate");
   });
 });

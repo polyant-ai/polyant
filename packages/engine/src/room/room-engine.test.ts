@@ -87,6 +87,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../config.js", () => ({
   config: {
     datetime: { locale: "en-US", timezone: "UTC" },
+    backgroundJobs: { turnConcurrency: 4, memoryConcurrency: 2 },
   },
 }));
 vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({

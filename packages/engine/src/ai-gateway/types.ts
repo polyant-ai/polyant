@@ -80,11 +80,20 @@ export interface ChatRequest {
   abortSignal?: AbortSignal;
   /**
    * Bounds on the call, in the AI SDK's terms: `totalMs` for the whole call,
-   * `chunkMs` for the longest silence between two chunks of a streamed answer
-   * once it has started. A call that exceeds one fails with a `TimeoutError`.
+   * `firstChunkMs` for the wait for a streamed answer's first chunk once the
+   * provider has started answering, `chunkMs` for the longest silence between
+   * two chunks after it. A call that exceeds one fails with a `TimeoutError`.
    * Unset, the gateway applies its per-call-type default (`config.llm`).
    */
-  timeout?: { totalMs?: number; chunkMs?: number };
+  timeout?: { totalMs?: number; firstChunkMs?: number; chunkMs?: number };
+  /**
+   * Bound on each model request until the provider starts answering: the whole
+   * answer when not streamed, its first bytes when streamed. Each retry gets
+   * its own, and tools are not counted, so a call that runs tools for minutes
+   * is not cut. Exceeded, the call fails with a `TimeoutError`. Unset, the
+   * gateway applies `config.llm.modelRequestTimeoutMs` to a call with no total bound.
+   */
+  requestTimeoutMs?: number;
   /** How many times a failed model request is retried. Unset, the gateway applies `config.llm.maxRetries`. */
   maxRetries?: number;
   /**

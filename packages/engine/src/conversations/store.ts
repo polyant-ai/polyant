@@ -361,6 +361,15 @@ export class ConversationStore {
    * starting point cannot both land, and the loser's work is dropped instead of
    * overwriting a summary that already covers more. True when it landed.
    */
+  /** How far the conversation's summary reaches now (see {@link advanceSummary}). */
+  async getSummaryThrough(conversationId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ summaryThrough: conversations.summaryThrough })
+      .from(conversations)
+      .where(eq(conversations.conversationId, conversationId));
+    return row?.summaryThrough ?? null;
+  }
+
   async advanceSummary(
     conversationId: string,
     summary: string,
@@ -471,9 +480,30 @@ export class ConversationStore {
     // over it, so a row whose last message is newer than its `updated_at` sorts
     // stale and is missed by incremental pulls. Before this, only title/summary
     // writes moved the column — never the messages themselves.
+    // The conversation row is updated before the rows are inserted: its lock
+    // makes two saves of one conversation take their `seq` in the order they
+    // commit, so a reader that sees a row never misses one with a lower seq.
+    // A row stamped by the column default gets the transaction's `now()`.
+    const userCount = messages.filter((m) => m.role === "user").length;
+    const latestGiven = messages.reduce<Date | null>(
+      (max, m) => (m.createdAt && (!max || m.createdAt > max) ? m.createdAt : max),
+      null,
+    );
+    const anyDefaulted = messages.some((m) => !m.createdAt);
     await db.transaction(async (tx) => {
       await options?.inTransaction?.(tx);
-      const inserted = await tx.insert(conversationMessages).values(
+      // The counters ride on the update that already runs (migration
+      // conversation_message_counters).
+      await tx
+        .update(conversations)
+        .set({
+          updatedAt: new Date(),
+          messageCount: sql`${conversations.messageCount} + ${messages.length}`,
+          userMessageCount: sql`${conversations.userMessageCount} + ${userCount}`,
+          lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${latestGiven ? sql`${latestGiven.toISOString()}::timestamptz` : null}, ${anyDefaulted ? sql`now()` : null})`,
+        })
+        .where(eq(conversations.conversationId, conversationId));
+      await tx.insert(conversationMessages).values(
         messages.map((m) => ({
           ...(m.id ? { id: m.id } : {}),
           ...(m.createdAt ? { createdAt: m.createdAt } : {}),
@@ -489,29 +519,24 @@ export class ConversationStore {
           debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
           exactReplay: m.exactReplay ? stripNulDeep(m.exactReplay) : null,
         })),
-      ).returning({ createdAt: conversationMessages.createdAt });
-
-      // The counters ride on the update that already runs (migration
-      // conversation_message_counters).
-      // The latest created_at comes back from the insert, so a message that
-      // carries its own timestamp and one stamped by the database count alike.
-      const userCount = messages.filter((m) => m.role === "user").length;
-      const latest = inserted.reduce<Date | null>(
-        (max, r) => (r.createdAt && (!max || r.createdAt > max) ? r.createdAt : max),
-        null,
       );
-      await tx
-        .update(conversations)
-        .set({
-          updatedAt: new Date(),
-          messageCount: sql`${conversations.messageCount} + ${messages.length}`,
-          userMessageCount: sql`${conversations.userMessageCount} + ${userCount}`,
-          ...(latest ? { lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${latest.toISOString()}::timestamptz)` } : {}),
-        })
-        .where(eq(conversations.conversationId, conversationId));
     });
     // After the commit, so a reader woken by the signal sees the rows.
     notifyConversationChanged(conversationId);
+  }
+
+  /**
+   * Record the stored copies of a saved message's attachments, which are
+   * uploaded after the turn is saved. False when the message is gone (its
+   * conversation was deleted meanwhile).
+   */
+  async setMessageAttachments(conversationId: string, messageId: string, attachments: AttachmentMeta[]): Promise<boolean> {
+    const updated = await db
+      .update(conversationMessages)
+      .set({ attachments: stripNulDeep(attachments) })
+      .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
+      .returning({ id: conversationMessages.id });
+    return updated.length > 0;
   }
 
   /**
@@ -579,57 +604,91 @@ export class ConversationStore {
   }
 
   /**
-   * What memory extraction has not read yet: the newest messages after where it
-   * reached (at most `limit`), with up to `context` messages before them so a
-   * reply can be understood. One read; `memoryThrough` is where it reached.
+   * The oldest messages after `after` and up to `through` (both by
+   * millisecond, as the history window compares), in time order, at most
+   * `limit`: what a summary fold covers when the history read stopped short.
+   */
+  async getMessagesAfter(
+    conversationId: string,
+    options: { after: Date | null; through: Date; limit: number },
+  ): Promise<MessageRow[]> {
+    const rows = await db
+      .select({ role: conversationMessages.role, content: conversationMessages.content, createdAt: conversationMessages.createdAt })
+      .from(conversationMessages)
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          options.after
+            ? sql`${conversationMessages.createdAt} >= ${options.after.toISOString()}::timestamptz + interval '1 millisecond'`
+            : undefined,
+          sql`${conversationMessages.createdAt} < ${options.through.toISOString()}::timestamptz + interval '1 millisecond'`,
+        ),
+      )
+      .orderBy(asc(conversationMessages.createdAt))
+      .limit(options.limit);
+    return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
+  }
+
+  /**
+   * What memory extraction has not read yet: the newest messages saved after
+   * where it reached (at most `limit`), with up to `context` messages before
+   * them so a reply can be understood. One read. Read by `seq`, the order the
+   * rows were saved in: a turn saved after a later one has older rows, which a
+   * mark by created_at would skip. `through` is the seq to mark as read once
+   * they are processed (null when no fresh row has one), `memoryThrough` the
+   * mark the read started from.
    */
   async getMessagesToExtract(
     conversationId: string,
     options: { limit: number; context: number },
-  ): Promise<{ context: MessageRow[]; fresh: MessageRow[]; memoryThrough: Date | null }> {
+  ): Promise<{ context: MessageRow[]; fresh: MessageRow[]; through: number | null; memoryThrough: number | null }> {
     const rows = await db
       .select({
         role: conversationMessages.role,
         content: conversationMessages.content,
         createdAt: conversationMessages.createdAt,
-        memoryThrough: sql<Date | string | null>`(SELECT ${conversations.memoryThrough} FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
+        seq: conversationMessages.seq,
+        mark: sql<{ seq: string | number | null; at: string | null } | null>`(
+          SELECT json_build_object('seq', ${conversations.memoryThroughSeq}, 'at', ${conversations.memoryThrough})
+          FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
       })
       .from(conversationMessages)
       .where(eq(conversationMessages.conversationId, conversationId))
       .orderBy(desc(conversationMessages.createdAt))
       .limit(options.limit + options.context);
 
-    const raw = rows[0]?.memoryThrough ?? null;
-    const memoryThrough = raw === null ? null : new Date(raw);
-    const chronological: MessageRow[] = rows
-      .reverse()
-      .map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
-    // Read by millisecond, the precision `memoryThrough` was taken at.
-    const isFresh = (r: MessageRow) => !memoryThrough || (r.createdAt !== null && r.createdAt.getTime() > memoryThrough.getTime());
+    const mark = rows[0]?.mark ?? null;
+    const memoryThrough = mark?.seq == null ? null : Number(mark.seq);
+    // Before its first mark by seq, the extraction reached the created_at it kept
+    // then, read by millisecond, the precision it was taken at.
+    const legacyThrough = memoryThrough === null && mark?.at ? new Date(mark.at).getTime() : null;
+    const isFresh = (r: (typeof rows)[number]) =>
+      memoryThrough !== null
+        ? r.seq !== null && r.seq > memoryThrough
+        : legacyThrough === null || (r.createdAt !== null && r.createdAt.getTime() > legacyThrough);
+    const chronological = rows.reverse();
     const firstFresh = chronological.findIndex(isFresh);
-    const fresh = firstFresh === -1 ? [] : chronological.slice(firstFresh).slice(-options.limit);
-    const contextEnd = chronological.length - fresh.length;
-    return {
-      context: chronological.slice(Math.max(0, contextEnd - options.context), contextEnd),
-      fresh,
-      memoryThrough,
-    };
+    const freshRows = firstFresh === -1 ? [] : chronological.slice(firstFresh).filter(isFresh).slice(-options.limit);
+    const contextRows = chronological.slice(0, Math.max(0, firstFresh)).filter((r) => !isFresh(r)).slice(-options.context);
+    const through = freshRows.reduce<number | null>((max, r) => (r.seq !== null && (max === null || r.seq > max) ? r.seq : max), null);
+    const toRow = (r: (typeof rows)[number]): MessageRow => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null });
+    return { context: contextRows.map(toRow), fresh: freshRows.map(toRow), through, memoryThrough };
   }
 
   /**
-   * Record that memory extraction has read up to `through`, only if no other
-   * extraction moved the mark since `previousThrough` was read.
+   * Record that memory extraction has read up to `through` (a message seq),
+   * only if no other extraction moved the mark since `previousThrough` was read.
    */
-  async advanceMemoryThrough(conversationId: string, through: Date, previousThrough: Date | null): Promise<void> {
+  async advanceMemoryThrough(conversationId: string, through: number, previousThrough: number | null): Promise<void> {
     await db
       .update(conversations)
-      .set({ memoryThrough: through })
+      .set({ memoryThroughSeq: through })
       .where(
         and(
           eq(conversations.conversationId, conversationId),
-          previousThrough
-            ? eq(conversations.memoryThrough, previousThrough)
-            : sql`${conversations.memoryThrough} IS NULL`,
+          previousThrough !== null
+            ? eq(conversations.memoryThroughSeq, previousThrough)
+            : sql`${conversations.memoryThroughSeq} IS NULL`,
         ),
       );
   }

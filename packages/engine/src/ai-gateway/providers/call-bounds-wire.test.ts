@@ -9,6 +9,7 @@ vi.mock("../../utils/create-logger.js", async (importOriginal) => ({
 }));
 
 const { AnthropicProvider } = await import("./anthropic.js");
+import { jsonSchema, tool } from "ai";
 import type { ChatRequest } from "../types.js";
 
 // The real Anthropic SDK runs the call; only the network is stubbed. What is
@@ -79,6 +80,97 @@ describe("bounds on a model call", () => {
 
     await expect(AnthropicProvider.chat(request({ timeout: { totalMs: 200 }, maxRetries: 0 }), MODEL))
       .rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("ends a streamed answer whose provider never starts answering", async () => {
+    vi.stubGlobal("fetch", neverAnswers);
+    const stream = await AnthropicProvider.chatStream!(request({ requestTimeoutMs: 200, maxRetries: 0 }), MODEL);
+
+    await expect(stream.response).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("ends a streamed answer whose provider answers but never sends its first chunk", async () => {
+    // Headers, then nothing; the body ends only when the request is aborted, as a real fetch's does.
+    vi.stubGlobal("fetch", async (_input: unknown, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    // This provider waits for the first chunk before it hands the stream over,
+    // so the bound on the request covers it; the SDK's `firstChunkMs` covers
+    // providers that hand it over at once.
+    const stream = await AnthropicProvider.chatStream!(request({ requestTimeoutMs: 200, maxRetries: 0 }), MODEL);
+
+    await expect(stream.response).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("does not cut a streamed answer that takes longer than the bound on starting to answer", async () => {
+    vi.stubGlobal("fetch", async () => {
+      const events = [
+        { type: "message_start", message: { id: "m", type: "message", role: "assistant", model: MODEL, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 5, output_tokens: 0 } } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "slow " } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "answer" } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 2 } },
+        { type: "message_stop" },
+      ];
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (const event of events) {
+            controller.enqueue(encoder.encode(sse([event])));
+            await new Promise((resolve) => setTimeout(resolve, 80));
+          }
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    const stream = await AnthropicProvider.chatStream!(request({ requestTimeoutMs: 200, maxRetries: 0 }), MODEL);
+
+    expect((await stream.response).text).toBe("slow answer");
+  });
+
+  it("ends a model request of a multi-step call that never answers", async () => {
+    vi.stubGlobal("fetch", neverAnswers);
+
+    await expect(AnthropicProvider.chat(request({ requestTimeoutMs: 200, maxSteps: 5, maxRetries: 0 }), MODEL))
+      .rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("does not count a tool's own run against the bound on each model request", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            id: "m1", type: "message", role: "assistant", model: MODEL,
+            content: [{ type: "tool_use", id: "t1", name: "slow", input: {} }],
+            stop_reason: "tool_use", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return okMessage();
+    });
+    const tools = {
+      slow: tool({
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
+        execute: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          return { done: true };
+        },
+      }),
+    };
+
+    const response = await AnthropicProvider.chat(request({ requestTimeoutMs: 200, maxSteps: 5, maxRetries: 0, tools }), MODEL);
+
+    expect(response.text).toBe("ok");
+    expect(calls).toBe(2);
   });
 
   it("logs no error when its caller cancels the call, which is a routine path", async () => {

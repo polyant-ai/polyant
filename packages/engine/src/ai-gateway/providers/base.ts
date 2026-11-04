@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
+import { APICallError, DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -177,8 +177,8 @@ interface MappedUsage {
  * A call that had started and not answered when the turn failed is pinned too,
  * as `inFlight`, with an estimate of its prompt: aborted in flight, it had
  * reached the provider, which processes and bills the prompt whether or not
- * anyone reads the answer. The estimate counts about one token per four
- * characters of what the call sent; no provider reports more for it.
+ * anyone reads the answer. No provider reports more for it; see
+ * {@link estimatePromptTokens}.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
@@ -193,25 +193,89 @@ export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | 
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** About one token per four characters of everything a model call sends: instructions, messages and tools. */
-function estimatePromptTokens(event: { instructions?: unknown; messages?: unknown; tools?: unknown }): number {
-  const chars = JSON.stringify([event.instructions ?? null, event.messages ?? null, event.tools ?? null]).length;
-  return Math.ceil(chars / 4);
+/**
+ * What one attached image or file is counted as. Providers bill an image by
+ * its pixels after scaling it down, not by its bytes: Anthropic scales an image
+ * to about 1.15 megapixels, about 1,600 tokens, and OpenAI's high detail lands
+ * in the same range. A document's cost depends on its pages, which only the
+ * provider counts, so it is counted as one such image: an order of magnitude,
+ * where its bytes would be off by a thousandfold.
+ */
+const ATTACHMENT_PROMPT_TOKENS = 1_600;
+
+/** The part types that carry an image or a file, in a message or a tool result, at the SDK and at the provider level. */
+const ATTACHMENT_PARTS = new Set(["image", "file", "media", "image-data", "file-data", "image-url", "file-url"]);
+
+/**
+ * The prompt tokens a model call sent: about one per four characters of its
+ * text (instructions, messages, tools), plus {@link ATTACHMENT_PROMPT_TOKENS}
+ * per attachment, whose bytes are never read. Called only when a turn fails
+ * with the call in flight.
+ */
+function estimatePromptTokens(call: unknown): number {
+  let chars = 0;
+  let attachments = 0;
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      chars += value.length;
+      return;
+    }
+    if (value === null || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.type === "string" && ATTACHMENT_PARTS.has(record.type)) {
+      attachments += 1;
+      return;
+    }
+    for (const [key, item] of Object.entries(record)) {
+      chars += key.length;
+      visit(item);
+    }
+  };
+  visit(call);
+  return Math.ceil(chars / 4) + attachments * ATTACHMENT_PROMPT_TOKENS;
+}
+
+/** What the model-request middleware tells the usage collector about each request it sends. */
+interface RequestObserver {
+  /** A request (the first of a call, or a retry) is sent with this prompt and these tools. */
+  requestStarted(request: { prompt: unknown; tools?: unknown }): void;
+  /** The request failed with `err`, and the SDK may retry it. */
+  requestFailed(err: unknown): void;
 }
 
 /**
  * Sums each answered model call's usage (`onLanguageModelCallEnd`), tracks the
- * call in flight (`onLanguageModelCallStart`), and pins both to the turn's error.
+ * request in flight (through the model middleware, which sees every retry),
+ * and pins both to the turn's error.
+ *
+ * A request the provider answered with an error (a 429, a 529) was refused,
+ * not billed: it is no longer in flight, including while the SDK waits to
+ * retry it. A request that failed without an answer (aborted, timed out, a
+ * dropped connection) had reached the provider and stays in flight.
  */
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
-  let inFlight: UsageBeforeFailure["inFlight"];
-  return {
-    onLanguageModelCallStart: (event: { instructions?: unknown; messages?: unknown; tools?: unknown }) => {
-      inFlight = { promptTokens: estimatePromptTokens(event) };
+  // What the request in flight sent, kept by reference: it is estimated only if the turn fails.
+  let inFlight: { prompt: unknown; tools?: unknown } | undefined;
+  const requests: RequestObserver = {
+    requestStarted: (request) => {
+      inFlight = { prompt: request.prompt, tools: request.tools };
     },
+    requestFailed: (err) => {
+      if (APICallError.isInstance(err) && err.statusCode !== undefined) inFlight = undefined;
+    },
+  };
+  return {
+    requests,
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
       inFlight = undefined;
       const usage = mapUsage(event.usage);
@@ -227,7 +291,11 @@ function completedCallsUsage() {
     },
     pinTo(err: unknown): void {
       if ((calls.length > 0 || inFlight) && err !== null && typeof err === "object") {
-        usageBeforeFailure.set(err, { ...total, calls: [...calls], ...(inFlight ? { inFlight } : {}) });
+        usageBeforeFailure.set(err, {
+          ...total,
+          calls: [...calls],
+          ...(inFlight ? { inFlight: { promptTokens: estimatePromptTokens(inFlight) } } : {}),
+        });
       }
     },
   };
@@ -817,31 +885,69 @@ function temperatureCallParam(
 }
 
 /**
- * Log every retry the AI SDK makes of a model request. The SDK retries inside
- * one model call, so neither its callbacks nor `ai_logs` see a retry, and each
- * one can add seconds to a turn. A request that starts after the previous
+ * The middleware around each model request a call makes (its first and each
+ * retry, since the SDK retries inside one model call).
+ *
+ * It logs every retry: neither the SDK's callbacks nor `ai_logs` see one, and
+ * each can add seconds to a turn. A request that starts after the previous
  * request of the same call failed is a retry: a failure the SDK does not retry
- * ends the call.
+ * ends the call. It tells `observer` what each request sent and how it failed,
+ * and runs `deadline` while a request waits for the provider to start
+ * answering: the whole answer, or a stream's first bytes.
  */
-function retryLogging(providerName: string, modelId: string): LanguageModelMiddleware {
+function requestMiddleware(
+  providerName: string,
+  modelId: string,
+  observer: RequestObserver,
+  deadline: RequestDeadline | undefined,
+): LanguageModelMiddleware {
   let lastFailure: unknown;
-  const attempt = async <T>(run: () => PromiseLike<T>): Promise<T> => {
+  const attempt = async <T>(params: { prompt: unknown; tools?: unknown }, run: () => PromiseLike<T>): Promise<T> => {
     if (lastFailure !== undefined) {
       log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
     }
+    observer.requestStarted(params);
+    deadline?.start();
     try {
       const result = await run();
       lastFailure = undefined;
       return result;
     } catch (err) {
       lastFailure = err;
+      observer.requestFailed(err);
       throw err;
+    } finally {
+      deadline?.stop();
     }
   };
   return {
     specificationVersion: "v4",
-    wrapGenerate: ({ doGenerate }) => attempt(doGenerate),
-    wrapStream: ({ doStream }) => attempt(doStream),
+    wrapGenerate: ({ doGenerate, params }) => attempt(params, doGenerate),
+    wrapStream: ({ doStream, params }) => attempt(params, doStream),
+  };
+}
+
+/**
+ * The bound on each model request of one call. Its signal is the call's, so a
+ * request that runs out of time ends the call with a `TimeoutError`, as the
+ * SDK's own bounds do; it runs only while a request waits for the provider,
+ * and never while the call's tools run.
+ */
+interface RequestDeadline {
+  signal: AbortSignal;
+  start(): void;
+  stop(): void;
+}
+
+function requestDeadline(timeoutMs: number): RequestDeadline {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    signal: controller.signal,
+    start: () => {
+      timer = setTimeout(() => controller.abort(new DOMException("The model request timed out.", "TimeoutError")), timeoutMs);
+    },
+    stop: () => clearTimeout(timer),
   };
 }
 
@@ -895,22 +1001,23 @@ export function createProvider(
     const prepareStep =
       request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId, request.cacheConfig?.userTurn);
     const completed = completedCallsUsage();
+    const deadline = request.requestTimeoutMs !== undefined ? requestDeadline(request.requestTimeoutMs) : undefined;
+    const abortSignal = deadline && request.abortSignal ? AbortSignal.any([request.abortSignal, deadline.signal]) : (deadline?.signal ?? request.abortSignal);
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
       model: wrapLanguageModel({
         model: createModel(modelId, request.apiKeys),
-        middleware: retryLogging(providerName, modelId),
+        middleware: requestMiddleware(providerName, modelId, completed.requests, deadline),
       }),
       instructions,
       messages,
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
-      abortSignal: request.abortSignal,
+      abortSignal,
       experimental_download: refuseUrlDownloads,
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
-      onLanguageModelCallStart: completed.onLanguageModelCallStart,
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),

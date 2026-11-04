@@ -720,6 +720,8 @@ describe("AI Gateway", () => {
     // Defaults from the process configuration (none of these variables is set in tests).
     const SERVICE_TOTAL_MS = 300_000;
     const STREAM_CHUNK_MS = 120_000;
+    const STREAM_FIRST_CHUNK_MS = 300_000;
+    const MODEL_REQUEST_MS = 300_000;
     const MAX_RETRIES = 2;
 
     it("bounds a service call's total time and states its retries", async () => {
@@ -728,6 +730,7 @@ describe("AI Gateway", () => {
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
+      expect(sent.requestTimeoutMs).toBeUndefined();
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
@@ -738,22 +741,24 @@ describe("AI Gateway", () => {
       expect((mockProviderChat.mock.calls[0][0] as ChatRequest).timeout).toBeUndefined();
     });
 
-    it("sets no total time on a conversation turn, whose tools may run long", async () => {
+    it("sets no total time on a conversation turn, whose tools may run long, and bounds each of its model requests", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
-      await chat(makeRequest(), { callType: "conversation" });
+      await chat(makeRequest({ maxSteps: 10 }), { callType: "conversation" });
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toBeUndefined();
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
-    it("bounds the silence between two chunks of a streamed answer", async () => {
+    it("bounds the wait for a streamed answer's first chunk and the silence between two chunks", async () => {
       mockProviderChatStream.mockReturnValue({ textStream: (async function* () {})(), response: Promise.resolve(makeChatResponse()) });
       const stream = await chatStream(makeRequest());
       await stream.response;
 
       const sent = mockProviderChatStream.mock.calls[0][0] as ChatRequest;
-      expect(sent.timeout).toEqual({ chunkMs: STREAM_CHUNK_MS });
+      expect(sent.timeout).toEqual({ firstChunkMs: STREAM_FIRST_CHUNK_MS, chunkMs: STREAM_CHUNK_MS });
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
@@ -899,6 +904,29 @@ describe("AI Gateway", () => {
       expect(loggedEntry().costUsd as number).toBeLessThan(coldCost);
     });
 
+    it("keeps the turn's cached prefix when a service call of the same conversation runs after it", async () => {
+      // The turn leaves 25,000 tokens in the cache.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 26_000, completionTokens: 50, totalTokens: 26_050, cachedInputTokens: 20_000, cacheCreationInputTokens: 5_000 },
+      }));
+      await chat(makeRequest(), { conversationId: "conv-in-flight-service" });
+      // The memory extraction after the turn: a small prompt, nothing cached.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 600, completionTokens: 40, totalTokens: 640, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
+      }));
+      await chat(makeRequest({ tier: "fast" }), { conversationId: "conv-in-flight-service", callType: "service", purpose: "memory" });
+      // The next turn is preempted in flight.
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      const controller = new AbortController();
+      controller.abort();
+      mockProviderChat.mockRejectedValueOnce(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-service" })).rejects.toBe(err);
+
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(25_000);
+    });
+
     it("writes NOTHING when the turn was preempted before any model call started", async () => {
       // cancel-and-restart is the routine path — it fires whenever a user sends a
       // second message before the first reply lands. A turn it stopped before
@@ -944,6 +972,21 @@ describe("AI Gateway", () => {
       const entry = loggedEntry();
       expect(entry.outcome).toBe("error");
       expect(entry.errorKind).toBe("timeout");
+    });
+
+    // A call the provider was still answering when its timeout closed it was
+    // billed like a preempted one: the row carries the estimate of its prompt.
+    it("adds the estimate of the call in flight to a timeout row", async () => {
+      const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      pinnedUsage.set(timeout, { promptTokens: 1_000, completionTokens: 20, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      mockProviderChat.mockRejectedValue(timeout);
+
+      await expect(chat(makeRequest())).rejects.toBe(timeout);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("error");
+      expect(entry.errorKind).toBe("timeout");
+      expect(entry.promptTokens).toBe(31_000);
     });
 
     it("writes exactly one row when a stream fails after being established", async () => {

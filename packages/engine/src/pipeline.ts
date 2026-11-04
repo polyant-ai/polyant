@@ -7,6 +7,7 @@
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from "node:crypto";
 import type { ModelMessage } from "ai";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
@@ -122,7 +123,16 @@ export interface SummaryFold {
   through: Date;
   /** Where the summary reached when the turn read it. */
   previousThrough: Date | null;
+  /**
+   * The turn read as many messages as it reads at most, so older messages it
+   * never read may lie between `previousThrough` and `messages`: the fold reads
+   * them itself, from where the summary reached.
+   */
+  readCut?: boolean;
 }
+
+/** The most messages a fold that reads them itself summarizes at once; the next fold goes on from there. */
+const FOLD_READ_MAX = 200;
 
 // ---------------------------------------------------------------------------
 // PipelineContext — everything preparePipeline returns
@@ -320,6 +330,7 @@ export async function preparePipeline(
           messages: conversationHistory.slice(0, fold),
           through: rows[fold - 1].createdAt!,
           previousThrough: turn.summaryThrough,
+          ...(rows.length >= HISTORY_HARD_CAP ? { readCut: true } : {}),
         }
       : undefined;
 
@@ -493,50 +504,19 @@ export interface AfterResponseOptions {
 export async function persistTurn(opts: AfterResponseOptions, state?: ConversationStateBuffer): Promise<void> {
   if (isAutoTask(opts.userMessage)) return;
 
-  // No pre-check: `uploadAttachment` answers `null` for an agent with no
-  // storage configured, which is the ordinary case. Asking first would read
-  // the same secrets twice and give the two reads a chance to disagree.
-  // A failed upload (denied bucket policy, wrong region, revoked credentials,
-  // a transient S3 error) costs that attachment its stored copy, not the
-  // turn: the reply has been produced and tools may have written, so the
-  // turn is persisted without it. Only the error's name is logged — an S3
-  // message carries the object key, and the key carries the conversation id.
-  let attachmentMetas: AttachmentMeta[] | undefined;
-  if (opts.userAttachments?.length) {
-    const results: (AttachmentMeta | null)[] = await Promise.all(
-      opts.userAttachments.map((att) =>
-        att.data
-          ? uploadAttachment(att.data, {
-              type: att.type,
-              mimeType: att.mimeType,
-              fileName: att.fileName,
-              instanceId: opts.instanceId,
-              conversationId: opts.conversationId,
-            }).catch((err: unknown) => {
-              log.warn(
-                "pipeline",
-                `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
-              );
-              return null;
-            })
-          : Promise.resolve(null),
-      ),
-    );
-    const stored = results.filter((r): r is AttachmentMeta => r != null);
-    // Undefined rather than an empty array when nothing was stored: the column
-    // is nullable and an empty array would read as "there were attachments,
-    // and none of them are here".
-    attachmentMetas = stored.length > 0 ? stored : undefined;
-  }
+  // The user row's id is chosen here when it has attachments to store: they are
+  // recorded on it once uploaded, after the turn is saved and delivered.
+  const toStore = opts.userAttachments?.some((att) => att.data) ? opts.userAttachments : undefined;
+  const userRowId = toStore ? randomUUID() : undefined;
 
   // Both rows are stamped by this process's clock: the user row at arrival, the
   // reply now. Mixing in the database's clock for one of them would let a skew
   // between the two hosts order the reply before the message it answers.
   await conversationStore.appendMessages(opts.conversationId, [
     {
+      ...(userRowId ? { id: userRowId } : {}),
       role: "user",
       content: opts.userMessage,
-      attachments: attachmentMetas,
       metadata: opts.inboundMetadata,
       ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
       ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
@@ -559,6 +539,56 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
         : {}),
     },
   ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
+
+  if (toStore && userRowId) {
+    trackBackgroundTurn(
+      storeAttachments(opts, toStore).then(async (stored) => {
+        if (stored && !(await conversationStore.setMessageAttachments(opts.conversationId, userRowId, stored))) {
+          log.warn("pipeline", `Stored attachments for agent "${opts.instanceId}" found no message to record them on`);
+        }
+      }).catch((err: unknown) => log.error("pipeline", `Failed to record stored attachments for agent "${opts.instanceId}"`, err)),
+    );
+  }
+}
+
+/**
+ * Copy a turn's inbound attachments to the agent's bucket. Runs after the turn
+ * is saved and is waited for by shutdown, never by the reply: the S3 client
+ * retries for up to minutes, and past the point of no return a turn that waits
+ * on it holds the reply and the contact's next messages.
+ *
+ * No pre-check: `uploadAttachment` answers `null` for an agent with no storage
+ * configured, which is the ordinary case. Asking first would read the same
+ * secrets twice and give the two reads a chance to disagree. A failed upload
+ * (denied bucket policy, wrong region, revoked credentials, a transient S3
+ * error) costs that attachment its stored copy, not the turn. Only the error's
+ * name is logged — an S3 message carries the object key, and the key carries
+ * the conversation id. Undefined when nothing was stored: the column is
+ * nullable and an empty array would read as "there were attachments, and none
+ * of them are here".
+ */
+async function storeAttachments(opts: AfterResponseOptions, attachments: Attachment[]): Promise<AttachmentMeta[] | undefined> {
+  const results: (AttachmentMeta | null)[] = await Promise.all(
+    attachments.map((att) =>
+      att.data
+        ? uploadAttachment(att.data, {
+            type: att.type,
+            mimeType: att.mimeType,
+            fileName: att.fileName,
+            instanceId: opts.instanceId,
+            conversationId: opts.conversationId,
+          }).catch((err: unknown) => {
+            log.warn(
+              "pipeline",
+              `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
+            );
+            return null;
+          })
+        : Promise.resolve(null),
+    ),
+  );
+  const stored = results.filter((r): r is AttachmentMeta => r != null);
+  return stored.length > 0 ? stored : undefined;
 }
 
 /** What the work after a saved turn needs; see {@link afterResponseTail}. */
@@ -577,16 +607,88 @@ export interface TurnTailOptions {
 }
 
 /**
+ * A fold whose turn did not read every message after the summary: the
+ * messages from where the summary reached, read in order, up to the turn's
+ * fold or {@link FOLD_READ_MAX} of them, ending between two instants as
+ * {@link messagesToFold} does. Undefined when there is nothing to fold.
+ */
+async function foldFromSummary(conversationId: string, fold: SummaryFold): Promise<SummaryFold | undefined> {
+  const rows = await conversationStore.getMessagesAfter(conversationId, {
+    after: fold.previousThrough,
+    through: fold.through,
+    limit: FOLD_READ_MAX + 1,
+  });
+  let end = Math.min(rows.length, FOLD_READ_MAX);
+  while (end > 0 && end < rows.length && rows[end - 1].createdAt?.getTime() === rows[end].createdAt?.getTime()) end--;
+  const last = rows[end - 1]?.createdAt;
+  if (!last) return undefined;
+  return { messages: rowsToModelMessages(rows.slice(0, end)), through: last, previousThrough: fold.previousThrough };
+}
+
+/** Conversations whose summary fold is queued or running in this process. */
+const foldsPending = new Set<string>();
+
+/**
  * The work that follows a saved turn and that the next turn does not need:
  * the conversation title, the summary of the messages leaving the window, the
  * memory extraction. Shared by every engine that saves a turn (the pipeline,
- * Room and webhook turns). Runs as one bounded background job that shutdown
- * waits for; failures are logged.
+ * Room and webhook turns). Title and summary run as one bounded background job,
+ * the memory extraction as another in its own queue; shutdown waits for both,
+ * failures are logged.
+ *
+ * One fold per conversation at a time: while one is queued or running, a later
+ * turn's fold is dropped, since the one ahead moves the summary and leaves a
+ * history short enough again. A fold whose starting point another one has moved
+ * meanwhile (another process, or a fold that landed before this turn was
+ * saved) is dropped before its model call, which could not land anyway.
  */
 export function afterResponseTail(opts: TurnTailOptions): void {
   const cfg = opts.instanceConfig;
   const langsmith = buildLangsmithConfig(cfg);
-  const work = async () => {
+  const fold = opts.summaryFold && !foldsPending.has(opts.conversationId) ? opts.summaryFold : undefined;
+  if (fold) foldsPending.add(opts.conversationId);
+
+  const summarize = async (turnFold: SummaryFold) => {
+    const current = await conversationStore.getSummaryThrough(opts.conversationId);
+    if ((current?.getTime() ?? null) !== (turnFold.previousThrough?.getTime() ?? null)) return;
+    const covered = turnFold.readCut ? await foldFromSummary(opts.conversationId, turnFold) : turnFold;
+    if (!covered) return;
+    const existing = opts.existingSummary
+      ? `Previous summary: ${opts.existingSummary}\n\n`
+      : "";
+    const droppedText = covered.messages
+      .map(m => {
+        const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
+        return `${label}: ${m.content}`;
+      })
+      .join("\n");
+    const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+    const now = new Date().toLocaleString(datetime.locale, {
+      timeZone: datetime.timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+    const summaryResponse = await chat({
+      tier: "fast",
+      provider: cfg.provider,
+      apiKeys: cfg.apiKeys,
+      langsmith,
+      system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
+      messages: [{
+        role: "user",
+        content: `${existing}Messages to summarize:\n${droppedText}`,
+      }],
+    }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
+
+    // Lands only if no other turn moved the summary meanwhile; until it
+    // lands, turns keep reading from where the summary reached before.
+    const summary = summaryResponse.text.trim();
+    if (summary) {
+      await conversationStore.advanceSummary(opts.conversationId, summary, covered.through, covered.previousThrough);
+    }
+  };
+
+  const turnWork = async () => {
     // Generate title (only once, after first exchange)
     if (opts.titleContent !== undefined) {
       await generateConversationTitle({
@@ -601,56 +703,29 @@ export function afterResponseTail(opts: TurnTailOptions): void {
     }
 
     // Fold the oldest messages of the history into the summary, once per block.
-    if (opts.summaryFold) {
-      const fold = opts.summaryFold;
-      const existing = opts.existingSummary
-        ? `Previous summary: ${opts.existingSummary}\n\n`
-        : "";
-      const droppedText = fold.messages
-        .map(m => {
-          const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
-          return `${label}: ${m.content}`;
-        })
-        .join("\n");
-      try {
-        const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
-        const now = new Date().toLocaleString(datetime.locale, {
-          timeZone: datetime.timezone,
-          dateStyle: "full",
-          timeStyle: "short",
-        });
-        const summaryResponse = await chat({
-          tier: "fast",
-          provider: cfg.provider,
-          apiKeys: cfg.apiKeys,
-          langsmith,
-          system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
-          messages: [{
-            role: "user",
-            content: `${existing}Messages to summarize:\n${droppedText}`,
-          }],
-        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
-
-        // Lands only if no other turn moved the summary meanwhile; until it
-        // lands, turns keep reading from where the summary reached before.
-        const summary = summaryResponse.text.trim();
-        if (summary) {
-          await conversationStore.advanceSummary(opts.conversationId, summary, fold.through, fold.previousThrough);
-        }
-      } catch (err) {
-        log.error("pipeline", "Summary generation failed", err);
-      }
-    }
-
-    // Automatic memory extraction
-    if (cfg.memoryEnabled !== false) {
-      await extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
-        log.error("pipeline", "Memory extraction failed", err),
-      );
+    if (fold) {
+      await summarize(fold).catch((err: unknown) => log.error("pipeline", "Summary generation failed", err));
     }
   };
 
-  void runBackgroundJob(() => work().catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err)));
+  if (opts.titleContent !== undefined || fold) {
+    void runBackgroundJob("turn", () =>
+      turnWork()
+        .catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err))
+        .finally(() => {
+          if (fold) foldsPending.delete(opts.conversationId);
+        }),
+    );
+  }
+
+  // Automatic memory extraction
+  if (cfg.memoryEnabled !== false) {
+    void runBackgroundJob("memory", () =>
+      extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
+        log.error("pipeline", "Memory extraction failed", err),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

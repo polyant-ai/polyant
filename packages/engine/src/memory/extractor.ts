@@ -75,17 +75,20 @@ export async function extractMemories(
   // 1. The messages not read yet, with two before them for context: each
   //    message reaches the model once as new, instead of in every one of the
   //    next seven extractions.
-  const { context, fresh, memoryThrough } = await conversationStore.getMessagesToExtract(conversationId, {
+  const { context, fresh, through, memoryThrough } = await conversationStore.getMessagesToExtract(conversationId, {
     limit: 15,
     context: 2,
   });
-  const readUpTo = fresh.at(-1)?.createdAt;
-  if (!readUpTo) return [];
+  if (fresh.length === 0) return [];
+  // Rows saved before messages carried a seq are read by time until the first
+  // mark by seq; with no such mark to set, they are read again next time.
+  const markRead = () =>
+    through === null ? Promise.resolve() : conversationStore.advanceMemoryThrough(conversationId, through, memoryThrough);
 
   // 2. Build conversation transcript for the LLM
   const newText = renderTranscript(fresh);
   if (!newText.trim()) {
-    await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
+    await markRead();
     return [];
   }
   const earlierText = renderTranscript(context);
@@ -126,11 +129,10 @@ export async function extractMemories(
     return [];
   }
 
-  // The messages are read: the next extraction starts after them, whatever
-  // happens to the facts below.
-  await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
-
-  if (facts.length === 0) return [];
+  if (facts.length === 0) {
+    await markRead();
+    return [];
+  }
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
@@ -165,6 +167,12 @@ export async function extractMemories(
     });
     results.push(result);
   }
+
+  // The facts are saved: the next extraction starts after these messages. Until
+  // then a failure (the embedding provider down, an upsert refused) leaves them
+  // unread, and the next extraction reads them again; a fact saved before the
+  // failure is matched by similarity then, not duplicated.
+  await markRead();
 
   const elapsed = Date.now() - start;
   const added = results.filter((r) => r.event === "ADD").length;

@@ -13,7 +13,7 @@ let trackBackgroundTurn: BackgroundTurns["trackBackgroundTurn"];
 let drainBackgroundTurns: BackgroundTurns["drainBackgroundTurns"];
 let pendingBackgroundTurns: BackgroundTurns["pendingBackgroundTurns"];
 let runBackgroundJob: BackgroundTurns["runBackgroundJob"];
-let MAX_CONCURRENT_BACKGROUND_JOBS: BackgroundTurns["MAX_CONCURRENT_BACKGROUND_JOBS"];
+let backgroundJobLimit: BackgroundTurns["backgroundJobLimit"];
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -27,7 +27,7 @@ describe("background turns", () => {
   // what the next test sees.
   beforeEach(async () => {
     vi.resetModules();
-    ({ trackBackgroundTurn, drainBackgroundTurns, pendingBackgroundTurns, runBackgroundJob, MAX_CONCURRENT_BACKGROUND_JOBS } =
+    ({ trackBackgroundTurn, drainBackgroundTurns, pendingBackgroundTurns, runBackgroundJob, backgroundJobLimit } =
       await import("./background-turns.js"));
   });
 
@@ -89,9 +89,10 @@ describe("background turns", () => {
     const releases: Array<() => void> = [];
     let running = 0;
     let peak = 0;
-    const total = MAX_CONCURRENT_BACKGROUND_JOBS * 3;
+    const limit = backgroundJobLimit("turn");
+    const total = limit * 3;
     const done = Array.from({ length: total }, () =>
-      runBackgroundJob(async () => {
+      runBackgroundJob("turn", async () => {
         running++;
         peak = Math.max(peak, running);
         await new Promise<void>((r) => releases.push(r));
@@ -100,7 +101,7 @@ describe("background turns", () => {
     );
 
     await new Promise((r) => setTimeout(r, 0));
-    expect(running).toBe(MAX_CONCURRENT_BACKGROUND_JOBS);
+    expect(running).toBe(limit);
     // Queued jobs count as pending work: shutdown waits for them too.
     expect(pendingBackgroundTurns()).toBe(total);
 
@@ -109,22 +110,37 @@ describe("background turns", () => {
       await new Promise((r) => setTimeout(r, 0));
     }
     await Promise.all(done);
-    expect(peak).toBe(MAX_CONCURRENT_BACKGROUND_JOBS);
+    expect(peak).toBe(limit);
     expect(pendingBackgroundTurns()).toBe(0);
   });
 
   it("moves on to the next queued job when one fails", async () => {
-    const failures = Array.from({ length: MAX_CONCURRENT_BACKGROUND_JOBS }, () =>
-      runBackgroundJob(async () => {
+    const failures = Array.from({ length: backgroundJobLimit("turn") }, () =>
+      runBackgroundJob("turn", async () => {
         throw new Error("boom");
       }),
     );
     let ran = false;
-    const next = runBackgroundJob(async () => {
+    const next = runBackgroundJob("turn", async () => {
       ran = true;
     });
 
     await Promise.all([...failures, next]);
     expect(ran).toBe(true);
+  });
+
+  it("runs a summary while memory extractions fill their own queue", async () => {
+    const release = deferred();
+    const extractions = Array.from({ length: backgroundJobLimit("memory") * 2 }, () =>
+      runBackgroundJob("memory", () => release.promise),
+    );
+    let summarized = false;
+    await runBackgroundJob("turn", async () => {
+      summarized = true;
+    });
+
+    expect(summarized).toBe(true);
+    release.resolve();
+    await Promise.all(extractions);
   });
 });

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { messagesToFold } from "./history-window.js";
+import { HISTORY_CHAR_BUDGET, messagesToFold } from "./history-window.js";
 
 const at = (ms: number) => ({ createdAt: new Date(Date.UTC(2026, 10, 1) + ms) });
 const window = (count: number) => Array.from({ length: count }, (_, i) => at(i * 1_000));
@@ -27,5 +27,38 @@ describe("messagesToFold", () => {
     rows[12] = { createdAt: rows[11].createdAt };
 
     expect(messagesToFold(rows, 2)).toBe(11);
+  });
+
+  // A history of a few long rows (tool results replayed whole, pasted
+  // documents) can outgrow the model's context well before it counts twenty
+  // messages; the turn then fails before its fold, and so does every next one.
+  it("folds the oldest messages once the history outgrows its size, whatever its count", () => {
+    const rows = window(8).map((r) => ({ ...r, content: "x".repeat(HISTORY_CHAR_BUDGET / 4) }));
+
+    const fold = messagesToFold(rows, 2);
+
+    // What stays fits in half the budget: two of these rows.
+    expect(fold).toBe(6);
+  });
+
+  it("counts a row's replayed steps toward its size", () => {
+    const rows = window(8).map((r) => ({
+      ...r,
+      content: "ok",
+      steps: [{
+        index: 0,
+        stepType: "initial" as const,
+        text: "",
+        toolCalls: [{ toolCallId: "t", toolName: "read", args: {} }],
+        toolResults: [{ toolCallId: "t", result: "y".repeat(HISTORY_CHAR_BUDGET / 4) }],
+        finishReason: "tool-calls",
+      }],
+    }));
+
+    expect(messagesToFold(rows, 2)).toBeGreaterThan(0);
+  });
+
+  it("folds nothing for a short history of short rows", () => {
+    expect(messagesToFold(window(8).map((r) => ({ ...r, content: "hello" })), 2)).toBe(0);
   });
 });

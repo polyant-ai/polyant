@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { config } from "../config.js";
+
 /**
  * Work the engine has already started on its own and is still doing.
  *
@@ -29,37 +31,48 @@ export function trackBackgroundTurn(work: Promise<unknown>): void {
 }
 
 /**
- * How many background jobs run at once. The post-response work of a turn (its
- * title, its summary, its memory extraction) is up to three model calls and a
- * run of database transactions; under load, unbounded, it competed with the
- * turns themselves for the connection pool.
+ * The kinds of work owed after a turn, each with its own queue and limit
+ * (`config.backgroundJobs`): the conversation's title and summary (`turn`),
+ * and its memory extraction (`memory`). The post-response work of a turn is up
+ * to three model calls and a run of database transactions; under load,
+ * unbounded, it competed with the turns themselves for the connection pool,
+ * and in one shared queue a backlog of extractions held back the summaries
+ * that keep the next turns' history short.
  */
-export const MAX_CONCURRENT_BACKGROUND_JOBS = 4;
+export type BackgroundLane = "turn" | "memory";
 
-const queued: Array<() => void> = [];
-let runningJobs = 0;
+/** How many jobs of a kind run at once. */
+export function backgroundJobLimit(lane: BackgroundLane): number {
+  return lane === "turn" ? config.backgroundJobs.turnConcurrency : config.backgroundJobs.memoryConcurrency;
+}
+
+const lanes: Record<BackgroundLane, { queued: Array<() => void>; running: number }> = {
+  turn: { queued: [], running: 0 },
+  memory: { queued: [], running: 0 },
+};
 
 /**
  * Run work the engine owes after a turn has been answered: queued behind at
- * most {@link MAX_CONCURRENT_BACKGROUND_JOBS} others, and tracked from the
+ * most {@link backgroundJobLimit} others of its kind, and tracked from the
  * moment it is queued so shutdown waits for it like an acknowledged turn. The
  * job handles its own errors; a rejection only frees its slot. The returned
  * promise settles when the job has run.
  */
-export function runBackgroundJob(job: () => Promise<unknown>): Promise<void> {
+export function runBackgroundJob(lane: BackgroundLane, job: () => Promise<unknown>): Promise<void> {
+  const state = lanes[lane];
   const done = new Promise<void>((resolve) => {
     const start = () => {
-      runningJobs++;
+      state.running++;
       void job()
         .catch(() => undefined)
         .finally(() => {
-          runningJobs--;
+          state.running--;
           resolve();
-          queued.shift()?.();
+          state.queued.shift()?.();
         });
     };
-    if (runningJobs < MAX_CONCURRENT_BACKGROUND_JOBS) start();
-    else queued.push(start);
+    if (state.running < backgroundJobLimit(lane)) start();
+    else state.queued.push(start);
   });
   trackBackgroundTurn(done);
   return done;
