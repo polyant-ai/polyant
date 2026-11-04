@@ -2,7 +2,8 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useDebouncedField } from "@/hooks/use-debounced-field";
 import { Pause, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadFailed } from "@/components/ui/load-failed";
@@ -60,23 +61,7 @@ export function MonitorView({
   const filters = useMemo<MonitorFilters>(() => (lockedAgent ? { ...value, agent: lockedAgent } : value), [value, lockedAgent]);
 
   // The search box is typed into at once and sent to the engine once typing pauses.
-  const [typed, setTyped] = useState(value.q);
-  const [prevQ, setPrevQ] = useState(value.q);
-  if (value.q !== prevQ) {
-    setPrevQ(value.q);
-    setTyped(value.q);
-  }
-  const valueRef = useRef(value);
-  const onChangeRef = useRef(onChange);
-  useEffect(() => {
-    valueRef.current = value;
-    onChangeRef.current = onChange;
-  });
-  useEffect(() => {
-    if (typed === valueRef.current.q) return;
-    const timer = setTimeout(() => onChangeRef.current({ ...valueRef.current, q: typed }), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [typed]);
+  const [typed, setTyped] = useDebouncedField(value.q, (q) => onChange({ ...value, q }), SEARCH_DEBOUNCE_MS);
 
   const view = monitorLevelView(level);
   const feed = useMonitorFeed(filters, level);
