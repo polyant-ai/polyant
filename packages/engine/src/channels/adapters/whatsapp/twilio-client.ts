@@ -4,35 +4,20 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import Twilio from "twilio";
 import { splitMessage } from "../../split-message.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
+import { isNotSentErrorCode, isNotTakenStatus, parseRetryAfterMs, retryNotTakenSend } from "../../twilio-send-retry.js";
 import type { TemplateDefinition } from "./render-template.js";
 
 const TYPING_INDICATOR_ENDPOINT = "https://messaging.twilio.com/v2/Indicators/Typing.json";
 const CONTENT_API_ENDPOINT = "https://content.twilio.com/v1/Content";
 
-/** Waits before the second and third attempt of a send Twilio did not take. */
-const SEND_RETRY_DELAYS_MS = [300, 1_200];
-/** The longest wait a `Retry-After` may ask for; past it the send fails at once. */
-const SEND_RETRY_MAX_WAIT_MS = 5_000;
-
 /**
- * Network errors raised before any byte of the request left: the message
- * cannot have reached Twilio. A reset, a TLS failure or a timeout is left out,
- * since the library does not tell whether the request was already sent.
- */
-const NOT_SENT_ERROR_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
-
-/**
- * A send Twilio certainly did not take: rate-limited (429), refused as
- * unavailable (503), or never reached. The Messages API takes no idempotency
- * key, so anything else (500, 502, 504, a read timeout, a reset after sending)
- * may have queued the message, and a resend would deliver it twice: those fail
- * as before, visibly.
+ * A send Twilio certainly did not take. The SDK throws every refusal, with the
+ * HTTP status on the error, and a network failure with its code.
  */
 function isNotTakenSendError(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status;
-  if (typeof status === "number") return status === 429 || status === 503;
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === "string" && NOT_SENT_ERROR_CODES.has(code);
+  if (typeof status === "number") return isNotTakenStatus(status);
+  return isNotSentErrorCode((err as { code?: unknown } | null)?.code);
 }
 
 /**
@@ -40,15 +25,6 @@ function isNotTakenSendError(err: unknown): boolean {
  * running in this async context is noted by the HTTP client as it answers.
  */
 const attemptRetryAfter = new AsyncLocalStorage<{ ms?: number }>();
-
-/** `Retry-After` in milliseconds: delta-seconds or an HTTP date. */
-function parseRetryAfterMs(value: unknown): number | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const at = Date.parse(value);
-  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
-}
 
 /** The SDK's HTTP client, noting each answer's `Retry-After` for the attempt that made it. */
 function retryAfterNotingHttpClient(): InstanceType<typeof Twilio.RequestClient> {
@@ -63,19 +39,12 @@ function retryAfterNotingHttpClient(): InstanceType<typeof Twilio.RequestClient>
   return client;
 }
 
-async function withSendRetry<T>(send: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    const noted: { ms?: number } = {};
-    try {
-      return await attemptRetryAfter.run(noted, send);
-    } catch (err) {
-      const delay = SEND_RETRY_DELAYS_MS[attempt];
-      if (delay === undefined || !isNotTakenSendError(err)) throw err;
-      const wait = Math.max(delay, noted.ms ?? 0);
-      if (wait > SEND_RETRY_MAX_WAIT_MS) throw err;
-      await new Promise((resolve) => setTimeout(resolve, wait));
-    }
-  }
+function withSendRetry<T>(send: () => Promise<T>): Promise<T> {
+  let noted: { ms?: number } = {};
+  return retryNotTakenSend(
+    () => attemptRetryAfter.run((noted = {}), send),
+    (outcome) => (!outcome.ok && isNotTakenSendError(outcome.error) ? { retryAfterMs: noted.ms } : undefined),
+  );
 }
 
 /**
