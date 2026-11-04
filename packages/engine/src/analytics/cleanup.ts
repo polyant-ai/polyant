@@ -25,7 +25,7 @@
  * existing daily branch of `RoomScheduler` so there is no second timer.
  */
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { config } from "../config.js";
 
@@ -46,25 +46,38 @@ export function computeCutoff(retentionDays: number, now: Date = new Date()): Da
   return new Date(now.getTime() - ms);
 }
 
+/** Rows deleted per statement: each statement stays far under the main pool's per-statement cap. */
+const DELETE_BATCH = 5000;
+
 /**
- * Delete rows older than `cutoff` and report how many, WITHOUT materialising
- * their ids.
+ * Delete the rows `where` selects, a batch per statement, and report how many,
+ * WITHOUT materialising their ids.
  *
- * The previous shape was `.returning({ id })` and `rows.length`, which pulls
- * every deleted id into Node — on the first pass over a table that has never
- * been trimmed, that is the whole backlog in memory, in a job whose entire
- * purpose is a large delete. `db.execute` reports the row count from the driver
- * instead.
+ * One statement over the whole backlog meets the per-statement cap of the main
+ * pool on a large installation (a shortened retention, a table never trimmed),
+ * and rolls back everything it did: the next try, a day later, has more to do.
+ * Batches commit as they go, so a run that stops still leaves less behind.
  */
+async function deleteInBatches(table: string, where: SQL): Promise<number> {
+  const target = sql.identifier(table);
+  let deleted = 0;
+  for (;;) {
+    const result = await db.execute(sql`
+      delete from ${target} where ctid = any(array(
+        select ctid from ${target} where ${where} limit ${DELETE_BATCH}
+      ))`);
+    const count = (result as unknown as { count?: number }).count ?? 0;
+    deleted += count;
+    if (count < DELETE_BATCH) return deleted;
+  }
+}
+
 async function deleteOlderThan(table: string, column: string, cutoff: Date): Promise<number> {
   // The cutoff goes in as an ISO STRING with an explicit cast, not as a Date.
   // Drizzle's typed builder knows a column is `timestamptz` and serializes for
   // you; raw SQL does not, and postgres.js rejects a Date parameter outright
   // ("The 'string' argument must be ... Received an instance of Date").
-  const result = await db.execute(
-    sql`delete from ${sql.identifier(table)} where ${sql.identifier(column)} < ${cutoff.toISOString()}::timestamptz`,
-  );
-  return (result as unknown as { count?: number }).count ?? 0;
+  return deleteInBatches(table, sql`${sql.identifier(column)} < ${cutoff.toISOString()}::timestamptz`);
 }
 
 export const deleteOldAiLogs = (cutoff: Date): Promise<number> =>
@@ -91,11 +104,8 @@ export const deleteOldScheduledTaskRuns = (cutoff: Date): Promise<number> =>
  * crash that the Room tick requeues once its lease expires — deleting either
  * by age would silently drop events the system still owes an answer for.
  */
-export async function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
-  const result = await db.execute(
-    sql`delete from event_backlog where status = 'completed' and created_at < ${cutoff.toISOString()}::timestamptz`,
-  );
-  return (result as unknown as { count?: number }).count ?? 0;
+export function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
+  return deleteInBatches("event_backlog", sql`status = 'completed' and created_at < ${cutoff.toISOString()}::timestamptz`);
 }
 
 /** Debug payloads cleared per statement: each one is the whole request of a turn. */

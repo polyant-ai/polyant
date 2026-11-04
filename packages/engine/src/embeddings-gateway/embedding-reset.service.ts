@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { deleteAllMemories } from "../memory/memory-store.js";
@@ -72,6 +72,10 @@ export async function resetEmbeddingSpace(
   // all-or-nothing. A partial apply (data gone, dim still on the old value)
   // would strand the instance in an unembeddable state.
   return db.transaction(async (tx) => {
+    // The wipe is one statement per table and grows with the agent's knowledge:
+    // on a large agent it outlasts the main pool's per-statement cap, and it
+    // must stay in this one transaction. An operator asked for it and waits.
+    await tx.execute(sql`SET LOCAL statement_timeout = 0`);
     // memories + knowledge are SLUG-keyed (their instance_id columns store the
     // slug, not the UUID) — they MUST be filtered by slug or the delete matches
     // zero rows. The instances table is keyed by UUID. Passing the wrong one was
