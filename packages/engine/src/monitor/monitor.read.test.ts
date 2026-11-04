@@ -128,8 +128,10 @@ describe("levels", () => {
     registerMonitorSource(leveled("l_default", undefined));
     registerMonitorSource(leveled("l_wide", ["wide"]));
     registerMonitorSource(leveled("l_all", [DEFAULT_MONITOR_LEVEL, "wide", "widest"]));
+    // Other tests register more `l_` types, in any order: look only at these three.
+    const own = ["l_default", "l_wide", "l_all"];
     const types = async (level: string) =>
-      (await readMonitor({ ...base, level, types: ["l_default", "l_wide", "l_all"] })).types.map((t) => t.type).filter((t) => t.startsWith("l_"));
+      (await readMonitor({ ...base, level, types: own })).types.map((t) => t.type).filter((t) => own.includes(t));
     expect(await types(DEFAULT_MONITOR_LEVEL)).toEqual(["l_default", "l_all"]);
     expect(await types("wide")).toEqual(["l_wide", "l_all"]);
     expect(await types("widest")).toEqual(["l_all"]);
