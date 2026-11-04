@@ -2,6 +2,9 @@
 
 import type { Instance } from "./store.js";
 
+/** An agent with the one column its reads leave out (see `selectInstanceColumns` in store.ts). */
+type WritableInstance = Instance & { icon: string | null };
+
 /**
  * The columns a caller is allowed to PATCH, and the bundle importer writes
  * (bar `embeddingProvider`). `embeddingDim` is deliberately excluded: it is owned
@@ -57,11 +60,11 @@ export const UPDATABLE_INSTANCE_KEYS = [
   "messageSoftDebounceMs",
   "messageTypingDelayMs",
   "messageMaxRestarts",
-] as const satisfies readonly (keyof Instance)[];
+] as const satisfies readonly (keyof WritableInstance)[];
 
 /**
  * Fields a caller may PATCH. `embeddingProvider` changes trigger a destructive
  * wipe in the controller; `null` on the six per-agent settings is a real value —
  * it clears the column and hands the agent back to the deployment default.
  */
-export type UpdatableInstanceFields = Partial<Pick<Instance, (typeof UPDATABLE_INSTANCE_KEYS)[number]>>;
+export type UpdatableInstanceFields = Partial<Pick<WritableInstance, (typeof UPDATABLE_INSTANCE_KEYS)[number]>>;

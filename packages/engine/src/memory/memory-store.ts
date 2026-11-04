@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, desc, sql, gt, and, ilike, isNotNull, count as drizzleCount } from "drizzle-orm";
+import { eq, desc, sql, and, ilike, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
@@ -9,6 +9,7 @@ import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 import { tenantScopedAgentCondition, type TenantScope } from "../authz/scope-filter.js";
+import { completeVectorScanSetting } from "../database/vector-scan.js";
 
 // ---- Types ----
 
@@ -89,6 +90,7 @@ function isSerializationFailure(err: unknown): boolean {
 }
 
 async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult> {
+  const completeScan = await completeVectorScanSetting();
   // SERIALIZABLE isolation prevents phantom reads: two concurrent calls cannot both
   // miss the similarity check and both insert, creating duplicates.
   return db.transaction(async (tx) => {
@@ -96,23 +98,22 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
     const vectorCols = vectorColumnValues(input.dimensions, input.embedding);
     const distance = cosineDistance(activeCol, input.embedding);
 
-    // Find the closest existing memory for this user with similarity above threshold
-    const [closest] = await tx
+    // The agent's nearest memory, compared with the threshold here rather than in
+    // the query: as a filter, the threshold would keep an index scan walking past
+    // every other agent's rows whenever the agent holds no duplicate.
+    await tx.execute(completeScan);
+    const [nearest] = await tx
       .select({
         id: memories.id,
         content: memories.content,
         distance: sql<number>`${distance}`,
       })
       .from(memories)
-      .where(and(
-        eq(memories.instanceId, input.instanceId),
-        gt(
-          sql<number>`1 - (${distance})`,
-          input.dedupSimilarityThreshold ?? DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
-        ),
-      ))
+      .where(and(eq(memories.instanceId, input.instanceId), isNotNull(activeCol)))
       .orderBy(distance)
       .limit(1);
+    const threshold = input.dedupSimilarityThreshold ?? DEFAULT_DEDUP_SIMILARITY_THRESHOLD;
+    const closest = nearest && 1 - nearest.distance > threshold ? nearest : undefined;
 
     if (closest) {
       // Update existing memory
@@ -178,7 +179,9 @@ export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResu
 }
 
 /**
- * Semantic search: find the N closest memories by cosine similarity.
+ * Semantic search: find the N closest memories by cosine similarity. Runs in a
+ * transaction so the scan stays complete on the shared HNSW index
+ * (`completeVectorScanSetting`).
  */
 export async function searchByVector(
   queryEmbedding: number[],
@@ -188,26 +191,30 @@ export async function searchByVector(
 ): Promise<Array<MemoryRecord & { similarity: number }>> {
   const activeCol = activeEmbeddingColumn(dimensions);
   const distance = cosineDistance(activeCol, queryEmbedding);
+  const completeScan = await completeVectorScanSetting();
 
-  const rows = await db
-    .select({
-      id: memories.id,
-      instanceId: memories.instanceId,
-      content: memories.content,
-      category: memories.category,
-      importance: memories.importance,
-      sourceConversationId: memories.sourceConversationId,
-      createdAt: memories.createdAt,
-      updatedAt: memories.updatedAt,
-      distance: sql<number>`${distance}`,
-    })
-    .from(memories)
-    // Exclude rows whose active vector column is NULL: their cosine distance is
-    // NULL → `1 - NULL` = NaN, which would otherwise leak into search results
-    // (and to the model via the memory tools) when fewer than `limit` rows match.
-    .where(and(eq(memories.instanceId, instanceId), isNotNull(activeCol)))
-    .orderBy(distance)
-    .limit(limit);
+  const rows = await db.transaction(async (tx) => {
+    await tx.execute(completeScan);
+    return await tx
+      .select({
+        id: memories.id,
+        instanceId: memories.instanceId,
+        content: memories.content,
+        category: memories.category,
+        importance: memories.importance,
+        sourceConversationId: memories.sourceConversationId,
+        createdAt: memories.createdAt,
+        updatedAt: memories.updatedAt,
+        distance: sql<number>`${distance}`,
+      })
+      .from(memories)
+      // Exclude rows whose active vector column is NULL: their cosine distance is
+      // NULL → `1 - NULL` = NaN, which would otherwise leak into search results
+      // (and to the model via the memory tools) when fewer than `limit` rows match.
+      .where(and(eq(memories.instanceId, instanceId), isNotNull(activeCol)))
+      .orderBy(distance)
+      .limit(limit);
+  });
 
   return rows.map((r) => ({
     id: r.id,

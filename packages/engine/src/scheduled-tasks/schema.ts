@@ -121,6 +121,8 @@ export const scheduledTaskRuns = pgTable(
   (table) => [
     index("idx_task_runs_instance_started").on(table.instanceId, table.startedAt),
     index("idx_task_runs_task_started").on(table.taskId, table.startedAt),
+    // The cleanup deletes by age.
+    index("idx_task_runs_started").on(table.startedAt),
   ],
 );
 

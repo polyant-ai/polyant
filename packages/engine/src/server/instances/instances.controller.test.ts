@@ -154,7 +154,7 @@ const fullInstance = {
   thinkingEnabled: false,
   stateInPromptEnabled: false,
   toolResultsInHistoryEnabled: false,
-  icon: "data:image/png;base64,AAA=",
+  hasIcon: true,
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
   createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -298,7 +298,7 @@ describe("InstancesController", () => {
     });
 
     it("icon is null when the instance has no icon stored", async () => {
-      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, hasIcon: false });
 
       const { instance } = await controller.getBySlug("test-one");
 

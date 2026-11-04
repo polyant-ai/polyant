@@ -85,6 +85,7 @@ vi.mock("drizzle-orm", () => ({
   sql: Object.assign(vi.fn((...args: unknown[]) => ({ type: "sql", args })), {
     raw: vi.fn(),
     join: vi.fn((parts: unknown[], separator: unknown) => ({ type: "sql-join", parts, separator })),
+    param: vi.fn((value: unknown) => ({ type: "sql-param", value })),
   }),
   count: vi.fn(() => "count"),
 }));
@@ -841,6 +842,8 @@ describe("ConversationStore", () => {
         },
       ];
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce(rows)
         .mockResolvedValueOnce([{ total: 1 }]);
 
@@ -859,6 +862,8 @@ describe("ConversationStore", () => {
 
     it("returns the contact of a search hit", async () => {
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { id: "u1", conversation_id: "c1", title: "Visita", user_identifier: "+393331234567", match_count: 0, best_snippet: null },
         ])
@@ -892,6 +897,8 @@ describe("ConversationStore", () => {
         },
       ];
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce(rows)
         .mockResolvedValueOnce([{ total: 1 }]);
 
@@ -908,6 +915,8 @@ describe("ConversationStore", () => {
 
     it("interpolates an escaped, %-wrapped ILIKE pattern for the conversation id", async () => {
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ total: 0 }]);
 

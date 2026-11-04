@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
 import { scheduleConfigSchema } from "../scheduled-tasks/schedule-utils.js";
+import { INSTANCE_STT_SETTINGS } from "../stt-gateway/types.js";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -165,7 +166,7 @@ export const exportInstanceDataSchema = z.object({
    * turning it off.
    */
   attachmentStorageEnabled: z.boolean().optional(),
-  sttProvider: z.string().default("openai"),
+  sttProvider: z.enum(INSTANCE_STT_SETTINGS).default("openai"),
   // Embedding provider/dim are applied on import-NEW only — switching them on an
   // existing instance is destructive (wipes vectors), so import-OVERWRITE leaves
   // them untouched. See import.service.ts.

@@ -257,8 +257,9 @@ export function wrapToolWithAudit(
         return { error: TOOL_NOT_RUN, notRun: true };
       }
 
+      const auditCall = auditStore.beginToolCall(name, instanceId);
       try {
-        const output = await originalExecute(params);
+        const output = await auditCall.run(() => originalExecute(params));
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
@@ -272,16 +273,13 @@ export function wrapToolWithAudit(
           }
         }
         toolCallTraces?.push({ name, duration_ms: durationMs, success: !hasError });
-        // Backfill duration + output on the audit entry logged by the tool
-        auditStore.patchDuration(name, instanceId, durationMs);
-        const outputPreview = safeOutputPreview(output);
-        if (outputPreview) auditStore.patchOutput(name, instanceId, outputPreview);
+        auditCall.end(durationMs, safeOutputPreview(output));
         emitToolEnd({ kind: "success", output });
         return output;
       } catch (err) {
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
-        auditStore.patchDuration(name, instanceId, durationMs);
+        auditCall.end(durationMs);
         emitToolEnd({ kind: "error", message: errMsg(err) });
         throw err;
       }

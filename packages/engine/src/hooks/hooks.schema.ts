@@ -53,5 +53,7 @@ export const hookExecutions = pgTable(
   (table) => [
     index("idx_hook_executions_conversation").on(table.conversationId, table.createdAt),
     index("idx_hook_executions_instance").on(table.instanceId),
+    // The cleanup deletes by age.
+    index("idx_hook_executions_created").on(table.createdAt),
   ],
 );

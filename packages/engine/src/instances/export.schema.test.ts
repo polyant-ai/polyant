@@ -48,6 +48,24 @@ function legacyV1Bundle() {
   };
 }
 
+describe("instanceBundleSchema sttProvider", () => {
+  it("refuses a transcription provider the runtime does not know", () => {
+    const bundle = legacyV1Bundle() as { instance: Record<string, unknown> };
+    bundle.instance.sttProvider = "openia";
+
+    expect(instanceBundleSchema.safeParse(bundle).success).toBe(false);
+  });
+
+  it("accepts every setting the runtime reads", () => {
+    for (const sttProvider of ["openai", "aws", "deepgram", "disabled"]) {
+      const bundle = legacyV1Bundle() as { instance: Record<string, unknown> };
+      bundle.instance.sttProvider = sttProvider;
+
+      expect(instanceBundleSchema.parse(bundle).instance.sttProvider).toBe(sttProvider);
+    }
+  });
+});
+
 describe("instanceBundleSchema back-compat", () => {
   it("should_parse_a_legacy_1.0_bundle_and_default_the_new_fields", () => {
     const parsed = instanceBundleSchema.parse(legacyV1Bundle());

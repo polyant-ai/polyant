@@ -25,6 +25,7 @@
     "build:web": "npm run build -w @polyant/web",
     "start": "npm run start -w @polyant/engine",
     "db:generate": "npm run db:generate -w @polyant/engine",
+    "db:snapshot": "npm run db:snapshot -w @polyant/engine",
     "db:migrate": "npm run db:migrate -w @polyant/engine",
     "db:studio": "npm run db:studio -w @polyant/engine",
     "lint": "npm run lint --workspaces --if-present",

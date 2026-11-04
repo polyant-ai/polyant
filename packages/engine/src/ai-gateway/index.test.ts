@@ -270,7 +270,7 @@ describe("AI Gateway", () => {
         id: "uuid-1",
         slug: "acme",
         name: "Acme",
-        icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAE",
+        hasIcon: true,
         updatedAt: new Date(1700000000000),
       } as unknown as Awaited<ReturnType<typeof findInstanceBySlug>>);
       mockProviderChat.mockResolvedValue(makeChatResponse());

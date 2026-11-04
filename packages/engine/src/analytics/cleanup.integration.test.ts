@@ -33,6 +33,7 @@ async function teardown(): Promise<void> {
   await queryClient`DELETE FROM event_sources WHERE name LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM tool_audit_logs WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM hook_executions WHERE conversation_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM conversation_messages WHERE conversation_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -109,6 +110,31 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
     const rows = await queryClient<{ status: string }[]>`
       SELECT status FROM event_backlog WHERE instance_id = ${instanceUuid} ORDER BY status`;
     expect(rows.map((r) => r.status)).toEqual(["pending", "processing"]);
+  });
+
+  /*
+    The request a debug-mode agent stores per turn holds the whole prompt and the
+    conversation so far: personal data, and the heaviest column in the database.
+    It is kept for a few days, the message itself as long as the conversation.
+  */
+  it("should_clear_debug_payloads_past_their_short_window_and_keep_the_messages", async () => {
+    const conversationId = `${MARKER}-debug`;
+    await queryClient.unsafe(
+      `INSERT INTO conversation_messages (conversation_id, role, content, debug_payload, created_at)
+       VALUES ('${conversationId}', 'assistant', 'old', '{"system":"s"}'::jsonb, now() - interval '30 days'),
+              ('${conversationId}', 'assistant', 'new', '{"system":"s"}'::jsonb, ${NEW})`,
+    );
+
+    const result = await runAnalyticsCleanup(90);
+
+    expect(result.debugPayloadsCleared).toBeGreaterThanOrEqual(1);
+    const rows = await queryClient<{ content: string; has_payload: boolean }[]>`
+      SELECT content, debug_payload IS NOT NULL AS has_payload FROM conversation_messages
+      WHERE conversation_id = ${conversationId} ORDER BY content`;
+    expect(rows).toEqual([
+      { content: "new", has_payload: true },
+      { content: "old", has_payload: false },
+    ]);
   });
 
   it("should_report_zero_and_touch_nothing_when_everything_is_recent", async () => {

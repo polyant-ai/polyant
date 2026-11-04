@@ -708,6 +708,34 @@
       "when": 1793265200000,
       "tag": "0107_webhook_deliveries",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793265300000,
+      "tag": "0108_conversation_list_page_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1793265400000,
+      "tag": "0109_log_table_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793265500000,
+      "tag": "0110_conversation_lookup_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793265600000,
+      "tag": "0111_debug_payload_cleanup_index",
+      "breakpoints": true
     }
   ]
 }

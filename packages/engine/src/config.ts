@@ -85,6 +85,18 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     analyticsPoolMax: z.coerce.number().int().min(1).default(3),
     /** Per-statement cap on that pool, so one runaway aggregate cannot hold a connection. */
     analyticsStatementTimeoutMs: z.coerce.number().int().min(1000).default(15_000),
+    /**
+     * Per-statement cap on the main pool, generous so no turn or job statement
+     * meets it, and there so a stuck statement gives its connection back. 0
+     * turns it off. Migrations run on their own connection, without it.
+     */
+    statementTimeoutMs: z.coerce.number().int().min(0).default(60_000),
+    /**
+     * How long a transaction on the main pool may sit idle before Postgres ends
+     * it and frees the connection: one left open by an application error holds
+     * its locks until then. 0 turns it off.
+     */
+    idleInTransactionTimeoutMs: z.coerce.number().int().min(0).default(60_000),
   }),
 
   // HTTP Server (NestJS)
@@ -197,6 +209,17 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     maxRetries: z.coerce.number().int().min(0).max(10).default(2),
   }),
 
+  // Housekeeping windows that are not platform settings.
+  retention: z.object({
+    /**
+     * Days a debug-mode turn keeps the request it sent to the model
+     * (`conversation_messages.debug_payload`): the full prompt and conversation,
+     * so personal data, and the heaviest column in the database. The message
+     * itself stays; only the payload is cleared.
+     */
+    debugPayloadDays: z.coerce.number().int().min(1).default(7),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -235,6 +258,8 @@ function loadConfig(): Config {
       poolMax: process.env.POSTGRES_POOL_MAX,
       analyticsPoolMax: process.env.POSTGRES_ANALYTICS_POOL_MAX,
       analyticsStatementTimeoutMs: process.env.POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS,
+      statementTimeoutMs: process.env.POSTGRES_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: process.env.POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     },
     server: {
       port: process.env.API_PORT,
@@ -259,6 +284,9 @@ function loadConfig(): Config {
       streamChunkTimeoutMs: process.env.LLM_STREAM_CHUNK_TIMEOUT_MS,
       serviceCallTimeoutMs: process.env.LLM_SERVICE_CALL_TIMEOUT_MS,
       maxRetries: process.env.LLM_MAX_RETRIES,
+    },
+    retention: {
+      debugPayloadDays: process.env.DEBUG_PAYLOAD_RETENTION_DAYS,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the

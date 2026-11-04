@@ -59,6 +59,14 @@ function stripNulString(s: string): string {
 /** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
 
+/**
+ * Matching messages the conversation search reads from the full-text index
+ * before falling back to testing each conversation (see `searchConversations`).
+ * The threshold is deployment-wide: revisit it when the message table grows by
+ * an order of magnitude.
+ */
+const SEARCH_PROBE_LIMIT = 5000;
+
 const WRAPPING_QUOTES_RE = /^["'“”‘’«»`]+|["'“”‘’«»`]+$/g;
 const SPEAKER_LABEL_RE = /^(?:user|utente|assistant|assistente)\s*:\s*/i;
 
@@ -672,10 +680,17 @@ export class ConversationStore {
    *
    * `updatedSince`/`updatedUntil` bound the half-open window `[since, until)`
    * on `updated_at` — the field this list already sorts by and that the
-   * `idx_conversations_instance_updated` index covers, so windowed polling
+   * `idx_conversations_instance_updated_id` index covers, so windowed polling
    * (e.g. an external analytics pull) stays index-supported. Note `updated_at`
    * tracks last *activity* (bumped when the post-turn summary/title regenerates),
    * not every message insert, so incremental pullers should overlap windows.
+   *
+   * The page is chosen first, agent by agent: each agent's newest
+   * `limit + offset` conversations come from a descent of that index, and only
+   * the page's rows are joined with their agent and their AI usage. Walking one
+   * index over the whole table instead made an organization pay for the rows of
+   * every other organization ahead of its own. `id` breaks ties, so pages
+   * neither repeat nor skip a conversation.
    */
   async listConversations(options: {
     instanceId?: InstanceSlug;
@@ -691,22 +706,22 @@ export class ConversationStore {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
 
-    const conditions: ReturnType<typeof sql>[] = [];
-    if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
-    if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    // Filters on the conversation row, applied inside each agent's descent.
+    const rowConditions: ReturnType<typeof sql>[] = [];
+    if (options.source) rowConditions.push(sql`c.source = ${options.source}`);
     if (options.userIdentifier) {
-      conditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
+      rowConditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
     }
-    if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
-    if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    if (options.updatedSince) rowConditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
+    if (options.updatedUntil) rowConditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    const rowFilter = rowConditions.length > 0 ? sql`AND ${sql.join(rowConditions, sql` AND `)}` : sql``;
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
     // Applied UNCONDITIONALLY, and the scope is required: there is no absent
     // branch left to fall through to an unfiltered cross-org listing.
-    conditions.push(tenantScopedAgentCondition(options.scope, "c.instance_id"));
-    const instanceFilter = conditions.length > 0
-      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-      : sql``;
+    const agentConditions = [tenantScopedAgentCondition(options.scope, "instances.slug")];
+    if (options.instanceId) agentConditions.push(sql`instances.slug = ${options.instanceId}`);
+    const agents = sql`SELECT instances.slug FROM instances WHERE ${sql.join(agentConditions, sql` AND `)}`;
 
     const [rows, countResult] = await Promise.all([
       // message_count is the conversation's own counter (migration
@@ -714,6 +729,18 @@ export class ConversationStore {
       // fan-out join over conversation_messages would force Postgres to
       // aggregate the whole messages table before ORDER BY/LIMIT.
       db.execute(sql`
+        WITH page AS (
+          SELECT c.id, c.updated_at
+          FROM (${agents}) a
+          CROSS JOIN LATERAL (
+            SELECT c.id, c.updated_at FROM conversations c
+            WHERE c.instance_id = a.slug ${rowFilter}
+            ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+            LIMIT ${limit + offset}
+          ) c
+          ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -734,7 +761,8 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
@@ -748,12 +776,11 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        ${instanceFilter}
-        ORDER BY c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
-        SELECT COUNT(*)::int AS total FROM conversations c ${instanceFilter}
+        SELECT COUNT(*)::int AS total FROM conversations c
+        WHERE c.instance_id IN (${agents}) ${rowFilter}
       `),
     ]);
 
@@ -1012,6 +1039,16 @@ export class ConversationStore {
   /**
    * Search conversations by message content (FTS), by conversation id or by
    * contact substring (case-insensitive). Returns conversation-level results.
+   *
+   * The message match starts from the full-text index: one probe reads up to
+   * `SEARCH_PROBE_LIMIT + 1` matching messages of the whole deployment. When it
+   * gets them all, the search runs on that short list of conversations. Testing
+   * every conversation of the organization against its messages instead cost
+   * seconds on a large organization, and most for the rarest terms (names,
+   * numbers). A term with more matches keeps the per-conversation test.
+   *
+   * Either way the page is ranked and cut before the snippet and the AI usage
+   * are read for its rows; `id` breaks ties so pages neither repeat nor skip.
    */
   async searchConversations(
     query: string,
@@ -1032,18 +1069,40 @@ export class ConversationStore {
       ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter} ${contactFilter}`
       : sql`${orgFilter} ${contactFilter}`;
 
+    const probe = (await db.execute(sql`
+      SELECT cm.conversation_id FROM conversation_messages cm
+      WHERE cm.search_vector @@ ${tsQuery}
+      LIMIT ${SEARCH_PROBE_LIMIT + 1}
+    `)) as unknown as Array<{ conversation_id: string }>;
+    const messageMatch = probe.length <= SEARCH_PROBE_LIMIT
+      ? sql`c.conversation_id = ANY(${sql.param([...new Set(probe.map((r) => r.conversation_id))])}::text[])`
+      : sql`EXISTS (
+          SELECT 1 FROM conversation_messages cmx
+          WHERE cmx.conversation_id = c.conversation_id
+            AND cmx.search_vector @@ ${tsQuery}
+        )`;
     const matchFilter = sql`(
       c.conversation_id ILIKE ${idPattern}
       OR c.user_identifier ILIKE ${idPattern}
-      OR EXISTS (
-        SELECT 1 FROM conversation_messages cmx
-        WHERE cmx.conversation_id = c.conversation_id
-          AND cmx.search_vector @@ ${tsQuery}
-      )
+      OR ${messageMatch}
     )`;
 
     const [rows, countResult] = await Promise.all([
       db.execute(sql`
+        WITH page AS (
+          SELECT
+            c.id,
+            c.updated_at,
+            COUNT(cm.id)::int AS match_count,
+            MAX(ts_rank(cm.search_vector, ${tsQuery})) AS rank
+          FROM conversations c
+          LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
+            AND cm.search_vector @@ ${tsQuery}
+          WHERE ${matchFilter} ${instanceFilter}
+          GROUP BY c.id
+          ORDER BY rank DESC NULLS LAST, c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -1053,7 +1112,7 @@ export class ConversationStore {
           c.user_identifier,
           c.instance_id,
           i.name AS instance_name,
-          COUNT(cm.id)::int AS match_count,
+          p.match_count,
           (SELECT cm2.content FROM conversation_messages cm2
            WHERE cm2.conversation_id = c.conversation_id
              AND cm2.search_vector @@ ${tsQuery}
@@ -1071,10 +1130,9 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
-        LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
-          AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
                  SUM(al.estimated_cost_usd::float8) AS total_cost,
@@ -1087,10 +1145,7 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        WHERE ${matchFilter} ${instanceFilter}
-        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
-        ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC NULLS LAST, c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.rank DESC NULLS LAST, p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
         SELECT COUNT(*)::int AS total

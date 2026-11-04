@@ -64,6 +64,8 @@ export const eventBacklog = pgTable(
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
     index("idx_event_backlog_processing").on(table.instanceId).where(sql`${table.status} = 'processing'`),
+    // The cleanup deletes completed events by age.
+    index("idx_event_backlog_completed_created").on(table.createdAt).where(sql`${table.status} = 'completed'`),
   ],
 );
 

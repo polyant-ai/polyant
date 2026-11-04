@@ -22,6 +22,7 @@
     "start": "node dist/index.js",
     "db:generate": "tsx ../../node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx src/database/migrate.ts",
+    "db:snapshot": "tsx scripts/write-schema-snapshot.ts",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint src/ scripts/ tests/",
     "typecheck": "tsc --noEmit",

@@ -31,8 +31,8 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
-    // Conversation list filters by instance_id and orders by updated_at DESC.
-    index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
+    // Conversation list: each agent's page, in the list's order (id breaks ties).
+    index("idx_conversations_instance_updated_id").on(table.instanceId, table.updatedAt.desc().nullsLast(), table.id.desc()),
     // Message-level analytics: the tenant's conversations active in a window.
     index("idx_conversations_instance_last_message").on(table.instanceId, table.lastMessageAt),
   ],
@@ -145,7 +145,6 @@ export const conversationMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_conversation_messages_conversation_id").on(table.conversationId),
     index("idx_conversation_messages_created_at").on(table.createdAt),
     // One conversation's messages in time order (history reads, windowed scans).
     index("idx_conversation_messages_conversation_created").on(table.conversationId, table.createdAt),
@@ -153,6 +152,8 @@ export const conversationMessages = pgTable(
     index("idx_conversation_messages_user_created")
       .on(table.conversationId, table.createdAt)
       .where(sql`${table.role} = 'user'`),
+    // The daily cleanup clears old debug payloads (analytics/cleanup.ts).
+    index("idx_conversation_messages_debug_created").on(table.createdAt).where(sql`${table.debugPayload} IS NOT NULL`),
   ],
 );
 

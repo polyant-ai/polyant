@@ -6,7 +6,7 @@
 
 import { eq, and } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { findInstanceBySlug, type Instance } from "./store.js";
+import { findInstanceBySlug, findInstanceIcon, type Instance } from "./store.js";
 import { asInstanceSlug, type InstanceUuid } from "./identifiers.js";
 import { getPrompts } from "./prompts.store.js";
 import { getInstanceSkills } from "./instance-skills.store.js";
@@ -19,6 +19,7 @@ import { WEB_CHANNEL_TYPE } from "./channels.store.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
 import { readableSecretKeys } from "./readable-secret-keys.js";
+import { readSttSetting } from "./config-resolver.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
@@ -92,7 +93,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     knowledgeEnabled: instance.knowledgeEnabled,
     langsmithEnabled: instance.langsmithEnabled,
     authEnabled: instance.authEnabled,
-    icon: instance.icon,
+    icon: instance.hasIcon ? await findInstanceIcon(instance.slug) : null,
     langsmithProject: instance.langsmithProject,
     thinkingEnabled: instance.thinkingEnabled,
     thinkingLevel: instance.thinkingLevel,
@@ -113,7 +114,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
-    sttProvider: instance.sttProvider,
+    sttProvider: readSttSetting(instance.sttProvider),
     embeddingProvider: instance.embeddingProvider,
     embeddingDim: instance.embeddingDim,
     optoutEnabled: instance.optoutEnabled,

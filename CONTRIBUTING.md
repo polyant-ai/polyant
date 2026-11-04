@@ -125,7 +125,8 @@ Every command runs from the monorepo root and delegates to the right workspace.
 | `npm run dev:web` | Start Next.js admin panel (port 3000) |
 | `npm run build` | Build all packages |
 | `npm start` | Run engine from compiled output |
-| `npm run db:generate` | Generate Drizzle migrations from schema |
+| `npm run db:generate` | Draft a migration from the schema changes since the snapshot in `migrations/meta` (rename it to the next number) |
+| `npm run db:snapshot` | Rewrite that snapshot after a hand-written migration |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Open Drizzle Studio GUI |
 | `npm test` | Run all tests |

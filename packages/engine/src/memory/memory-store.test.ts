@@ -30,6 +30,7 @@ const { mockDb } = vi.hoisted(() => {
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    execute: vi.fn(),
     transaction: vi.fn(),
   };
   // transaction passes the mock db itself as the tx argument
@@ -43,6 +44,11 @@ vi.mock("../database/client.js", () => ({
   get NO_TRANSACTION() {
     return mockDb;
   },
+}));
+
+// The per-agent scan setting reads the pgvector version from the database.
+vi.mock("../database/vector-scan.js", () => ({
+  completeVectorScanSetting: vi.fn(async () => "SET LOCAL hnsw.iterative_scan = strict_order"),
 }));
 
 vi.mock("./schema.js", () => ({
