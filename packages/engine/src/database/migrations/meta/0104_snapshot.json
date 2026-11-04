@@ -197,6 +197,12 @@
           "notNull": true,
           "default": "'conversation'"
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1639,6 +1645,43 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.work_leases": {
+      "name": "work_leases",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_done_at": {
+          "name": "last_done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.principal_secrets": {
       "name": "principal_secrets",
       "schema": "",
@@ -1847,6 +1890,28 @@
           "method": "btree",
           "with": {}
         },
+        "idx_conversation_messages_user_created": {
+          "name": "idx_conversation_messages_user_created",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_messages\".\"role\" = 'user'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "idx_conversation_messages_debug_created": {
           "name": "idx_conversation_messages_debug_created",
           "columns": [
@@ -2021,6 +2086,18 @@
         "context_prompt": {
           "name": "context_prompt",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary_through": {
+          "name": "summary_through",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "memory_through": {
+          "name": "memory_through",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -3303,6 +3380,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "lookup_digest": {
+          "name": "lookup_digest",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3318,7 +3401,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_instance_secrets_lookup_digest": {
+          "name": "idx_instance_secrets_lookup_digest",
+          "columns": [
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lookup_digest",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "instance_secrets_instance_id_instances_id_fk": {
           "name": "instance_secrets_instance_id_instances_id_fk",
@@ -4546,13 +4651,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "eval_interval_minutes": {
-          "name": "eval_interval_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 5
-        },
         "conversation_id": {
           "name": "conversation_id",
           "type": "text",
@@ -4959,6 +5057,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "total_runs": {
           "name": "total_runs",
@@ -5434,7 +5538,7 @@
           "name": "event_definition_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "raw_payload": {
           "name": "raw_payload",
@@ -5474,6 +5578,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "claimed_by": {
+          "name": "claimed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5509,6 +5619,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_event_backlog_processing": {
+          "name": "idx_event_backlog_processing",
+          "columns": [
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"event_backlog\".\"status\" = 'processing'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5792,6 +5918,60 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.webhook_deliveries": {
+      "name": "webhook_deliveries",
+      "schema": "",
+      "columns": {
+        "event_source_id": {
+          "name": "event_source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_digest": {
+          "name": "key_digest",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "webhook_deliveries_event_source_id_event_sources_id_fk": {
+          "name": "webhook_deliveries_event_source_id_event_sources_id_fk",
+          "tableFrom": "webhook_deliveries",
+          "tableTo": "event_sources",
+          "columnsFrom": [
+            "event_source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "webhook_deliveries_event_source_id_key_digest_pk": {
+          "name": "webhook_deliveries_event_source_id_key_digest_pk",
+          "columns": [
+            "event_source_id",
+            "key_digest"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -5816,6 +5996,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "9f46683f-f7ed-4edf-94ff-06665b02508d",
+  "id": "0be6739f-4288-4268-84aa-063dd76bd1b4",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }
