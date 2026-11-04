@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { openPostgres } from "./open-postgres.js";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { config } from "../config.js";
@@ -16,7 +16,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // `onnotice` swallows PostgreSQL NOTICE-level messages emitted during the run
 // (e.g. ~30 lines of "column already exists, skipping" on a fresh DB). The
 // final success line below is preserved so the operator still gets a signal.
-const sql = postgres(config.postgres.databaseUrl, {
+const sql = openPostgres(config.postgres.databaseUrl, {
   max: 1,
   // Match the runtime client (client.ts): Aurora/managed Postgres requires SSL
   // (pg_hba rejects unencrypted connections with "no encryption"). Driven by
