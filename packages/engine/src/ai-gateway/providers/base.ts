@@ -177,8 +177,8 @@ interface MappedUsage {
  * A call that had started and not answered when the turn failed is pinned too,
  * as `inFlight`, with an estimate of its prompt: aborted in flight, it had
  * reached the provider, which processes and bills the prompt whether or not
- * anyone reads the answer. The estimate counts about one token per four
- * characters of what the call sent; no provider reports more for it.
+ * anyone reads the answer. No provider reports more for it; see
+ * {@link estimatePromptTokens}.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
@@ -193,10 +193,53 @@ export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | 
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** About one token per four characters of everything a model call sends: instructions, messages and tools. */
-function estimatePromptTokens(event: { instructions?: unknown; messages?: unknown; tools?: unknown }): number {
-  const chars = JSON.stringify([event.instructions ?? null, event.messages ?? null, event.tools ?? null]).length;
-  return Math.ceil(chars / 4);
+/**
+ * What one attached image or file is counted as. Providers bill an image by
+ * its pixels after scaling it down, not by its bytes: Anthropic scales an image
+ * to about 1.15 megapixels, about 1,600 tokens, and OpenAI's high detail lands
+ * in the same range. A document's cost depends on its pages, which only the
+ * provider counts, so it is counted as one such image: an order of magnitude,
+ * where its bytes would be off by a thousandfold.
+ */
+const ATTACHMENT_PROMPT_TOKENS = 1_600;
+
+/** The part types that carry an image or a file, in a message or a tool result, at the SDK and at the provider level. */
+const ATTACHMENT_PARTS = new Set(["image", "file", "media", "image-data", "file-data", "image-url", "file-url"]);
+
+/**
+ * The prompt tokens a model call sent: about one per four characters of its
+ * text (instructions, messages, tools), plus {@link ATTACHMENT_PROMPT_TOKENS}
+ * per attachment, whose bytes are never read. Called only when a turn fails
+ * with the call in flight.
+ */
+function estimatePromptTokens(call: unknown): number {
+  let chars = 0;
+  let attachments = 0;
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      chars += value.length;
+      return;
+    }
+    if (value === null || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.type === "string" && ATTACHMENT_PARTS.has(record.type)) {
+      attachments += 1;
+      return;
+    }
+    for (const [key, item] of Object.entries(record)) {
+      chars += key.length;
+      visit(item);
+    }
+  };
+  visit(call);
+  return Math.ceil(chars / 4) + attachments * ATTACHMENT_PROMPT_TOKENS;
 }
 
 /**
@@ -207,10 +250,11 @@ function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
-  let inFlight: UsageBeforeFailure["inFlight"];
+  // What the call in flight sent, kept by reference: it is estimated only if the turn fails.
+  let inFlight: { instructions?: unknown; messages?: unknown; tools?: unknown } | undefined;
   return {
     onLanguageModelCallStart: (event: { instructions?: unknown; messages?: unknown; tools?: unknown }) => {
-      inFlight = { promptTokens: estimatePromptTokens(event) };
+      inFlight = { instructions: event.instructions, messages: event.messages, tools: event.tools };
     },
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
       inFlight = undefined;
@@ -227,7 +271,11 @@ function completedCallsUsage() {
     },
     pinTo(err: unknown): void {
       if ((calls.length > 0 || inFlight) && err !== null && typeof err === "object") {
-        usageBeforeFailure.set(err, { ...total, calls: [...calls], ...(inFlight ? { inFlight } : {}) });
+        usageBeforeFailure.set(err, {
+          ...total,
+          calls: [...calls],
+          ...(inFlight ? { inFlight: { promptTokens: estimatePromptTokens(inFlight) } } : {}),
+        });
       }
     },
   };

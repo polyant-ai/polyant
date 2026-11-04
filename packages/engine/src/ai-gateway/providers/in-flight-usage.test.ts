@@ -12,6 +12,7 @@ vi.mock("../langsmith.js", async () => {
 import { MockLanguageModelV4 } from "ai/test";
 import { jsonSchema, tool, type Tool } from "ai";
 import { createProvider, usageCompletedBeforeFailure } from "./base.js";
+import type { ChatRequest } from "../types.js";
 
 // A model call the caller aborts while it is in flight has already reached the
 // provider, which processes and bills the prompt, but no usage ever comes back.
@@ -28,12 +29,17 @@ const usage = (input: number) => ({
   outputTokens: { total: 7, text: 7, reasoning: 0 },
 });
 
-async function failedCall(model: MockLanguageModelV4, controller: AbortController, tools?: Record<string, Tool>) {
+async function failedCall(
+  model: MockLanguageModelV4,
+  controller: AbortController,
+  tools?: Record<string, Tool>,
+  messages: ChatRequest["messages"] = [{ role: "user", content: "hello" }],
+) {
   const provider = createProvider("anthropic", () => model);
   const system = "S".repeat(4_000);
   try {
     await provider.chat(
-      { tier: "standard", system, messages: [{ role: "user", content: "hello" }], abortSignal: controller.signal, maxSteps: 5, tools, cacheConfig: { enabled: false, ttl: "1h" } },
+      { tier: "standard", system, messages, abortSignal: controller.signal, maxSteps: 5, tools, cacheConfig: { enabled: false, ttl: "1h" } },
       "claude-sonnet-4-6",
     );
   } catch (err) {
@@ -86,6 +92,34 @@ describe("a model call aborted in flight", () => {
     expect(pinned?.promptTokens).toBe(38_000);
     expect(pinned?.calls).toHaveLength(1);
     expect(pinned?.inFlight?.promptTokens).toBeGreaterThan(900);
+  });
+
+  it("counts an attached image and file as a few thousand tokens, whatever their size in bytes", async () => {
+    const controller = new AbortController();
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        setTimeout(() => controller.abort(), 5);
+        return waitForAbort(options.abortSignal);
+      },
+    });
+    const photo = Buffer.alloc(3 * 1024 * 1024, 7);
+    const document = Buffer.alloc(10 * 1024 * 1024, 7);
+
+    const pinned = await failedCall(model, controller, undefined, [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what do these say?" },
+          { type: "image", image: photo, mediaType: "image/jpeg" },
+          { type: "file", data: document, mediaType: "application/pdf" },
+        ],
+      },
+    ]);
+
+    // The 4,000-character system prompt (about 1,000 tokens) plus two
+    // attachments; serialized as bytes they came to millions.
+    expect(pinned?.inFlight?.promptTokens).toBeGreaterThan(1_500);
+    expect(pinned?.inFlight?.promptTokens).toBeLessThan(10_000);
   });
 
   it("pins no in-flight estimate when every call that started had answered", async () => {
