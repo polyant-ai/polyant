@@ -56,7 +56,7 @@ describe.skipIf(!DB_AVAILABLE)("scheduled task run claims (integration)", () => 
     const id = await newTask();
     await claim(id);
 
-    expect(await store.markRunning(id)).toBeNull();
+    expect(await store.markRunning(id, { leaseTtlMs: 60_000 })).toBeNull();
   });
 
   it("the reaper does not fail a claim made after the one it read", async () => {
