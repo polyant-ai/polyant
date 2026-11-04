@@ -38,7 +38,7 @@ function input(overrides: Partial<StatusCheckInput> = {}): StatusCheckInput {
     skills: [],
     secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }],
     channels: [{ channelType: "telegram", enabled: true, config: { botToken: "x" } }],
-    documents: [],
+    documentCounts: { total: 0, failed: 0 },
     hooks: [],
     hookFunctions: [],
     room: { configured: false },
@@ -170,7 +170,7 @@ describe("runStatusChecks — silently broken", () => {
   });
 
   it("catches retrieval switched on with no documents", () => {
-    expect(ids(input({ instance: agent({ knowledgeEnabled: true }), documents: [] }))).toContain(
+    expect(ids(input({ instance: agent({ knowledgeEnabled: true }), documentCounts: { total: 0, failed: 0 } }))).toContain(
       "knowledge-empty",
     );
   });
@@ -217,7 +217,7 @@ describe("runStatusChecks — silently broken", () => {
       ids(
         input({
           instance: agent({ knowledgeEnabled: false }),
-          documents: [{ id: "d1", status: "ready" }] as StatusCheckInput["documents"],
+          documentCounts: { total: 1, failed: 0 },
         }),
       ),
     ).toContain("knowledge-unused");
@@ -525,7 +525,7 @@ describe("every check", () => {
           knowledgeEnabled: true,
         }),
         tools: [],
-        documents: [],
+        documentCounts: { total: 0, failed: 0 },
         recentOptOuts: 9,
         room: { configured: true, enabled: true },
       }),

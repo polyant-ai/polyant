@@ -23,6 +23,7 @@ import {
   setDocumentEnabled,
   hashContent,
   countDocuments,
+  countDocumentOutcomes,
   getKnowledgeForExport,
   listDocumentFilenames,
   resolveUniqueFilename,
@@ -47,7 +48,9 @@ export class InstanceKnowledgeController {
    * GET /api/instances/:slug/knowledge?limit&offset — one page of documents (no
    * rawContent), newest first, with the `nextOffset` of the next page or null.
    * The default page is the default per-agent document cap, so an agent within
-   * it is listed whole in one call.
+   * it is listed whole in one call. `total` and `failed` count the whole agent
+   * (all documents, and those whose indexing failed), so a caller that only
+   * needs the counts asks for `limit=1`.
    */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
@@ -59,9 +62,14 @@ export class InstanceKnowledgeController {
     const instance = await findInstanceOrFail(slug);
 
     const page = parsePagination(limitStr, offsetStr, { defaultLimit: DOCUMENT_PAGE_SIZE, maxLimit: DOCUMENT_PAGE_SIZE });
-    const { documents, nextOffset } = await listDocuments(instance.slug, page);
+    const [{ documents, nextOffset }, { total, failed }] = await Promise.all([
+      listDocuments(instance.slug, page),
+      countDocumentOutcomes(instance.slug),
+    ]);
     return {
       nextOffset,
+      total,
+      failed,
       documents: documents.map((d) => ({
         id: d.id,
         filename: d.filename,

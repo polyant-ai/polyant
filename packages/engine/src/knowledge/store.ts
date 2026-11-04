@@ -662,6 +662,18 @@ export async function countChunks(instanceId: InstanceSlug): Promise<number> {
   return Number(row.count);
 }
 
+/** How many documents an agent holds, and how many of them failed to index. */
+export async function countDocumentOutcomes(instanceId: InstanceSlug): Promise<{ total: number; failed: number }> {
+  const [row] = await db
+    .select({
+      total: drizzleCount(),
+      failed: sql<number>`count(*) filter (where ${knowledgeDocuments.status} = 'error')`.mapWith(Number),
+    })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.instanceId, instanceId));
+  return { total: Number(row.total), failed: row.failed };
+}
+
 /** Count knowledge documents owned by an instance (used to enforce the per-instance cap). */
 export async function countDocuments(instanceId: InstanceSlug): Promise<number> {
   const [row] = await db

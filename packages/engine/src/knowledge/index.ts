@@ -15,6 +15,7 @@ export {
   deleteAllKnowledgeForInstance,
   countChunks,
   countDocuments,
+  countDocumentOutcomes,
   hashContent,
   getKnowledgeForExport,
   listDocumentFilenames,
