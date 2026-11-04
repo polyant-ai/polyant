@@ -116,6 +116,24 @@ describe("I18nProvider first render", () => {
       (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = actEnvironment;
     }
   });
+
+  // A catalogue that never arrives (the chunk is gone after a deploy) must not
+  // leave the server's HTML on screen, inert and silent, forever. Last in this
+  // block: the failed load stays for the page, as it does in the browser.
+  it("gives up after a bounded number of tries and fails the page", async () => {
+    pending.failingEn = Number.POSITIVE_INFINITY;
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      await renderAtRoot("en", async (_container, errors) => {
+        await vi.advanceTimersByTimeAsync(60_000);
+        vi.useRealTimers();
+        await waitFor(() => expect(errors).not.toEqual([]));
+        expect(String(errors[0])).toContain("Loading chunk failed");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("I18nProvider language change", () => {

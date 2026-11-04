@@ -82,7 +82,9 @@ const firstLoads = new Map<Locale, Promise<unknown>>();
 /**
  * The catalogue the first render waits for. The provider sits at the root of the
  * page with no boundary above it, so a failed download would fail the page: it
- * is tried again until it arrives, and the server's HTML stays on screen meanwhile.
+ * is tried again, with the server's HTML on screen meanwhile, once after each
+ * delay. A catalogue still missing after the last one (its chunk is gone) fails
+ * the page, so the error page says so instead of an inert page saying nothing.
  */
 function firstCatalog(locale: Locale): Promise<unknown> {
   let load = firstLoads.get(locale);
@@ -91,12 +93,17 @@ function firstCatalog(locale: Locale): Promise<unknown> {
       for (let attempt = 0; ; attempt++) {
         try {
           return await loadCatalog(locale);
-        } catch {
-          const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
-          await new Promise((resolve) => setTimeout(resolve, delay));
+        } catch (err) {
+          if (attempt >= RETRY_DELAYS_MS.length) throw err;
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
         }
       }
-    })().finally(() => firstLoads.delete(locale));
+    })().then((catalog) => {
+      firstLoads.delete(locale);
+      return catalog;
+    });
+    // A load that gave up stays: React replays the provider, and reading the
+    // same failed promise fails the page instead of starting over.
     firstLoads.set(locale, load);
   }
   return load;
