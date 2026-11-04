@@ -251,6 +251,16 @@ describe("triggerConversation", () => {
       expect(mockSendOutbound).toHaveBeenCalledWith("test-slug", "telegram", "9999", "Hello user");
     });
 
+    it("routes the contact's reply to this conversation when the delivery names another channel id", async () => {
+      mockSupervise.mockResolvedValue({ ...baseSuperviseResult, text: "Hello user" });
+      mockSendOutbound.mockResolvedValueOnce({ channelId: "D77" });
+      const slackDef: EventDefinition = { ...channelDef, outboundChannel: "slack" };
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), slackDef, { chat_id: "U5" });
+
+      expect(mockRegisterTrigger).toHaveBeenCalledWith("test-slug", "slack", "D77", "test-slug:slack:U5");
+    });
+
     it("skips channelManager.sendOutbound when replyHandled", async () => {
       mockSupervise.mockResolvedValue({
         ...baseSuperviseResult,

@@ -21,14 +21,13 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
   if (req.languageHint) form.append("language", req.languageHint);
 
   const start = Date.now();
-  const res = await sttFetch(
+  const json = await sttFetch(
     "openai",
     ENDPOINT,
     { method: "POST", headers: { Authorization: `Bearer ${cred.apiKey}` }, body: form },
     req,
+    (res) => res.json() as Promise<{ text?: string; language?: string; duration?: number }>,
   );
-
-  const json = (await res.json()) as { text?: string; language?: string; duration?: number };
 
   return {
     text: (json.text ?? "").trim(),

@@ -10,11 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asInstanceSlug } from "../../../instances/identifiers.js";
 import type { IncomingMessage, OutgoingMessage } from "../../types.js";
 
-const { handlers, sendMessage, getFile } = vi.hoisted(() => ({
+const { handlers, sendMessage, getFile, transcribeInbound } = vi.hoisted(() => ({
   handlers: new Map<string, (ctx: unknown) => Promise<void>>(),
   sendMessage: vi.fn(),
   getFile: vi.fn(),
+  transcribeInbound: vi.fn(),
 }));
+vi.mock("../../audio-transcription.js", () => ({ transcribeInbound }));
 vi.mock("grammy", () => ({
   Bot: class {
     api = { sendMessage, getFile, setWebhook: vi.fn(async () => true) };
@@ -109,6 +111,41 @@ describe("Telegram inbound turn", () => {
 
     expect((fetchSpy.mock.calls[0] as unknown[])[1]).toMatchObject({ signal: expect.any(AbortSignal) });
     expect(onMessage.mock.calls[0]?.[0].attachments?.[0]?.data).toEqual(Buffer.from([1, 2, 3]));
+  });
+});
+
+describe("Telegram inbound order", () => {
+  beforeEach(() => {
+    handlers.clear();
+    sendMessage.mockReset().mockResolvedValue({});
+    getFile.mockReset().mockResolvedValue({ file_path: "voice/1.oga", file_size: 3 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("hands a voice note to the pipeline before a text the contact sent after it", async () => {
+    let finishTranscript!: () => void;
+    transcribeInbound.mockImplementation(
+      () => new Promise((resolve) => (finishTranscript = () => resolve({ ok: true, text: "voice transcript" }))),
+    );
+    const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
+    await adapter.initialize(onMessage);
+
+    const voice = handlers.get("message:voice")!({
+      ...textCtx(""),
+      message: { message_id: 4, voice: { file_id: "v1", duration: 3 } },
+    });
+    await vi.waitFor(() => expect(transcribeInbound).toHaveBeenCalled());
+    const text = handlers.get("message:text")!(textCtx("and also this"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    finishTranscript();
+    await Promise.all([voice, text]);
+
+    expect(onMessage.mock.calls.map(([msg]) => msg.text)).toEqual(["voice transcript", "and also this"]);
   });
 });
 

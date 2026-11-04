@@ -457,6 +457,7 @@ export class InstancesController {
     const cleanupAttachments = await prepareAttachmentCleanup(asInstanceSlug(slug), { allConversations: true });
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    await channelManager.announceChange(slug);
     // Slugs are reusable: a cached client would point a new agent of the same
     // name at this one's bucket, and a cached config or id would keep the web
     // gate answering for an agent that no longer exists.

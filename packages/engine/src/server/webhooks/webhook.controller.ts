@@ -7,6 +7,7 @@ import { findByWebhookToken, listEnabledDefinitions, type EventSource } from "..
 import { getRoomByInstanceId } from "../../room/room.store.js";
 import { matchEvent } from "../../webhooks/webhook-matcher.js";
 import { insertEvent } from "../../webhooks/webhook-backlog.store.js";
+import { claimWebhookDelivery } from "../../webhooks/webhook-deliveries.store.js";
 import { triggerConversation } from "../../webhooks/webhook-engine.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
@@ -45,6 +46,7 @@ export class WebhookController {
     @Param("webhookToken") webhookToken: string,
     @Body() payload: Record<string, unknown>,
     @Headers("authorization") authHeader?: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const safePayload = payload ?? {};
     if (JSON.stringify(safePayload).length > MAX_PAYLOAD_BYTES) {
@@ -75,6 +77,15 @@ export class WebhookController {
     if (expectedKey && !bearerMatches(authHeader, expectedKey)) {
       webhookLog.warn("Webhook", `invalid credentials for source "${result.source.name}"`);
       throw new UnauthorizedException("Invalid webhook credentials");
+    }
+
+    // A sender that retries after a timeout sends the same Idempotency-Key: the
+    // redelivery is acknowledged and not processed again, so the matcher does
+    // not run twice and the contact gets one proactive message. A request
+    // without the header is processed every time, as before.
+    if (idempotencyKey && !(await claimWebhookDelivery(result.source.id, idempotencyKey))) {
+      webhookLog.info("Webhook", `redelivered event for source "${result.source.name}", already processed`);
+      return { ok: true };
     }
 
     // Answered before the event is processed; shutdown waits for it (see background-turns).

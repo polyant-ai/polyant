@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { STTMissingCredentialsError, STTUnsupportedFormatError } from "../errors.js";
+import { STTMissingCredentialsError, STTProviderError, STTTimeoutError, STTUnsupportedFormatError } from "../errors.js";
 
 const { sendMock, TranscribeClientMock, StartStreamTranscriptionCommandMock } = vi.hoisted(() => {
   const sendMock = vi.fn();
@@ -125,6 +125,58 @@ describe("awsTranscribeAdapter", () => {
 
     expect(result.text).toBe("");
     expect(result.durationSec).toBe(7.5);
+  });
+});
+
+describe("awsTranscribeAdapter deadline and cancellation", () => {
+  const AWS = { aws: { accessKeyId: "AKIA", secretAccessKey: "x", region: "eu-west-1" } };
+  const never = () => new Promise<never>(() => {});
+
+  beforeEach(() => {
+    sendMock.mockReset();
+  });
+
+  it("times out when Transcribe never answers the request", async () => {
+    sendMock.mockImplementation(never);
+
+    await expect(
+      awsTranscribeAdapter.transcribe({ audio: Buffer.from([0]), mimeType: "audio/ogg", credentials: AWS, timeoutMs: 20 }),
+    ).rejects.toBeInstanceOf(STTTimeoutError);
+  });
+
+  it("times out when the result stream stalls after the first event", async () => {
+    sendMock.mockResolvedValue({
+      TranscriptResultStream: (async function* () {
+        yield { TranscriptEvent: { Transcript: { Results: [{ IsPartial: false, Alternatives: [{ Transcript: "ciao" }] }] } } };
+        await never();
+      })(),
+    });
+
+    await expect(
+      awsTranscribeAdapter.transcribe({ audio: Buffer.from([0]), mimeType: "audio/ogg", credentials: AWS, timeoutMs: 20 }),
+    ).rejects.toBeInstanceOf(STTTimeoutError);
+  });
+
+  it("stops the request when the caller aborts, and reports it as an abort", async () => {
+    let sentSignal: AbortSignal | undefined;
+    sendMock.mockImplementation((_cmd: unknown, opts?: { abortSignal?: AbortSignal }) => {
+      sentSignal = opts?.abortSignal;
+      return never();
+    });
+    const caller = new AbortController();
+
+    const pending = awsTranscribeAdapter.transcribe({
+      audio: Buffer.from([0]),
+      mimeType: "audio/ogg",
+      credentials: AWS,
+      timeoutMs: 60_000,
+      abortSignal: caller.signal,
+    });
+    caller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(STTProviderError);
+    await expect(pending).rejects.not.toBeInstanceOf(STTTimeoutError);
+    expect(sentSignal?.aborted).toBe(true);
   });
 });
 

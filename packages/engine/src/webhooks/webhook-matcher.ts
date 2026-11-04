@@ -71,6 +71,10 @@ function readVerdict(text: string): "yes" | "no" | null {
  * `sourceType` selects the same render-time projection the Room applies: the
  * payload is sent once per definition, so the noise it drops (API URL
  * templates, node ids) would otherwise be paid for on every classifier call.
+ * For the same reason it goes as compact JSON (indentation added about half
+ * its tokens) and before the criteria: every call then opens with the same
+ * system prompt and payload, a prefix the provider's prompt cache can reuse
+ * from the second definition on.
  */
 export async function matchEvent(
   payload: Record<string, unknown>,
@@ -82,7 +86,7 @@ export async function matchEvent(
   const apiKeys = instanceConfig.apiKeys;
   const provider = instanceConfig.provider;
 
-  const payloadStr = JSON.stringify(projectEventPayload(sourceType, payload), null, 2);
+  const payloadStr = JSON.stringify(projectEventPayload(sourceType, payload));
 
   // Sequential evaluation: definitions are priority-ordered, first match wins.
   // Parallel would evaluate all definitions even after a match, wasting LLM calls.
@@ -96,7 +100,7 @@ export async function matchEvent(
         messages: [
           {
             role: "user",
-            content: `## Matching criteria\n${def.matchingPrompt}\n\n## Webhook payload\n${payloadStr}\n\nDoes this payload match the criteria? Answer only "yes" or "no".`,
+            content: `## Webhook payload\n${payloadStr}\n\n## Matching criteria\n${def.matchingPrompt}\n\nDoes this payload match the criteria? Answer only "yes" or "no".`,
           },
         ],
       },

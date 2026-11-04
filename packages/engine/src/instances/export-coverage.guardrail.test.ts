@@ -67,6 +67,7 @@ const TABLES_NOT_EXPORTED: Record<string, string> = {
   hook_executions: "Runtime audit.",
   scheduled_task_runs: "Run history of the tasks the bundle does carry.",
   event_backlog: "Events still queued against the source deployment.",
+  webhook_deliveries: "Delivery keys the source deployment saw in the last day.",
   room_activity_log: "Runtime activity.",
   oauth_states: "A single-use nonce with a minutes-long TTL.",
   instance_tools:

@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { randomUUID } from "node:crypto";
 import type { ChannelAdapter, MessageHandler, IncomingMessage, OutboundDelivery, OutgoingMessage } from "./types.js";
 import type { ChannelType } from "../instances/channels.store.js";
-import { listEnabledChannelConfigs, disableChannel, ensureTelegramWebhookSecret } from "../instances/channels.store.js";
+import {
+  listEnabledChannelConfigs,
+  disableChannel,
+  ensureTelegramWebhookSecret,
+  getChannelConfig,
+} from "../instances/channels.store.js";
 import { TelegramAdapter, type TelegramConfig } from "./adapters/telegram/index.js";
 import { SlackAdapter, type SlackConfig } from "./adapters/slack/index.js";
 import { WhatsAppAdapter, type WhatsAppConfig } from "./adapters/whatsapp/index.js";
@@ -37,10 +43,101 @@ const DEBOUNCED_CHANNELS: ReadonlySet<ChannelType> = new Set<ChannelType>(["what
 /** Map<instanceSlug, Map<channelType, ChannelAdapter>> */
 type InstanceAdapters = Map<string, Map<string, ChannelAdapter>>;
 
+/** The Postgres notification channel that carries "an agent's channel changed". */
+const CHANNEL_CHANGE_NOTIFICATION = "polyant_channel_change";
+
+/**
+ * The part of a postgres.js client the cross-process channel signal uses:
+ * `LISTEN` on a dedicated connection (re-established by the client after a
+ * drop) and `NOTIFY`.
+ */
+export interface ChannelChangeBus {
+  listen(channel: string, onNotify: (payload: string) => void): Promise<{ unlisten(): Promise<void> }>;
+  notify(channel: string, payload: string): PromiseLike<unknown>;
+}
+
+interface ChannelChangeSignal {
+  origin: string;
+  instanceSlug: string;
+  /** Absent: every channel of the agent (the agent was deleted). */
+  channelType?: ChannelType;
+}
+
 export class ChannelManager {
   private adapters: InstanceAdapters = new Map();
   private messageHandler: MessageHandler | null = null;
   private coordinator: MessageCoordinator | null = null;
+  /** Tells this process's own signals apart from another process's. */
+  private readonly origin = randomUUID();
+  private bus: ChannelChangeBus | null = null;
+  private stopListening: (() => Promise<void>) | null = null;
+  /** One reload at a time per agent channel, in the order the signals came. */
+  private readonly reloads = new Map<string, Promise<void>>();
+
+  /**
+   * Follow channel changes saved through another process. The adapter registry
+   * is per process and a save restarts the adapter only where it was made: on
+   * a deploy the new task boots while the panel still talks to the old one, and
+   * without this the new task served the previous config until the next
+   * deploy. Call it before the boot reads the configs, so no save falls between
+   * the read and the subscription.
+   */
+  async listenForChanges(bus: ChannelChangeBus): Promise<void> {
+    const subscription = await bus.listen(CHANNEL_CHANGE_NOTIFICATION, (payload) => this.onChangeSignal(payload));
+    this.bus = bus;
+    this.stopListening = () => subscription.unlisten();
+  }
+
+  /**
+   * Tell the other processes that an agent's channel changed in the database.
+   * Call it after the write: a process acting on the signal re-reads the row.
+   * Without `channelType`, every channel of the agent is re-read.
+   */
+  async announceChange(instanceSlug: string, channelType?: ChannelType): Promise<void> {
+    if (!this.bus) return;
+    const signal: ChannelChangeSignal = { origin: this.origin, instanceSlug, channelType };
+    try {
+      await this.bus.notify(CHANNEL_CHANGE_NOTIFICATION, JSON.stringify(signal));
+    } catch (err) {
+      log.error("channel-manager", `could not announce the ${channelType ?? "channels"} change of "${instanceSlug}"`, err);
+    }
+  }
+
+  private onChangeSignal(payload: string): void {
+    let signal: ChannelChangeSignal;
+    try {
+      signal = JSON.parse(payload) as ChannelChangeSignal;
+    } catch {
+      return;
+    }
+    if (signal.origin === this.origin || typeof signal.instanceSlug !== "string") return;
+    const { instanceSlug, channelType } = signal;
+    const key = `${instanceSlug}:${channelType ?? "*"}`;
+    const next = (this.reloads.get(key) ?? Promise.resolve())
+      .then(() => this.reloadFromStore(instanceSlug, channelType))
+      .catch((err) =>
+        log.error("channel-manager", `reloading ${channelType ?? "channels"} of "${instanceSlug}" failed`, err),
+      )
+      .finally(() => {
+        if (this.reloads.get(key) === next) this.reloads.delete(key);
+      });
+    this.reloads.set(key, next);
+  }
+
+  /**
+   * Bring this process's adapter in line with the stored config. The provider
+   * registration is the saving process's job, so a stop here never deregisters.
+   */
+  private async reloadFromStore(instanceSlug: string, channelType?: ChannelType): Promise<void> {
+    if (!channelType) {
+      await this.stopAllForInstance(instanceSlug);
+      await this.startAllForInstance(instanceSlug);
+      return;
+    }
+    const stored = await getChannelConfig(asInstanceSlug(instanceSlug), channelType);
+    if (stored?.enabled) await this.startChannel(instanceSlug, channelType, stored.config);
+    else await this.stopChannel(instanceSlug, channelType);
+  }
 
   /** Set the global message handler (agent pipeline) */
   setMessageHandler(handler: MessageHandler): void {
@@ -235,6 +332,9 @@ export class ChannelManager {
    * Registrations stay with the provider: another replica may already own them.
    */
   async shutdownAll(): Promise<void> {
+    await this.stopListening?.().catch((err) => log.error("channel-manager", "could not stop listening for channel changes", err));
+    this.stopListening = null;
+    this.bus = null;
     const promises: Promise<void>[] = [];
     for (const [slug] of this.adapters) {
       promises.push(this.stopAllForInstance(slug));

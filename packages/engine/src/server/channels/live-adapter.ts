@@ -29,12 +29,14 @@ export async function requireLiveAdapter<A extends ChannelAdapter>(
   unavailable: { message: string; log?: (reason: AdapterUnavailableReason) => void },
 ): Promise<{ adapter: A; config: Record<string, unknown> }> {
   const slug = asInstanceSlug(instanceSlug);
-  const [id, channel] = await Promise.all([resolveInstanceId(slug), getChannelConfig(slug, channelType)]);
+  // The channel read resolves the agent itself; the agent is looked up apart
+  // only to log why a webhook is refused, never on the path every message takes.
+  const channel = await getChannelConfig(slug, channelType);
   const refuse = (reason: AdapterUnavailableReason): NotFoundException => {
     unavailable.log?.(reason);
     return new NotFoundException(unavailable.message);
   };
-  if (!id) throw refuse("instance not found");
+  if (!channel && !(await resolveInstanceId(slug))) throw refuse("instance not found");
   if (!channel?.enabled) throw refuse("channel not configured or disabled");
   const adapter = channelManager.getAdapter(slug, channelType) as A | undefined;
   if (!adapter) throw refuse("adapter not active");
@@ -50,7 +52,25 @@ export function channelWebhookTracker(channelType: ChannelType) {
   return (req: Record<string, unknown>, _context?: ExecutionContext): string => {
     const request = req as Parameters<typeof throttleTracker>[0] & { params?: Record<string, unknown> };
     const slug = request.params?.instanceSlug;
-    const live = typeof slug === "string" && channelManager.getAdapter(slug, channelType) !== undefined;
-    return live ? channelWebhookBucket(request, `${channelType}:${slug}`) : throttleTracker(request);
+    return isLiveAgent(request, channelType)
+      ? channelWebhookBucket(request, `${channelType}:${slug}`)
+      : throttleTracker(request);
   };
+}
+
+/**
+ * Throttle limit for a public channel webhook route, paired with
+ * `channelWebhookTracker`: `liveLimit` for an agent with a running adapter, the
+ * tighter `otherLimit` for the address-keyed fallback that unknown slugs share.
+ */
+export function channelWebhookLimit(channelType: ChannelType, liveLimit: number, otherLimit: number) {
+  return (context: ExecutionContext): number =>
+    isLiveAgent(context.switchToHttp().getRequest<{ params?: Record<string, unknown> }>(), channelType)
+      ? liveLimit
+      : otherLimit;
+}
+
+function isLiveAgent(request: { params?: Record<string, unknown> }, channelType: ChannelType): boolean {
+  const slug = request.params?.instanceSlug;
+  return typeof slug === "string" && channelManager.getAdapter(slug, channelType) !== undefined;
 }

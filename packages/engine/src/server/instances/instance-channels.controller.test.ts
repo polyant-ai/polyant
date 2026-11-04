@@ -14,7 +14,7 @@ const {
   mockSetChannelConfig: vi.fn(),
   mockGetChannelConfig: vi.fn(),
   mockDeleteChannelConfig: vi.fn(),
-  mockChannelManager: { startChannel: vi.fn(), stopChannel: vi.fn() },
+  mockChannelManager: { startChannel: vi.fn(), stopChannel: vi.fn(), announceChange: vi.fn() },
   mockAuditLog: vi.fn(),
 }));
 
@@ -482,6 +482,16 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
       const auditOrder = mockAuditLog.mock.invocationCallOrder[0];
       const deleteOrder = mockDeleteChannelConfig.mock.invocationCallOrder[0];
       expect(deleteOrder).toBeLessThan(auditOrder);
+    });
+
+    it("tells the other processes only once the config is gone, so none re-reads the old row", async () => {
+      mockGetChannelConfig.mockResolvedValue(null);
+
+      await controller.removeChannel("acme", "whatsapp", USER);
+
+      expect(mockChannelManager.announceChange).toHaveBeenCalledWith("acme", "whatsapp");
+      const announceOrder = mockChannelManager.announceChange.mock.invocationCallOrder[0];
+      expect(mockDeleteChannelConfig.mock.invocationCallOrder[0]).toBeLessThan(announceOrder!);
     });
   });
 

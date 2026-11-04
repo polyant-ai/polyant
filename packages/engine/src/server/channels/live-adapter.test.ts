@@ -78,8 +78,23 @@ describe("requireLiveAdapter", () => {
     });
   });
 
+  it("reads the channel row once, without a separate lookup of the agent, on every webhook", async () => {
+    live.set("shop/telegram", {});
+
+    await requireLiveAdapter("shop", "telegram", unavailable());
+
+    expect(mockGetChannelConfig).toHaveBeenCalledTimes(1);
+    expect(mockResolveInstanceId).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ["instance not found", () => mockResolveInstanceId.mockResolvedValue(undefined)],
+    [
+      "instance not found",
+      () => {
+        mockResolveInstanceId.mockResolvedValue(undefined);
+        mockGetChannelConfig.mockResolvedValue(null);
+      },
+    ],
     ["channel not configured or disabled", () => mockGetChannelConfig.mockResolvedValue({ enabled: false, config: {} })],
     ["adapter not active", () => undefined],
   ])("answers the same 404 when %s, and logs the real reason", async (reason, arrange) => {
@@ -93,6 +108,32 @@ describe("requireLiveAdapter", () => {
     expect((err as NotFoundException).message).toBe("Telegram webhook unavailable");
     expect(opts.log).toHaveBeenCalledWith(reason);
   });
+});
+
+describe("WhatsApp webhook throttle limit", () => {
+  type Limit = number | ((context: unknown) => number);
+  const limitOf = (method: string): Limit =>
+    Reflect.getMetadata(
+      "THROTTLER:LIMITdefault",
+      (TwilioWebhookController.prototype as unknown as Record<string, object>)[method],
+    ) as Limit;
+  const resolve = (limit: Limit, slug: string): number =>
+    typeof limit === "number" ? limit : limit({ switchToHttp: () => ({ getRequest: () => request(slug) }) });
+
+  it.each(["handleWhatsAppWebhook", "handleWhatsAppWebhookWithSecret"])(
+    "lets a live agent take a campaign's replies, hundreds a minute (%s)",
+    (method) => {
+      live.set("shop/whatsapp", {});
+      expect(resolve(limitOf(method), "shop")).toBeGreaterThanOrEqual(300);
+    },
+  );
+
+  it.each(["handleWhatsAppWebhook", "handleWhatsAppWebhookWithSecret"])(
+    "keeps the tight limit for a slug with no running adapter (%s)",
+    (method) => {
+      expect(resolve(limitOf(method), "nobody")).toBe(60);
+    },
+  );
 });
 
 describe("public channel webhook routes", () => {
