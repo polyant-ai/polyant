@@ -101,6 +101,21 @@ describe("runPipelinePre — MCP connections", () => {
     expect(events.indexOf("mcp:connect")).toBeLessThan(events.indexOf("message_received:end"));
   });
 
+  it("lets a turn that never reaches the model call drop a failed server read", async () => {
+    listEnabledMcpServers.mockRejectedValue(new Error("database unavailable"));
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const pre = await runPipelinePre(message());
+      for (let i = 0; i < 5; i++) await turnOfTheLoop();
+
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(pre.mcpServers).rejects.toThrow("database unavailable");
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("hands the model call the server list and connection the turn already started", async () => {
     const pre = await runPipelinePre(message());
     const { tools } = await buildMcpTools({

@@ -217,7 +217,11 @@ export function startMcpConnections(opts: Omit<McpTurnOptions, "instanceUuid">):
     })
     // The turn meets any failure again when it builds its tools.
     .catch(() => { /* best-effort */ });
-  return started.then(({ servers }) => servers);
+  const servers = started.then((s) => s.servers);
+  // A turn that stops before the model call never reads the list: its failure
+  // must not surface as an unhandled rejection. `buildMcpTools` still sees it.
+  servers.catch(() => { /* handled where it is awaited */ });
+  return servers;
 }
 
 export async function buildMcpTools(opts: McpTurnOptions & {
