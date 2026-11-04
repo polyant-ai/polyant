@@ -144,12 +144,16 @@ describe.skipIf(!DB_AVAILABLE)("statement budgets (integration)", () => {
 
   beforeAll(async () => {
     await teardown();
-    const agent = await createInstanceWithDefaults({ slug: AGENT, name: "budget", provider: "openai", model: "gpt-4o-mini" });
-    await setSecret(agent.id, "openai_api_key", "sk-test");
     [{ id: orgId }] = await queryClient<{ id: string }[]>`
       INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER}, 'budget', false) RETURNING id`;
+    // The chat agent has a workspace of its own, so the listed one holds only the counted agents.
     await queryClient`
-      INSERT INTO workspaces (organization_id, slug, name, is_default) VALUES (${orgId}, ${MARKER}, 'budget', false)`;
+      INSERT INTO workspaces (organization_id, slug, name, is_default)
+      VALUES (${orgId}, ${MARKER}, 'budget', false), (${orgId}, ${MARKER + "-chat"}, 'chat', false)`;
+    const agent = await createInstanceWithDefaults({
+      slug: AGENT, name: "budget", provider: "openai", model: "gpt-4o-mini", orgId, workspaceSlug: `${MARKER}-chat`,
+    });
+    await setSecret(agent.id, "openai_api_key", "sk-test");
   });
 
   afterAll(teardown);
@@ -164,11 +168,11 @@ describe.skipIf(!DB_AVAILABLE)("statement budgets (integration)", () => {
 
   it("the agent list sends one statement, for one agent as for five", async () => {
     await addAgents(1, 0);
-    const one = await statementsDuring(() => listAllInstances(orgId));
+    const one = await statementsDuring(() => listAllInstances(orgId, MARKER));
     await addAgents(4, 1);
-    const five = await statementsDuring(() => listAllInstances(orgId));
+    const five = await statementsDuring(() => listAllInstances(orgId, MARKER));
 
-    expect(await listAllInstances(orgId)).toHaveLength(5);
+    expect(await listAllInstances(orgId, MARKER)).toHaveLength(5);
     expectCount(one, 1);
     expect(five).toEqual(one);
   });
