@@ -1,5 +1,4 @@
--- How far the conversation's summary and its memory extraction have read: the
--- created_at of the last message each covers. NULL means nothing yet: the
--- history starts at the first message and extraction has read none.
-ALTER TABLE "conversations" ADD COLUMN IF NOT EXISTS "summary_through" timestamp with time zone;
-ALTER TABLE "conversations" ADD COLUMN IF NOT EXISTS "memory_through" timestamp with time zone;
+-- The conversation watermarks (`summary_through`, `memory_through`) are added by
+-- 0118, with the release's other changes to tables every turn reads, so the lock
+-- they take is held only at the end of the batch. Kept so the numbering of the
+-- release does not move.

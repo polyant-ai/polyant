@@ -33,18 +33,21 @@ import { formatBytes, KnowledgeStatusBadge } from "@/components/knowledge/docume
 
 /**
  * Every document of the agent. The engine answers one page at a time; the list
- * is searched and sorted here, so it follows `nextOffset` to the last page.
+ * is searched and sorted here, so it follows `nextOffset` to the last page. An
+ * upload between two pages pushes a document onto the next one as well: each
+ * document is kept once. (A document a deletion pulls back onto the previous
+ * page is missed until the next read, which the list does after a deletion.)
  */
 async function listAllDocuments(slug: string): Promise<{ documents: KnowledgeDocument[] }> {
   const first = await api.knowledge.list(slug);
-  const documents = [...first.documents];
+  const byId = new Map(first.documents.map((d) => [d.id, d]));
   let next = first.nextOffset;
   while (next != null) {
     const page = await api.knowledge.list(slug, { offset: next });
-    documents.push(...page.documents);
+    for (const d of page.documents) if (!byId.has(d.id)) byId.set(d.id, d);
     next = page.nextOffset;
   }
-  return { documents };
+  return { documents: [...byId.values()] };
 }
 
 interface Props {

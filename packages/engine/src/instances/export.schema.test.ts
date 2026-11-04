@@ -49,11 +49,12 @@ function legacyV1Bundle() {
 }
 
 describe("instanceBundleSchema sttProvider", () => {
-  it("refuses a transcription provider the runtime does not know", () => {
+  it("reads a transcription provider the runtime does not know as off, as the runtime does", () => {
+    // An older release stored any value it was sent; such an agent ran with transcription off.
     const bundle = legacyV1Bundle() as { instance: Record<string, unknown> };
     bundle.instance.sttProvider = "openia";
 
-    expect(instanceBundleSchema.safeParse(bundle).success).toBe(false);
+    expect(instanceBundleSchema.parse(bundle).instance.sttProvider).toBe("disabled");
   });
 
   it("accepts every setting the runtime reads", () => {
@@ -201,22 +202,33 @@ it("preserves a custom scheduled-task deadline and defaults older bundles to nul
   expect(exportScheduledTaskSchema.parse({ ...legacyTask, maxRunMs: 45_000 }).maxRunMs).toBe(45_000);
 });
 
-it.each([0, -5, 59_999])("refuses a bundle whose scheduled task runs every %s ms", (everyMs) => {
-  const task = {
-    name: "digest",
+// stripSensitiveKeys now has its own module + test file: see
+// channel-config-sanitize.ts / channel-config-sanitize.test.ts.
+
+describe("scheduled task schedule in a bundle", () => {
+  const task = (schedule: unknown) => ({
+    name: "poll",
     description: null,
     enabled: true,
-    schedule: { type: "interval", everyMs },
-    prompt: "Summarize",
+    schedule,
+    prompt: "Check",
     outboundChannel: null,
     outboundTarget: null,
     keepHistory: false,
     deleteAfterRun: false,
     maxRetries: 3,
     createdBy: null,
-  };
-  expect(exportScheduledTaskSchema.safeParse(task).success).toBe(false);
-});
+  });
 
-// stripSensitiveKeys now has its own module + test file: see
-// channel-config-sanitize.ts / channel-config-sanitize.test.ts.
+  it("accepts an interval shorter than new schedules may declare, as one already stored", () => {
+    // Earlier releases accepted any interval: an agent exported from one must import again.
+    expect(exportScheduledTaskSchema.parse(task({ type: "interval", everyMs: 30_000 })).schedule)
+      .toEqual({ type: "interval", everyMs: 30_000 });
+  });
+
+  it("refuses an interval that never advances", () => {
+    for (const everyMs of [0, -1_000, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(exportScheduledTaskSchema.safeParse(task({ type: "interval", everyMs })).success).toBe(false);
+    }
+  });
+});

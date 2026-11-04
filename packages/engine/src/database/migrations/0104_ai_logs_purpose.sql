@@ -1,4 +1,3 @@
--- What a service call was for (title, summary, memory, ...), so service spend can
--- be grouped by it. Nullable without a default: a catalog-only change, and every
--- existing row and every conversation call keeps NULL.
-ALTER TABLE "ai_logs" ADD COLUMN IF NOT EXISTS "purpose" text;
+-- The `purpose` column of `ai_logs` is added by 0118, with the release's other
+-- changes to tables every turn reads, so the lock it takes is held only at the
+-- end of the batch. Kept so the numbering of the release does not move.

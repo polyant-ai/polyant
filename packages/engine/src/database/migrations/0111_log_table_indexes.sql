@@ -2,9 +2,8 @@
 --
 -- Two single-column indexes are the leading column of a composite index on the same
 -- table, which serves every query they served; each cost a B-tree write on every
--- insert into the two most-written tables.
-DROP INDEX IF EXISTS "idx_ai_logs_instance_id";
-DROP INDEX IF EXISTS "idx_conversation_messages_conversation_id";
+-- insert into the two most-written tables. The last migration of the release (0118)
+-- drops them.
 
 -- The daily cleanup deletes the rows older than the retention window. Without an
 -- index on that time it scanned the whole table each night. B-tree rather than BRIN:

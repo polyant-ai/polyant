@@ -93,14 +93,21 @@ describe("buildMcpTools", () => {
       expect(mcpPoolSize()).toBe(1);
     });
 
-    it("should_check_the_url_only_when_a_connection_is_opened", async () => {
+    it("should_stop_using_a_pooled_connection_on_the_turn_after_its_url_resolves_to_a_private_address", async () => {
       servers.push(staticServer("s1"));
-      createMCPClient.mockResolvedValue(okClient());
-      urlGuard.resolved.mockClear();
+      const client = okClient();
+      createMCPClient.mockResolvedValue(client);
+      const first = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+      expect(Object.keys(first.tools)).toContain("mcp__gh__create_issue");
+      await first.close();
 
-      for (const c of ["c1", "c2", "c3"]) await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: c });
+      // The name behind the server's URL is repointed at an internal host.
+      urlGuard.resolved.mockRejectedValueOnce(new Error("resolves to a private address"));
+      const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
 
-      expect(urlGuard.resolved).toHaveBeenCalledOnce();
+      expect(tools).toEqual({});
+      expect(mcpPoolSize()).toBe(0);
+      await vi.waitFor(() => expect(client.close).toHaveBeenCalledOnce());
     });
 
     it("should_skip_the_server_when_the_url_check_rejects_the_connect", async () => {

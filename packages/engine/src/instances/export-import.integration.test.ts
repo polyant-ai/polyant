@@ -26,6 +26,7 @@ const MARKER = "itest-export-import";
 let orgId: string;
 
 async function teardown(): Promise<void> {
+  await queryClient`DELETE FROM scheduled_tasks WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -115,6 +116,22 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     const [row] = await queryClient<{ stt_provider: string }[]>`
       SELECT stt_provider FROM instances WHERE slug = ${result.slug}`;
     expect(row.stt_provider).toBe("disabled");
+  });
+
+  it("should_carry_a_scheduled_task_with_an_interval_shorter_than_new_schedules_may_declare", async () => {
+    // A task an earlier release accepted: its API took any interval.
+    const source = await createAgent("short-interval");
+    await queryClient`
+      INSERT INTO scheduled_tasks (instance_id, name, schedule, prompt)
+      VALUES (${source.slug}, 'poll', ${JSON.stringify({ type: "interval", everyMs: 30_000 })}::jsonb, 'Check the queue')`;
+
+    const result = await importNewInstance(await exportInstance(source.slug), orgId);
+
+    const rows = await queryClient<{ schedule: unknown; next_run_at: Date | null }[]>`
+      SELECT schedule, next_run_at FROM scheduled_tasks WHERE instance_id = ${result.slug}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].schedule).toEqual({ type: "interval", everyMs: 30_000 });
+    expect(rows[0].next_run_at).not.toBeNull();
   });
 
   it("should_read_the_agent_without_its_icon_and_still_carry_the_icon_through_a_round_trip", async () => {

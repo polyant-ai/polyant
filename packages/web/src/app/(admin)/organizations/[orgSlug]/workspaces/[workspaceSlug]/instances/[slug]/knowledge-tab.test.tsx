@@ -301,6 +301,23 @@ describe("KnowledgeTab — document sizes", () => {
   });
 });
 
+describe("KnowledgeTab — a list longer than one page", () => {
+  it("shows a document once when an upload between two pages pushes it onto the next one", async () => {
+    const doc = (id: string, filename: string) =>
+      ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+    // Newest first: a new document arrived after the first page was read, so the
+    // second page starts one row back and repeats the first page's last document.
+    mockList
+      .mockResolvedValueOnce({ documents: [doc("d2", "second.md"), doc("d1", "boundary.md")], nextOffset: 2 })
+      .mockResolvedValueOnce({ documents: [doc("d1", "boundary.md"), doc("d0", "oldest.md")], nextOffset: null });
+
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("oldest.md");
+    expect(screen.getAllByText("boundary.md")).toHaveLength(1);
+  });
+});
+
 describe("KnowledgeTab — the document list", () => {
   const docs = [
     { id: "d1", filename: "guide.md", sizeBytes: 2048, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" },

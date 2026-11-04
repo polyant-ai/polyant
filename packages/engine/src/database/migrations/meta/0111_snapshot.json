@@ -5616,6 +5616,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5975,7 +5981,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_webhook_deliveries_received": {
+          "name": "idx_webhook_deliveries_received",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "webhook_deliveries_event_source_id_event_sources_id_fk": {
           "name": "webhook_deliveries_event_source_id_event_sources_id_fk",
@@ -6028,6 +6050,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "9a9d8244-14f0-4ffd-aa70-92fca96f3dfd",
+  "id": "cc45a5c4-382f-4e9f-82b1-094829f82c34",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

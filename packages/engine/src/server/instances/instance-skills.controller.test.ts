@@ -20,6 +20,7 @@ const stores = vi.hoisted(() => ({
   setSkillEnv: vi.fn(),
   getSkillEnv: vi.fn(),
   hasAllRequiredEnvBatch: vi.fn(),
+  getPinnedSkillMetadata: vi.fn(),
 }));
 vi.mock("../../instances/instance-skills.store.js", () => ({
   getInstanceSkills: stores.getInstanceSkills,
@@ -28,6 +29,7 @@ vi.mock("../../instances/instance-skills.store.js", () => ({
   upgradeSkill: vi.fn(),
   rollbackSkill: stores.rollbackSkill,
   setAutoLoad: stores.setAutoLoad,
+  getPinnedSkillMetadata: stores.getPinnedSkillMetadata,
 }));
 vi.mock("../../skills/skills.store.js", () => ({ listSkills: stores.listSkills, getSkill: stores.getSkill }));
 vi.mock("../../instances/instance-tools.store.js", () => ({ getEnabledToolNames: stores.getEnabledToolNames }));
@@ -71,6 +73,7 @@ describe("InstanceSkillsController bodies", () => {
     stores.getEnabledToolNames.mockResolvedValue(new Set());
     stores.getSkillEnv.mockResolvedValue({});
     stores.hasAllRequiredEnvBatch.mockResolvedValue(new Map());
+    stores.getPinnedSkillMetadata.mockResolvedValue(weatherSkill.currentVersion.metadata);
   });
 
   describe("PATCH skills", () => {
@@ -123,9 +126,27 @@ describe("InstanceSkillsController bodies", () => {
         ...weatherSkill,
         currentVersion: { version: 1, metadata: { requiredEnv: [{ name: "REGION" }] } },
       });
+      stores.getPinnedSkillMetadata.mockResolvedValue({ requiredEnv: [{ name: "REGION" }] });
       stores.getSkillEnv.mockResolvedValue({ REGION: "eu" });
       const { env } = await controller.getSkillEnvVars("acme", "weather");
       expect(env).toEqual([{ key: "REGION", value: "eu", sensitive: false, configured: true, description: undefined }]);
+    });
+
+    it("sets and rotates a key the version the agent runs reads, after a newer version renamed it", async () => {
+      // The agent stays on the version that reads API_TOKEN; the skill's current one reads CRM_TOKEN.
+      stores.getSkill.mockResolvedValue({
+        ...weatherSkill,
+        currentVersion: { version: 2, metadata: { requiredEnv: [{ name: "CRM_TOKEN", sensitive: true }] } },
+      });
+      stores.getPinnedSkillMetadata.mockResolvedValue({ requiredEnv: [{ name: "API_TOKEN", sensitive: true }] });
+      stores.getSkillEnv.mockResolvedValue({ API_TOKEN: "rotated" });
+
+      const { env } = await controller.setSkillEnvVars("acme", "weather", {
+        env: [{ key: "API_TOKEN", value: "rotated", sensitive: false }],
+      });
+
+      expect(stores.setSkillEnv).toHaveBeenCalledWith(expect.objectContaining({ key: "API_TOKEN", sensitive: true }));
+      expect(env.map((e: { key: string }) => e.key)).toEqual(["API_TOKEN", "CRM_TOKEN"]);
     });
 
     it("answers 404 for an unknown skill before writing anything", async () => {

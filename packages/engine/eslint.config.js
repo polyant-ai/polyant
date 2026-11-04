@@ -51,6 +51,8 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["dist/", "node_modules/", "eslint-rules/**/*.test.js"],
+    // src/plugins holds plugins dropped in for an image build: gitignored, built
+    // by their own stage, and not the engine's code to lint or count warnings for.
+    ignores: ["dist/", "node_modules/", "eslint-rules/**/*.test.js", "src/plugins/"],
   }
 );

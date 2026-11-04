@@ -59,6 +59,11 @@ export const eventBacklog = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** The Room lease owner that claimed the event while it is processing. */
     claimedBy: text("claimed_by"),
+    /**
+     * When the event was claimed, or, for one a previous release claimed without
+     * naming an owner, when this release first saw it in processing.
+     */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
@@ -72,7 +77,7 @@ export const eventBacklog = pgTable(
 /**
  * One row per `Idempotency-Key` a webhook sender presented, so a redelivered
  * event is acknowledged without being processed again on any process. The key
- * is stored as a digest; rows older than a day are dropped as keys are claimed.
+ * is stored as a digest; rows older than a day are dropped by the daily housekeeping.
  */
 export const webhookDeliveries = pgTable(
   "webhook_deliveries",
@@ -81,5 +86,9 @@ export const webhookDeliveries = pgTable(
     keyDigest: varchar("key_digest", { length: 64 }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.eventSourceId, table.keyDigest] })],
+  (table) => [
+    primaryKey({ columns: [table.eventSourceId, table.keyDigest] }),
+    // The daily housekeeping drops the expired keys of every source by age.
+    index("idx_webhook_deliveries_received").on(table.receivedAt),
+  ],
 );

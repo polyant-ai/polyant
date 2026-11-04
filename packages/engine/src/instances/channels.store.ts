@@ -455,8 +455,8 @@ export async function deleteChannelConfig(instanceId: InstanceUuid, channelType:
 /**
  * The web switch per agent, in-process. Every web turn asks before its pipeline
  * starts; the writes in this module drop the entry, and an import drops it once
- * its transaction commits. Another replica sees a change within the TTL, as it
- * does for the agent's `authEnabled` and key in the config cache.
+ * its transaction commits. Another replica drops it on the channel change signal
+ * (`ChannelManager.listenForChanges`), or at the latest when the TTL ends.
  */
 const webChannelState = new TtlCache<InstanceUuid, boolean>({ maxSize: 2000, ttlMs: 30_000 });
 

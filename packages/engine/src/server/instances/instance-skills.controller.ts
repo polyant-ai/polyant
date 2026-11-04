@@ -19,6 +19,7 @@ import {
   disableSkill,
   upgradeSkill,
   rollbackSkill,
+  getPinnedSkillMetadata,
 } from "../../instances/instance-skills.store.js";
 import { listSkills as listAllSkills, getSkill as getSkillFromStore } from "../../skills/skills.store.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
@@ -46,6 +47,27 @@ interface RequiredEnvEntry {
 interface SkillMeta {
   requiredEnv: RequiredEnvEntry[];
   requiredTools: string[];
+}
+
+const requiredEnvOf = (metadata: unknown): RequiredEnvEntry[] =>
+  (metadata as { requiredEnv?: RequiredEnvEntry[] } | null)?.requiredEnv ?? [];
+
+/**
+ * The keys an agent may set for a skill: the ones the version it is pinned to
+ * reads, which its turns run, and the ones the skill's current version reads, so
+ * an upgrade finds them set. A key either declares sensitive is sensitive.
+ */
+async function declaredSkillEnv(
+  instanceId: InstanceUuid,
+  skill: { slug: string; currentVersion?: { metadata: unknown } | null },
+): Promise<RequiredEnvEntry[]> {
+  const declared = new Map<string, RequiredEnvEntry>();
+  const pinned = requiredEnvOf(await getPinnedSkillMetadata(instanceId, skill.slug));
+  for (const entry of [...pinned, ...requiredEnvOf(skill.currentVersion?.metadata)]) {
+    const seen = declared.get(entry.name);
+    declared.set(entry.name, seen ? { ...seen, sensitive: seen.sensitive === true || entry.sensitive === true } : entry);
+  }
+  return [...declared.values()];
 }
 
 /**
@@ -231,12 +253,11 @@ export class InstanceSkillsController {
     @Param("slug") slug: string,
     @Param("skillSlug") skillSlug: string,
   ) {
-    await findInstanceOrFail(slug);
+    const instance = await findInstanceOrFail(slug);
     const skill = await getSkillFromStore(skillSlug);
     if (!skill) throw new NotFoundException(`Skill "${skillSlug}" not found`);
 
-    const meta = skill.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
-    const requiredEnv = meta?.requiredEnv ?? [];
+    const requiredEnv = await declaredSkillEnv(instance.id, skill);
     const storedEnv = await getSkillEnv(asInstanceSlug(slug), skillSlug);
 
     return { env: envStatus(requiredEnv, storedEnv) };
@@ -253,8 +274,7 @@ export class InstanceSkillsController {
     const instance = await findInstanceOrFail(slug);
     const skill = await getSkillFromStore(skillSlug);
     if (!skill) throw new NotFoundException(`Skill "${skillSlug}" not found`);
-    const meta = skill.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
-    const requiredEnv = meta?.requiredEnv ?? [];
+    const requiredEnv = await declaredSkillEnv(instance.id, skill);
 
     // Only the keys the skill declares, checked before anything is written. A
     // key the skill declares sensitive is encrypted whatever the client says.

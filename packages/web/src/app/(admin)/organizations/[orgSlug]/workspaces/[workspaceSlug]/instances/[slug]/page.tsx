@@ -3,7 +3,6 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import Image from "next/image";
@@ -56,12 +55,7 @@ import { agentSection, resolveAgentTab } from "@/lib/nav/agent-sections";
 import { SectionActionsSlot } from "./section-actions";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
-
-// Charts (Analytics) and markdown with code highlighting (an event in the Room)
-// are the two heaviest libraries on this page, and the section most links land
-// on uses neither: they load when their section opens.
-const AnalyticsTab = dynamic(() => import("./analytics-tab").then((m) => m.AnalyticsTab));
-const RoomTab = dynamic(() => import("./room-tab").then((m) => m.RoomTab));
+import { AnalyticsTab, RoomTab, SectionLoading } from "./lazy-sections";
 
 // Stable empties, so the status checks do not see a new list on every render.
 const NO_TOOLS: ToolState[] = [];
@@ -71,11 +65,6 @@ const NO_PROMPTS: PromptSection[] = [];
 
 /** A refused read leaves its part empty instead of failing the page. */
 const unlessRefused = <T,>(read: Promise<T>) => read.catch(() => null);
-
-/** The body of a section whose data is still arriving. */
-function SectionLoading() {
-  return <Skeleton className="h-96 w-full" />;
-}
 
 function HeaderSaveButton() {
   const { saveAction } = usePageActions();

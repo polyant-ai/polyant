@@ -173,6 +173,12 @@ export function acquireMcpConnection(
   return lease(server.id, entry.current);
 }
 
+/** Drops the server's pooled connection, if any; a turn still holding it keeps it until it releases. */
+export function retireMcpConnection(serverId: string): void {
+  const entry = pool.get(serverId);
+  if (entry) dropEntry(serverId, entry);
+}
+
 /** Closes every connection the pool opened, dropped ones still held included; called at shutdown. */
 export async function closeMcpClientPool(): Promise<void> {
   clearInterval(sweepTimer);

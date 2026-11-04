@@ -12,6 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 import type { Locale, TranslationKey } from "./types";
 import { LOCALE_COOKIE, isLocale } from "./types";
 import { catalogFor, loadCatalog } from "./catalogs";
@@ -75,6 +76,32 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
+const RETRY_DELAYS_MS = [250, 1_000, 3_000, 10_000];
+const firstLoads = new Map<Locale, Promise<unknown>>();
+
+/**
+ * The catalogue the first render waits for. The provider sits at the root of the
+ * page with no boundary above it, so a failed download would fail the page: it
+ * is tried again until it arrives, and the server's HTML stays on screen meanwhile.
+ */
+function firstCatalog(locale: Locale): Promise<unknown> {
+  let load = firstLoads.get(locale);
+  if (!load) {
+    load = (async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await loadCatalog(locale);
+        } catch {
+          const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    })().finally(() => firstLoads.delete(locale));
+    firstLoads.set(locale, load);
+  }
+  return load;
+}
+
 /**
  * `initialLocale` is resolved on the server (cookie, then Accept-Language), so
  * the first render already speaks the right language. Only that language's
@@ -92,7 +119,7 @@ export function I18nProvider({
   // The wait lives in a component with no hooks of its own: React replays a
   // component that suspended, and a hook after a `use()` the replay skips (the
   // catalogue is here by then) would break the replay.
-  if (!catalogFor(initialLocale)) use(loadCatalog(initialLocale));
+  if (!catalogFor(initialLocale)) use(firstCatalog(initialLocale));
   return <LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>;
 }
 
@@ -106,6 +133,11 @@ function LocaleProvider({
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
   // The last language asked for: a slower catalogue must not undo a later choice.
   const requested = useRef(locale);
+  // The language on screen, for a message about a change that did not happen.
+  const shown = useRef(locale);
+  useEffect(() => {
+    shown.current = locale;
+  }, [locale]);
 
   const setLocale = useCallback((newLocale: Locale) => {
     requested.current = newLocale;
@@ -114,9 +146,16 @@ function LocaleProvider({
       setLocaleState(newLocale);
       persistLocale(newLocale);
     };
+    // A catalogue that fails to load (a deploy removed the old chunks, the
+    // connection dropped) leaves the current language and says so in it;
+    // asking again retries.
+    const fail = () => {
+      if (requested.current !== newLocale) return;
+      requested.current = shown.current;
+      toast.error(translate(shown.current, "common.languageLoadFailed"));
+    };
     if (catalogFor(newLocale)) apply();
-    // A catalogue that fails to load leaves the current language; asking again retries.
-    else loadCatalog(newLocale).then(apply, () => {});
+    else loadCatalog(newLocale).then(apply, fail);
   }, []);
 
   useEffect(() => {

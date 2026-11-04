@@ -21,7 +21,7 @@ export const conversations = pgTable(
     // created_at of the last message memory extraction read before it was kept by
     // seq; read only while `memoryThroughSeq` is NULL.
     memoryThrough: timestamp("memory_through", { withTimezone: true }),
-    // seq of the last message memory extraction has read (migration 0114).
+    // seq of the last message memory extraction has read (migration 0117).
     memoryThroughSeq: bigint("memory_through_seq", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -173,7 +173,7 @@ export const conversationMessages = pgTable(
     /**
      * The order the rows were saved in, which created_at (a message's arrival)
      * is not when two turns overlap. Filled by the database from the sequence
-     * migration 0114 sets as the column default; never written by the engine.
+     * migration 0117 sets as the column default; never written by the engine.
      * NULL on rows saved before that migration.
      */
     seq: bigint("seq", { mode: "number" }),

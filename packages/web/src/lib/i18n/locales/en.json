@@ -715,6 +715,7 @@
   "users.pagination.range": "{from}-{to} of {total}",
   "common.close": "Close",
   "common.language": "Language",
+  "common.languageLoadFailed": "The texts in this language could not be downloaded. Check the connection and try again.",
   "common.save": "Save changes",
   "common.saved": "Saved",
   "common.saving": "Saving...",

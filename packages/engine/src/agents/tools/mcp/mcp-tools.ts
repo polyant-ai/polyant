@@ -4,7 +4,7 @@ import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout, type McpConnection } from "./mcp-connect.js";
-import { acquireMcpConnection } from "./mcp-client-pool.js";
+import { acquireMcpConnection, retireMcpConnection } from "./mcp-client-pool.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { resolveInstanceUuid } from "../../../instances/instance-meta.js";
@@ -176,7 +176,7 @@ async function serverConnection(server: McpServerRecord, opts: McpTurnOptions): 
   // behind it can have been repointed at an internal host since (see
   // `assertSafeMcpUrlResolved`). A rejection skips the server — same
   // degradation as an unreachable one. A turn served by a pooled connection
-  // opens nothing, so it resolves nothing; the pool's renewal re-checks.
+  // checks before it leases one (`buildMcpTools`).
   const connect = async (abortSignal?: AbortSignal) => {
     try {
       await assertSafeMcpUrlResolved(server.url);
@@ -253,6 +253,14 @@ export async function buildMcpTools(opts: McpTurnOptions & {
         toolSet = opened.toolSet;
         clients.push(opened.client);
       } else {
+        // A pooled connection sends every call to the URL's name as it resolves
+        // now: each turn re-checks it, and a rejection drops the connection.
+        try {
+          await assertSafeMcpUrlResolved(server.url);
+        } catch (e) {
+          retireMcpConnection(server.id);
+          throw e;
+        }
         const lease = acquireMcpConnection(server, () => connection.connect());
         leases.push(lease);
         toolSet = (await untilAborted(lease.connection, opts.abortSignal)).toolSet;

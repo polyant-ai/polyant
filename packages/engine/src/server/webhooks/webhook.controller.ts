@@ -7,7 +7,7 @@ import { findByWebhookToken, listEnabledDefinitions, type EventSource } from "..
 import { getRoomByInstanceId } from "../../room/room.store.js";
 import { matchEvent } from "../../webhooks/webhook-matcher.js";
 import { insertEvent } from "../../webhooks/webhook-backlog.store.js";
-import { claimWebhookDelivery } from "../../webhooks/webhook-deliveries.store.js";
+import { claimWebhookDelivery, releaseWebhookDelivery } from "../../webhooks/webhook-deliveries.store.js";
 import { triggerConversation } from "../../webhooks/webhook-engine.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
@@ -89,39 +89,49 @@ export class WebhookController {
     }
 
     // Answered before the event is processed; shutdown waits for it (see background-turns).
-    trackBackgroundTurn(
-      this.processEvent(result, safePayload).catch((err) => webhookLog.error("Webhook", "processing error", err)),
-    );
+    // An event dropped without being processed gives its key back, so the sender's
+    // resend after the cause is fixed (a definition, the source switch) is processed.
+    const processing = this.processEvent(result, safePayload)
+      .catch((err) => {
+        webhookLog.error("Webhook", "processing error", err);
+        return false;
+      })
+      .then((processed) => {
+        if (!processed && idempotencyKey) return releaseWebhookDelivery(result.source.id, idempotencyKey);
+      })
+      .catch((err) => webhookLog.error("Webhook", "could not release the delivery key", err));
+    trackBackgroundTurn(processing);
 
     return { ok: true };
   }
 
+  /** Whether the event was taken up: routed to a conversation or queued for the Room. */
   private async processEvent(
     result: { source: EventSource; instanceId: InstanceUuid },
     payload: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { source, instanceId } = result;
     if (!source.enabled) {
       webhookLog.info("Webhook", `source "${source.name}" disabled, dropping`);
-      return;
+      return false;
     }
 
     const definitions = await listEnabledDefinitions(source.id);
     if (definitions.length === 0) {
       webhookLog.info("Webhook", `no definitions for source "${source.name}", dropping`);
-      return;
+      return false;
     }
 
     const slug = await resolveInstanceSlug(instanceId);
     if (!slug) {
       webhookLog.warn("Webhook", `instance not found for ID ${instanceId}`);
-      return;
+      return false;
     }
 
     const matched = await matchEvent(payload, definitions, slug, source.sourceType);
     if (!matched) {
       webhookLog.info("Webhook", `no match for source "${source.name}", dropping`);
-      return;
+      return false;
     }
 
     // Activity-stream emit: matched events only — probes and unknown payloads
@@ -150,21 +160,22 @@ export class WebhookController {
         ),
       );
       webhookLog.info("Webhook", `matched "${matched.name}" → triggering conversation`);
-      return;
+      return true;
     }
 
     // Default: backlog action — requires Room to be enabled
     const room = await getRoomByInstanceId(instanceId);
     if (!room?.enabled) {
       webhookLog.info("Webhook", `room disabled for instance, dropping backlog event`);
-      return;
+      return false;
     }
 
     const eventId = await insertEvent(instanceId, matched.id, payload);
     if (!eventId) {
       webhookLog.warn("Webhook", `backlog cap reached, dropping matched "${matched.name}"`);
-      return;
+      return false;
     }
     webhookLog.info("Webhook", `matched "${matched.name}", backlog ID: ${eventId}`);
+    return true;
   }
 }
