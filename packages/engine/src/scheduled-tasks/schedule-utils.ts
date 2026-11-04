@@ -12,26 +12,44 @@ export const MIN_INTERVAL_MS = 60_000;
 
 const isDate = (value: string) => !Number.isNaN(Date.parse(value));
 
-/**
- * The one rule for a schedule, applied wherever one is written: the HTTP API, the
- * `scheduleTask` tool and a snapshot import. Unknown fields are dropped.
- */
-export const scheduleConfigSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("cron"),
-    expression: z.string().min(1),
-    timezone: z.string().min(1).optional(),
-  }),
+const cronSchedule = z.object({
+  type: z.literal("cron"),
+  expression: z.string().min(1),
+  timezone: z.string().min(1).optional(),
+});
+
+const oneShotSchedule = z.object({
+  type: z.literal("one-shot"),
+  // An ISO timestamp, or a relative "+20m" the writer resolves before saving.
+  runAt: z.string().min(1),
+});
+
+const intervalSchedule = (everyMs: z.ZodNumber) =>
   z.object({
     type: z.literal("interval"),
-    everyMs: z.number().int().min(MIN_INTERVAL_MS),
+    everyMs,
     anchorAt: z.string().refine(isDate, "must be a date").optional(),
-  }),
-  z.object({
-    type: z.literal("one-shot"),
-    // An ISO timestamp, or a relative "+20m" the writer resolves before saving.
-    runAt: z.string().min(1),
-  }),
+  });
+
+/**
+ * The one rule for a new schedule, applied wherever one is written: the HTTP API
+ * and the `scheduleTask` tool. Unknown fields are dropped.
+ */
+export const scheduleConfigSchema = z.discriminatedUnion("type", [
+  cronSchedule,
+  intervalSchedule(z.number().int().min(MIN_INTERVAL_MS)),
+  oneShotSchedule,
+]);
+
+/**
+ * A schedule already stored, as an export carries it back in. Earlier releases
+ * accepted any interval, so it refuses only what the scheduler cannot step with
+ * (see `computeNextRun`): an export of what an agent runs imports again.
+ */
+export const storedScheduleSchema = z.discriminatedUnion("type", [
+  cronSchedule,
+  intervalSchedule(z.number().positive()),
+  oneShotSchedule,
 ]);
 
 /** Validate a schedule from outside; the error names the first field at fault. */
