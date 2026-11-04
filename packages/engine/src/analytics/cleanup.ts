@@ -28,6 +28,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { config } from "../config.js";
+import { DELIVERY_KEY_TTL } from "../webhooks/webhook-deliveries.store.js";
 
 export interface AnalyticsCleanupResult {
   aiLogsDeleted: number;
@@ -37,6 +38,7 @@ export interface AnalyticsCleanupResult {
   scheduledTaskRunsDeleted: number;
   eventBacklogDeleted: number;
   debugPayloadsCleared: number;
+  webhookDeliveriesDeleted: number;
   cutoff: Date;
 }
 
@@ -108,6 +110,11 @@ export function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
   return deleteInBatches("event_backlog", sql`status = 'completed' and created_at < ${cutoff.toISOString()}::timestamptz`);
 }
 
+/** Forget the webhook delivery keys past their window, for every source, a batch per statement. */
+export function deleteExpiredWebhookDeliveries(): Promise<number> {
+  return deleteInBatches("webhook_deliveries", sql`received_at < now() - ${DELIVERY_KEY_TTL}::interval`);
+}
+
 /** Debug payloads cleared per statement: each one is the whole request of a turn. */
 const DEBUG_PAYLOAD_BATCH = 1000;
 
@@ -139,6 +146,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
     debugPayloadsCleared,
+    webhookDeliveriesDeleted,
   ] = await Promise.all([
     deleteOldAiLogs(cutoff),
     deleteOldPipelineTraces(cutoff),
@@ -147,6 +155,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     deleteOldScheduledTaskRuns(cutoff),
     deleteOldCompletedBacklog(cutoff),
     clearOldDebugPayloads(computeCutoff(config.retention.debugPayloadDays)),
+    deleteExpiredWebhookDeliveries(),
   ]);
   return {
     aiLogsDeleted,
@@ -156,6 +165,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
     debugPayloadsCleared,
+    webhookDeliveriesDeleted,
     cutoff,
   };
 }
