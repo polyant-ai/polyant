@@ -59,6 +59,11 @@ export const eventBacklog = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** The Room lease owner that claimed the event while it is processing. */
     claimedBy: text("claimed_by"),
+    /**
+     * When the event was claimed, or, for one a previous release claimed without
+     * naming an owner, when this release first saw it in processing.
+     */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),

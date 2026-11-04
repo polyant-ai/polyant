@@ -3,6 +3,7 @@
 import { and, eq, sql, desc, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { eventBacklog } from "./webhooks.schema.js";
+import { WORK_LEASE_TTL_MS } from "../background/work-lease.js";
 import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
 import { createLogger } from "../utils/create-logger.js";
 
@@ -86,7 +87,7 @@ export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUui
       const ids = events.map((e) => e.id);
       await tx
         .update(eventBacklog)
-        .set({ status: BACKLOG_STATUS.PROCESSING, claimedBy: owner })
+        .set({ status: BACKLOG_STATUS.PROCESSING, claimedBy: owner, claimedAt: sql`now()` })
         .where(inArray(eventBacklog.id, ids));
     }
 
@@ -142,17 +143,29 @@ export async function markEventsCompleted(
  * every tick of every replica; an event a live cycle holds is never touched, so a
  * replica starting during a deploy does not hand another replica's work to a
  * second cycle.
+ *
+ * A process of the previous release claims events without an owner or a lease, so
+ * whether its cycle is still running cannot be told. Such an event is stamped the
+ * first time a tick sees it and put back only once it has waited a lease's
+ * lifetime, which a cycle does not outlast.
  */
 export async function requeueEventsWithoutLiveLease(): Promise<number> {
+  await db.execute(sql`
+    UPDATE event_backlog SET claimed_at = now()
+    WHERE status = ${BACKLOG_STATUS.PROCESSING} AND claimed_by IS NULL AND claimed_at IS NULL
+  `);
   const rows = await db.execute<{ id: string }>(sql`
-    UPDATE event_backlog e SET status = ${BACKLOG_STATUS.PENDING}, claimed_by = NULL
+    UPDATE event_backlog e SET status = ${BACKLOG_STATUS.PENDING}, claimed_by = NULL, claimed_at = NULL
     WHERE e.status = ${BACKLOG_STATUS.PROCESSING}
-      AND NOT EXISTS (
-        SELECT 1 FROM work_leases l
-        WHERE l.key = ${ROOM_LEASE_PREFIX} || e.instance_id::text
-          AND l.owner = e.claimed_by
-          AND l.expires_at > now()
-      )
+      AND CASE WHEN e.claimed_by IS NULL
+        THEN e.claimed_at < now() - make_interval(secs => ${WORK_LEASE_TTL_MS / 1000})
+        ELSE NOT EXISTS (
+          SELECT 1 FROM work_leases l
+          WHERE l.key = ${ROOM_LEASE_PREFIX} || e.instance_id::text
+            AND l.owner = e.claimed_by
+            AND l.expires_at > now()
+        )
+      END
     RETURNING e.id
   `);
   return rows.length;

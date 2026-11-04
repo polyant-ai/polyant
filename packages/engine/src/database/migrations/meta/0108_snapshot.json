@@ -5604,6 +5604,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6016,6 +6022,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "768fa73c-fd97-46f4-8e84-da664f9335f5",
+  "id": "79789d2a-efc2-42f9-9b9f-dd5935ba8331",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

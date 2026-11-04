@@ -210,6 +210,27 @@ describe.skipIf(!DB_AVAILABLE)("room cycles across replicas (integration)", () =
     expect((await statuses()).map((r) => r.claimed_by)).toEqual(["live-owner", "live-owner"]);
   });
 
+  it("events a process of the previous release is processing are left to it, and taken up once they are stale", async () => {
+    await addEvents(2);
+    // The previous release claims events without naming an owner or holding a lease.
+    await queryClient`UPDATE event_backlog SET status = 'processing' WHERE instance_id = ${instanceId}`;
+
+    const booted = new RoomScheduler();
+    await tickOf(booted);
+    await idle(booted);
+    await tickOf(booted);
+    await idle(booted);
+    expect(cycles).toHaveLength(0);
+    expect((await statuses()).map((r) => r.status)).toEqual(["processing", "processing"]);
+
+    // Its process died, or its cycle is long over: after a lease's lifetime they go back.
+    await queryClient`UPDATE event_backlog SET claimed_at = now() - interval '6 minutes' WHERE instance_id = ${instanceId}`;
+    await tickOf(booted);
+    await idle(booted);
+    expect(cycles).toHaveLength(1);
+    expect((await statuses()).map((r) => r.status)).toEqual(["completed", "completed"]);
+  });
+
   it("a cycle that lost its claim cannot complete the events another cycle now holds", async () => {
     const ids = await addEvents(1);
     await store.listAndMarkPendingEventsProcessing(asInstanceUuid(instanceId), "stale-owner");
