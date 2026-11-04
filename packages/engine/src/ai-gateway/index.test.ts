@@ -946,6 +946,21 @@ describe("AI Gateway", () => {
       expect(entry.errorKind).toBe("timeout");
     });
 
+    // A call the provider was still answering when its timeout closed it was
+    // billed like a preempted one: the row carries the estimate of its prompt.
+    it("adds the estimate of the call in flight to a timeout row", async () => {
+      const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      pinnedUsage.set(timeout, { promptTokens: 1_000, completionTokens: 20, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      mockProviderChat.mockRejectedValue(timeout);
+
+      await expect(chat(makeRequest())).rejects.toBe(timeout);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("error");
+      expect(entry.errorKind).toBe("timeout");
+      expect(entry.promptTokens).toBe(31_000);
+    });
+
     it("writes exactly one row when a stream fails after being established", async () => {
       const err = apiError(529);
       mockProviderChatStream.mockResolvedValue({

@@ -10,7 +10,7 @@ vi.mock("../langsmith.js", async () => {
 });
 
 import { MockLanguageModelV4 } from "ai/test";
-import { jsonSchema, tool, type Tool } from "ai";
+import { APICallError, jsonSchema, tool, type Tool } from "ai";
 import { createProvider, usageCompletedBeforeFailure } from "./base.js";
 import type { ChatRequest } from "../types.js";
 
@@ -120,6 +120,42 @@ describe("a model call aborted in flight", () => {
     // attachments; serialized as bytes they came to millions.
     expect(pinned?.inFlight?.promptTokens).toBeGreaterThan(1_500);
     expect(pinned?.inFlight?.promptTokens).toBeLessThan(10_000);
+  });
+
+  it("pins no in-flight estimate when the abort lands while a refused request waits to be retried", async () => {
+    const controller = new AbortController();
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => {
+        // The provider refused the request: it billed nothing, and the SDK
+        // waits before the retry, which the abort cuts short.
+        setTimeout(() => controller.abort(), 5);
+        throw new APICallError({ message: "overloaded", url: "https://provider.test", requestBodyValues: {}, statusCode: 529, isRetryable: true });
+      },
+    });
+
+    const pinned = await failedCall(model, controller);
+
+    expect(pinned?.inFlight).toBeUndefined();
+  });
+
+  it("pins the estimate again once the retried request is in flight", async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new APICallError({ message: "overloaded", url: "https://provider.test", requestBodyValues: {}, statusCode: 529, isRetryable: true });
+        }
+        setTimeout(() => controller.abort(), 5);
+        return waitForAbort(options.abortSignal);
+      },
+    });
+
+    const pinned = await failedCall(model, controller);
+
+    expect(attempts).toBe(2);
+    expect(pinned?.inFlight?.promptTokens).toBeGreaterThan(900);
   });
 
   it("pins no in-flight estimate when every call that started had answered", async () => {

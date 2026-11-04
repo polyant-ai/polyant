@@ -345,7 +345,9 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
  *
  * A signal aborted by the caller's own deadline (`AbortSignal.timeout`, alone
  * or inside `AbortSignal.any`) carries a `TimeoutError` reason. Nobody
- * preempted that call: the provider was too slow, which is a failure.
+ * preempted that call: the provider was too slow, which is a failure. The
+ * provider was still answering the call in flight, though, so a `timeout` row
+ * adds its estimate like an aborted one.
  */
 function logFailedCall(
   config: { providerName: string; modelId: string },
@@ -359,7 +361,10 @@ function logFailedCall(
   const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
   const aborted = signal?.aborted === true && !timedOut;
   if (aborted && !usage) return;
-  const inFlight = aborted && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
+  const errorKind = aborted ? null : timedOut ? "timeout" : classifyProviderError(err);
+  // Aborted or timed out, the call in flight had the prompt and was billed for it.
+  const billedInFlight = aborted || errorKind === "timeout";
+  const inFlight = billedInFlight && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
   const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
   const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
   aiLogger.log(withPurpose(
@@ -381,7 +386,7 @@ function logFailedCall(
       (usage?.cachedInputTokens ?? 0) + (inFlight?.cachedInputTokens ?? 0),
       usage?.cacheCreationInputTokens ?? 0,
       aborted ? "aborted" : "error",
-      aborted ? (inFlight ? "in_flight" : null) : timedOut ? "timeout" : classifyProviderError(err),
+      aborted ? (inFlight ? "in_flight" : null) : errorKind,
     ),
     options,
   ));

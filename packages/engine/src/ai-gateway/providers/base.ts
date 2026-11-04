@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
+import { APICallError, DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -242,20 +242,40 @@ function estimatePromptTokens(call: unknown): number {
   return Math.ceil(chars / 4) + attachments * ATTACHMENT_PROMPT_TOKENS;
 }
 
+/** What the model-request middleware tells the usage collector about each request it sends. */
+interface RequestObserver {
+  /** A request (the first of a call, or a retry) is sent with this prompt and these tools. */
+  requestStarted(request: { prompt: unknown; tools?: unknown }): void;
+  /** The request failed with `err`, and the SDK may retry it. */
+  requestFailed(err: unknown): void;
+}
+
 /**
  * Sums each answered model call's usage (`onLanguageModelCallEnd`), tracks the
- * call in flight (`onLanguageModelCallStart`), and pins both to the turn's error.
+ * request in flight (through the model middleware, which sees every retry),
+ * and pins both to the turn's error.
+ *
+ * A request the provider answered with an error (a 429, a 529) was refused,
+ * not billed: it is no longer in flight, including while the SDK waits to
+ * retry it. A request that failed without an answer (aborted, timed out, a
+ * dropped connection) had reached the provider and stays in flight.
  */
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
-  // What the call in flight sent, kept by reference: it is estimated only if the turn fails.
-  let inFlight: { instructions?: unknown; messages?: unknown; tools?: unknown } | undefined;
-  return {
-    onLanguageModelCallStart: (event: { instructions?: unknown; messages?: unknown; tools?: unknown }) => {
-      inFlight = { instructions: event.instructions, messages: event.messages, tools: event.tools };
+  // What the request in flight sent, kept by reference: it is estimated only if the turn fails.
+  let inFlight: { prompt: unknown; tools?: unknown } | undefined;
+  const requests: RequestObserver = {
+    requestStarted: (request) => {
+      inFlight = { prompt: request.prompt, tools: request.tools };
     },
+    requestFailed: (err) => {
+      if (APICallError.isInstance(err) && err.statusCode !== undefined) inFlight = undefined;
+    },
+  };
+  return {
+    requests,
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
       inFlight = undefined;
       const usage = mapUsage(event.usage);
@@ -871,25 +891,27 @@ function temperatureCallParam(
  * request of the same call failed is a retry: a failure the SDK does not retry
  * ends the call.
  */
-function retryLogging(providerName: string, modelId: string): LanguageModelMiddleware {
+function retryLogging(providerName: string, modelId: string, observer: RequestObserver): LanguageModelMiddleware {
   let lastFailure: unknown;
-  const attempt = async <T>(run: () => PromiseLike<T>): Promise<T> => {
+  const attempt = async <T>(params: { prompt: unknown; tools?: unknown }, run: () => PromiseLike<T>): Promise<T> => {
     if (lastFailure !== undefined) {
       log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
     }
+    observer.requestStarted(params);
     try {
       const result = await run();
       lastFailure = undefined;
       return result;
     } catch (err) {
       lastFailure = err;
+      observer.requestFailed(err);
       throw err;
     }
   };
   return {
     specificationVersion: "v4",
-    wrapGenerate: ({ doGenerate }) => attempt(doGenerate),
-    wrapStream: ({ doStream }) => attempt(doStream),
+    wrapGenerate: ({ doGenerate, params }) => attempt(params, doGenerate),
+    wrapStream: ({ doStream, params }) => attempt(params, doStream),
   };
 }
 
@@ -947,7 +969,7 @@ export function createProvider(
     const args = () => ({
       model: wrapLanguageModel({
         model: createModel(modelId, request.apiKeys),
-        middleware: retryLogging(providerName, modelId),
+        middleware: retryLogging(providerName, modelId, completed.requests),
       }),
       instructions,
       messages,
@@ -958,7 +980,6 @@ export function createProvider(
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
-      onLanguageModelCallStart: completed.onLanguageModelCallStart,
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
