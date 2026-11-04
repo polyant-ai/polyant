@@ -651,12 +651,12 @@ export function afterResponseTail(opts: TurnTailOptions): void {
   const summarize = async (turnFold: SummaryFold) => {
     const current = await conversationStore.getSummaryThrough(opts.conversationId);
     if ((current?.getTime() ?? null) !== (turnFold.previousThrough?.getTime() ?? null)) return;
-    const fold = turnFold.readCut ? await foldFromSummary(opts.conversationId, turnFold) : turnFold;
-    if (!fold) return;
+    const covered = turnFold.readCut ? await foldFromSummary(opts.conversationId, turnFold) : turnFold;
+    if (!covered) return;
     const existing = opts.existingSummary
       ? `Previous summary: ${opts.existingSummary}\n\n`
       : "";
-    const droppedText = fold.messages
+    const droppedText = covered.messages
       .map(m => {
         const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
         return `${label}: ${m.content}`;
@@ -684,7 +684,7 @@ export function afterResponseTail(opts: TurnTailOptions): void {
     // lands, turns keep reading from where the summary reached before.
     const summary = summaryResponse.text.trim();
     if (summary) {
-      await conversationStore.advanceSummary(opts.conversationId, summary, fold.through, fold.previousThrough);
+      await conversationStore.advanceSummary(opts.conversationId, summary, covered.through, covered.previousThrough);
     }
   };
 
