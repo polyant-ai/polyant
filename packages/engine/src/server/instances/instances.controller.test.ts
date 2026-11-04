@@ -979,5 +979,28 @@ describe("InstancesController", () => {
       ).rejects.toThrow(BadRequestException);
       expect(mockUpdateInstance).not.toHaveBeenCalled();
     });
+
+    it("writes the setting it is given", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, cacheUserTurn: true });
+
+      await controller.update("test-one", { cacheUserTurn: true });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ cacheUserTurn: true }));
+    });
+  });
+
+  describe("update — toolHistoryReplay", () => {
+    it("writes a replay mode the runtime knows", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, toolHistoryReplay: "exact" });
+
+      await controller.update("test-one", { toolHistoryReplay: "exact" });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ toolHistoryReplay: "exact" }));
+    });
+
+    it("refuses a mode the runtime does not know, before writing anything", async () => {
+      await expect(controller.update("test-one", { toolHistoryReplay: "verbatim" })).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
   });
 });

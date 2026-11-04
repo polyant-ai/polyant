@@ -4,6 +4,7 @@ import { z } from "zod";
 import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
 import { INTERMEDIATE_TEXT_POLICIES } from "../../ai-gateway/intermediate-text.js";
 import { INSTANCE_STT_SETTINGS } from "../../stt-gateway/types.js";
+import { TOOL_HISTORY_REPLAY_MODES } from "../../conversations/tool-history.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 
 const REASONING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly ReasoningLevel[];
@@ -85,9 +86,11 @@ export const PatchInstanceSchema = z.object({
   messageMaxRestarts: z.number().int().min(0).nullable(),
   cacheEnabled: z.boolean(),
   cacheTtl: z.string().min(1),
+  cacheUserTurn: z.boolean(),
   intermediateText: z.enum(INTERMEDIATE_TEXT_POLICIES).nullable(),
   a2aEnabled: z.boolean(),
   toolResultsInHistoryEnabled: z.boolean(),
+  toolHistoryReplay: z.enum(TOOL_HISTORY_REPLAY_MODES),
   debugEnabled: z.boolean(),
   attachmentStorageEnabled: z.boolean(),
   sttProvider: z.enum(INSTANCE_STT_SETTINGS),
