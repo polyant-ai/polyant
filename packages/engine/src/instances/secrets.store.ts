@@ -127,11 +127,14 @@ export async function deleteSecret(instanceId: InstanceUuid, key: string): Promi
 /**
  * Find the active instance whose `auth_api_key` secret equals the provided token.
  *
- * One indexed lookup by the token's keyed digest: no stored key is decrypted, so
- * the cost does not grow with the number of agents and a wrong token costs what
- * a right one does. A row written before the digest existed has none; the same
- * query returns it, and it is decrypted once and given its digest, so the next
- * lookup no longer reads it.
+ * One indexed lookup by the token's keyed digest: no stored key is decrypted but
+ * the one the digest matched, so the cost does not grow with the number of agents
+ * and a wrong token costs what a right one does. The matched key is decrypted and
+ * checked, because a digest only points at a candidate: the value it describes
+ * may have been replaced since. A row without a digest (written before the column
+ * existed, or rewritten by a release that does not know it, which a database
+ * trigger clears it for) comes back from the same query; it is decrypted once and
+ * given its digest, so the next lookup no longer reads it.
  *
  * A token two agents share names neither: it answers `null`.
  */
@@ -157,21 +160,21 @@ export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: s
 
   const matches: { slug: string; instanceId: InstanceUuid }[] = [];
   for (const row of rows) {
-    let rowDigest = row.lookupDigest;
-    if (rowDigest === null) {
-      try {
-        rowDigest = lookupDigest(decrypt(row.value));
-      } catch {
-        // A row that cannot be decrypted (e.g. key rotation in progress) is
-        // skipped, never thrown: per-row failures must not show in responses.
-        continue;
-      }
+    let valueDigest: string;
+    try {
+      valueDigest = lookupDigest(decrypt(row.value));
+    } catch {
+      // A row that cannot be decrypted (e.g. key rotation in progress) is
+      // skipped, never thrown: per-row failures must not show in responses.
+      continue;
+    }
+    if (valueDigest !== row.lookupDigest) {
       await db
         .update(instanceSecrets)
-        .set({ lookupDigest: rowDigest })
-        .where(and(eq(instanceSecrets.id, row.id), isNull(instanceSecrets.lookupDigest)));
+        .set({ lookupDigest: valueDigest })
+        .where(and(eq(instanceSecrets.id, row.id), eq(instanceSecrets.value, row.value)));
     }
-    if (rowDigest === digest) matches.push({ slug: row.slug, instanceId: asInstanceUuid(row.instanceId) });
+    if (valueDigest === digest) matches.push({ slug: row.slug, instanceId: asInstanceUuid(row.instanceId) });
   }
 
   return matches.length === 1 ? matches[0] : null;

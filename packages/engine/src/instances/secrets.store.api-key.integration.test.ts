@@ -26,7 +26,7 @@ vi.mock("../crypto/index.js", async (importOriginal) => {
 
 import { queryClient } from "../database/client.js";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
-import { encrypt } from "../crypto/index.js";
+import { encrypt, lookupDigest } from "../crypto/index.js";
 import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 import { SECRET_KEYS, deleteSecret, findInstanceByAuthApiKey, setSecret } from "./secrets.store.js";
 
@@ -101,6 +101,29 @@ describe.skipIf(!DB_AVAILABLE)("agent API key lookup (integration)", () => {
     await setSecret(a, SECRET_KEYS.AUTH_API_KEY, "shared-key");
     await setSecret(b, SECRET_KEYS.AUTH_API_KEY, "shared-key");
     expect(await findInstanceByAuthApiKey("shared-key")).toBeNull();
+  });
+
+  it("stops accepting a key that an older release replaced by rewriting only its value", async () => {
+    const id = await plantAgent(`${MARKER}-rotated-by-older`);
+    await setSecret(id, SECRET_KEYS.AUTH_API_KEY, "revoked-key");
+    // An older release rotates the key during a rolling deploy or after a rollback:
+    // it rewrites the encrypted value and knows nothing of the digest column.
+    await queryClient`
+      UPDATE instance_secrets SET value = ${encrypt("replacement-key")}, updated_at = now()
+      WHERE instance_id = ${id} AND key = ${SECRET_KEYS.AUTH_API_KEY}`;
+    expect(await findInstanceByAuthApiKey("revoked-key")).toBeNull();
+    expect((await findInstanceByAuthApiKey("replacement-key"))?.instanceId).toBe(id);
+  });
+
+  it("refuses a token whose digest matches but whose stored key differs", async () => {
+    const id = await plantAgent(`${MARKER}-stale-digest`);
+    await setSecret(id, SECRET_KEYS.AUTH_API_KEY, "first-key");
+    // A digest that no longer describes the stored value, however it came to be.
+    await queryClient`
+      UPDATE instance_secrets SET value = ${encrypt("stored-key")}, lookup_digest = ${lookupDigest("other-key")}
+      WHERE instance_id = ${id} AND key = ${SECRET_KEYS.AUTH_API_KEY}`;
+    expect(await findInstanceByAuthApiKey("other-key")).toBeNull();
+    expect((await findInstanceByAuthApiKey("stored-key"))?.instanceId).toBe(id);
   });
 
   it("finds a key stored before the lookup digest existed, and needs no scan for it afterwards", async () => {
