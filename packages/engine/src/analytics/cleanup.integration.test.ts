@@ -19,7 +19,14 @@ import { computeCutoff, runAnalyticsCleanup } from "./cleanup.js";
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-retention";
 
-const OLD = "now() - interval '400 days'";
+/*
+  The cleanup deletes by age across the whole table, not per agent. Other suites
+  seed rows dated months back in the same tables while this file runs, so a
+  90-day window would delete their rows and count them here. A window of a
+  century reaches only the rows this file dates before it.
+*/
+const RETENTION_DAYS = 36500;
+const OLD = "now() - interval '101 years'";
 const NEW = "now() - interval '1 day'";
 
 let instanceUuid: string;
@@ -79,7 +86,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
        VALUES ('${instanceSlug}', 't', 'a', true, ${OLD}), ('${instanceSlug}', 't', 'a', true, ${NEW})`,
     );
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     // The driver must report a count for a delete with no RETURNING — the whole
     // point of not materialising ids in a job built for large deletes.
@@ -104,7 +111,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
       );
     }
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     expect(result.eventBacklogDeleted).toBe(1);
     const rows = await queryClient<{ status: string }[]>`
@@ -125,7 +132,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
               ('${conversationId}', 'assistant', 'new', '{"system":"s"}'::jsonb, ${NEW})`,
     );
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     expect(result.debugPayloadsCleared).toBeGreaterThanOrEqual(1);
     const rows = await queryClient<{ content: string; has_payload: boolean }[]>`
@@ -143,7 +150,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
        VALUES ('${instanceSlug}', 't', 'a', true, ${NEW})`,
     );
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     expect(result.toolAuditLogsDeleted).toBe(0);
     expect(result.cutoff.getTime()).toBeLessThan(Date.now());
