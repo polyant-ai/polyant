@@ -604,6 +604,32 @@ export class ConversationStore {
   }
 
   /**
+   * The oldest messages after `after` and up to `through` (both by
+   * millisecond, as the history window compares), in time order, at most
+   * `limit`: what a summary fold covers when the history read stopped short.
+   */
+  async getMessagesAfter(
+    conversationId: string,
+    options: { after: Date | null; through: Date; limit: number },
+  ): Promise<MessageRow[]> {
+    const rows = await db
+      .select({ role: conversationMessages.role, content: conversationMessages.content, createdAt: conversationMessages.createdAt })
+      .from(conversationMessages)
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          options.after
+            ? sql`${conversationMessages.createdAt} >= ${options.after.toISOString()}::timestamptz + interval '1 millisecond'`
+            : undefined,
+          sql`${conversationMessages.createdAt} < ${options.through.toISOString()}::timestamptz + interval '1 millisecond'`,
+        ),
+      )
+      .orderBy(asc(conversationMessages.createdAt))
+      .limit(options.limit);
+    return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
+  }
+
+  /**
    * What memory extraction has not read yet: the newest messages saved after
    * where it reached (at most `limit`), with up to `context` messages before
    * them so a reply can be understood. One read. Read by `seq`, the order the

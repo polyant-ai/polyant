@@ -21,8 +21,9 @@ export const HISTORY_KEPT_AFTER_FOLD = 10;
 
 /**
  * The most messages a turn reads. Above the window only when folds keep failing
- * (the summary model is down): the history then stops growing here, and the
- * fold that eventually succeeds covers what was read.
+ * (the summary model is down) or rows were written without a turn: the history
+ * then stops growing here, and the fold that eventually succeeds reads the
+ * messages from where the summary reached, including those no turn read.
  */
 export const HISTORY_HARD_CAP = 2 * HISTORY_WINDOW_MAX;
 

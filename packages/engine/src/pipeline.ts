@@ -123,7 +123,16 @@ export interface SummaryFold {
   through: Date;
   /** Where the summary reached when the turn read it. */
   previousThrough: Date | null;
+  /**
+   * The turn read as many messages as it reads at most, so older messages it
+   * never read may lie between `previousThrough` and `messages`: the fold reads
+   * them itself, from where the summary reached.
+   */
+  readCut?: boolean;
 }
+
+/** The most messages a fold that reads them itself summarizes at once; the next fold goes on from there. */
+const FOLD_READ_MAX = 200;
 
 // ---------------------------------------------------------------------------
 // PipelineContext — everything preparePipeline returns
@@ -321,6 +330,7 @@ export async function preparePipeline(
           messages: conversationHistory.slice(0, fold),
           through: rows[fold - 1].createdAt!,
           previousThrough: turn.summaryThrough,
+          ...(rows.length >= HISTORY_HARD_CAP ? { readCut: true } : {}),
         }
       : undefined;
 
@@ -596,6 +606,25 @@ export interface TurnTailOptions {
   summaryFold?: SummaryFold;
 }
 
+/**
+ * A fold whose turn did not read every message after the summary: the
+ * messages from where the summary reached, read in order, up to the turn's
+ * fold or {@link FOLD_READ_MAX} of them, ending between two instants as
+ * {@link messagesToFold} does. Undefined when there is nothing to fold.
+ */
+async function foldFromSummary(conversationId: string, fold: SummaryFold): Promise<SummaryFold | undefined> {
+  const rows = await conversationStore.getMessagesAfter(conversationId, {
+    after: fold.previousThrough,
+    through: fold.through,
+    limit: FOLD_READ_MAX + 1,
+  });
+  let end = Math.min(rows.length, FOLD_READ_MAX);
+  while (end > 0 && end < rows.length && rows[end - 1].createdAt?.getTime() === rows[end].createdAt?.getTime()) end--;
+  const last = rows[end - 1]?.createdAt;
+  if (!last) return undefined;
+  return { messages: rowsToModelMessages(rows.slice(0, end)), through: last, previousThrough: fold.previousThrough };
+}
+
 /** Conversations whose summary fold is queued or running in this process. */
 const foldsPending = new Set<string>();
 
@@ -619,9 +648,11 @@ export function afterResponseTail(opts: TurnTailOptions): void {
   const fold = opts.summaryFold && !foldsPending.has(opts.conversationId) ? opts.summaryFold : undefined;
   if (fold) foldsPending.add(opts.conversationId);
 
-  const summarize = async (fold: SummaryFold) => {
+  const summarize = async (turnFold: SummaryFold) => {
     const current = await conversationStore.getSummaryThrough(opts.conversationId);
-    if ((current?.getTime() ?? null) !== (fold.previousThrough?.getTime() ?? null)) return;
+    if ((current?.getTime() ?? null) !== (turnFold.previousThrough?.getTime() ?? null)) return;
+    const fold = turnFold.readCut ? await foldFromSummary(opts.conversationId, turnFold) : turnFold;
+    if (!fold) return;
     const existing = opts.existingSummary
       ? `Previous summary: ${opts.existingSummary}\n\n`
       : "";
