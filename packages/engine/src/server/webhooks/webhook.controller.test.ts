@@ -14,8 +14,10 @@ const {
   mockResolveInstanceSlug,
   mockWebhookLog,
   mockClaimWebhookDelivery,
+  mockReleaseWebhookDelivery,
 } = vi.hoisted(() => ({
   mockClaimWebhookDelivery: vi.fn(),
+  mockReleaseWebhookDelivery: vi.fn(),
   mockFindByWebhookToken: vi.fn(),
   mockListEnabledDefinitions: vi.fn(),
   mockGetRoomByInstanceId: vi.fn(),
@@ -35,7 +37,10 @@ vi.mock("../../webhooks/webhook-matcher.js", () => ({ matchEvent: mockMatchEvent
 vi.mock("../../webhooks/webhook-backlog.store.js", () => ({
   insertEvent: mockInsertEvent,
 }));
-vi.mock("../../webhooks/webhook-deliveries.store.js", () => ({ claimWebhookDelivery: mockClaimWebhookDelivery }));
+vi.mock("../../webhooks/webhook-deliveries.store.js", () => ({
+  claimWebhookDelivery: mockClaimWebhookDelivery,
+  releaseWebhookDelivery: mockReleaseWebhookDelivery,
+}));
 vi.mock("../../webhooks/webhook-engine.js", () => ({
   triggerConversation: mockTriggerConversation,
 }));
@@ -73,13 +78,17 @@ describe("WebhookController", () => {
       mockFindByWebhookToken.mockResolvedValue(openSource);
       mockListEnabledDefinitions.mockResolvedValue([{ id: "def-1" }]);
       mockResolveInstanceSlug.mockResolvedValue("acme");
-      mockMatchEvent.mockResolvedValue(null);
+      mockMatchEvent.mockResolvedValue({ id: "def-1", name: "Lead", action: "conversation" });
+      mockTriggerConversation.mockResolvedValue(undefined);
       const seen = new Set<string>();
       mockClaimWebhookDelivery.mockImplementation(async (sourceId: string, key: string) => {
         const id = `${sourceId}:${key}`;
         if (seen.has(id)) return false;
         seen.add(id);
         return true;
+      });
+      mockReleaseWebhookDelivery.mockImplementation(async (sourceId: string, key: string) => {
+        seen.delete(`${sourceId}:${key}`);
       });
     });
 
@@ -91,6 +100,28 @@ describe("WebhookController", () => {
       await settle();
 
       expect(mockMatchEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("processes again a redelivered event that no definition matched the first time", async () => {
+      // The operator fixes the definition and resends the same event from the sender.
+      mockMatchEvent.mockResolvedValueOnce(null);
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-7");
+      await settle();
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-7");
+      await settle();
+
+      expect(mockMatchEvent).toHaveBeenCalledTimes(2);
+      expect(mockTriggerConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it("processes again a redelivered event its source dropped while disabled", async () => {
+      mockFindByWebhookToken.mockResolvedValueOnce({ ...openSource, source: { ...openSource.source, enabled: false } });
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-8");
+      await settle();
+      await controller.receiveEvent("tok", { type: "lead" }, undefined, "evt-8");
+      await settle();
+
+      expect(mockTriggerConversation).toHaveBeenCalledTimes(1);
     });
 
     it("processes two events with different keys", async () => {

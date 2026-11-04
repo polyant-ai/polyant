@@ -11,7 +11,7 @@ import { queryClient } from "../database/client.js";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
 import { createEventSource } from "./webhook-sources.store.js";
-import { claimWebhookDelivery } from "./webhook-deliveries.store.js";
+import { claimWebhookDelivery, releaseWebhookDelivery } from "./webhook-deliveries.store.js";
 import { deleteExpiredWebhookDeliveries } from "../analytics/cleanup.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
@@ -74,5 +74,14 @@ describe.skipIf(!DB_AVAILABLE)("claimWebhookDelivery (integration)", () => {
     expect(left[0].n).toBe(1);
     expect(await claimWebhookDelivery(sourceB, "evt-quiet-new")).toBe(false);
     expect(await claimWebhookDelivery(sourceB, "evt-quiet-old")).toBe(true);
+  });
+
+  it("claims a key again once it is given back, and only that key", async () => {
+    expect(await claimWebhookDelivery(sourceA, "evt-dropped")).toBe(true);
+    expect(await claimWebhookDelivery(sourceA, "evt-kept")).toBe(true);
+    await releaseWebhookDelivery(sourceA, "evt-dropped");
+
+    expect(await claimWebhookDelivery(sourceA, "evt-dropped")).toBe(true);
+    expect(await claimWebhookDelivery(sourceA, "evt-kept")).toBe(false);
   });
 });

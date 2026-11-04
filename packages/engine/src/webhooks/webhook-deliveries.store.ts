@@ -16,7 +16,7 @@ export const DELIVERY_KEY_TTL = "24 hours";
  * keys (`deleteExpiredWebhookDeliveries`).
  */
 export async function claimWebhookDelivery(eventSourceId: string, idempotencyKey: string): Promise<boolean> {
-  const digest = createHash("sha256").update(idempotencyKey).digest("hex");
+  const digest = keyDigest(idempotencyKey);
   const rows = await db.execute<{ key_digest: string }>(sql`
     INSERT INTO webhook_deliveries (event_source_id, key_digest)
     VALUES (${eventSourceId}, ${digest})
@@ -25,4 +25,19 @@ export async function claimWebhookDelivery(eventSourceId: string, idempotencyKey
     RETURNING key_digest
   `);
   return rows.length > 0;
+}
+
+/**
+ * Give a claimed key back, for an event that was dropped without being
+ * processed: a redelivery of it, once the cause is fixed, is a new delivery.
+ */
+export async function releaseWebhookDelivery(eventSourceId: string, idempotencyKey: string): Promise<void> {
+  await db.execute(sql`
+    DELETE FROM webhook_deliveries
+    WHERE event_source_id = ${eventSourceId} AND key_digest = ${keyDigest(idempotencyKey)}
+  `);
+}
+
+function keyDigest(idempotencyKey: string): string {
+  return createHash("sha256").update(idempotencyKey).digest("hex");
 }
