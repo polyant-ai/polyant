@@ -3,7 +3,8 @@
 /**
  * Deleting an agent removes its whole history — more conversations than one
  * batch holds, their messages, its memories and its documents with their
- * chunks — and nothing of another agent.
+ * chunks — and nothing of another agent. A deletion that fails removes none of
+ * it: the history goes only with the agent.
  *
  * Self-skips when no migrated database is reachable.
  */
@@ -18,6 +19,9 @@ const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = `itest-delinst-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const GONE = `${MARKER}-gone`;
 const KEPT = `${MARKER}-kept`;
+const REFUSED = `${MARKER}-refused`;
+/** A trigger that refuses to delete one agent's row, as any failure inside the deletion would. */
+const REFUSE_FN = `itest_refuse_${MARKER.replace(/[^a-z0-9]/g, "_")}`;
 const ZERO_1024 = `[${Array.from({ length: 1024 }, () => 0.01).join(",")}]`;
 
 async function seedAgent(slug: string, workspaceId: string, conversations: number): Promise<void> {
@@ -55,7 +59,9 @@ async function counts(slug: string) {
 }
 
 async function teardown(): Promise<void> {
-  for (const slug of [GONE, KEPT]) {
+  await queryClient.unsafe(`DROP TRIGGER IF EXISTS ${REFUSE_FN} ON instances`);
+  await queryClient.unsafe(`DROP FUNCTION IF EXISTS ${REFUSE_FN}()`);
+  for (const slug of [GONE, KEPT, REFUSED]) {
     await queryClient`DELETE FROM conversation_messages WHERE conversation_id LIKE ${slug + ":%"}`;
     await queryClient`DELETE FROM conversations WHERE instance_id = ${slug}`;
     await queryClient`DELETE FROM memories WHERE instance_id = ${slug}`;
@@ -75,6 +81,14 @@ describe.skipIf(!DB_AVAILABLE)("deleteInstance (integration)", () => {
       INSERT INTO workspaces (organization_id, slug, name, is_default) VALUES (${orgId}, ${MARKER}, ${MARKER}, false) RETURNING id`;
     await seedAgent(GONE, workspaceId, 1_203);
     await seedAgent(KEPT, workspaceId, 4);
+    await seedAgent(REFUSED, workspaceId, 4);
+    await queryClient.unsafe(
+      `CREATE FUNCTION ${REFUSE_FN}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused'; END $$`,
+    );
+    await queryClient.unsafe(
+      `CREATE TRIGGER ${REFUSE_FN} BEFORE DELETE ON instances FOR EACH ROW
+       WHEN (OLD.slug = '${REFUSED}') EXECUTE FUNCTION ${REFUSE_FN}()`,
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -86,6 +100,12 @@ describe.skipIf(!DB_AVAILABLE)("deleteInstance (integration)", () => {
 
     expect(await counts(GONE)).toEqual({ conversations: 0, messages: 0, memories: 0, documents: 0, chunks: 0, agents: 0 });
     expect(await counts(KEPT)).toEqual({ conversations: 4, messages: 8, memories: 12, documents: 3, chunks: 15, agents: 1 });
+  });
+
+  it("keeps the agent's history when its deletion fails", async () => {
+    await expect(deleteInstance(asInstanceSlug(REFUSED))).rejects.toThrow();
+
+    expect(await counts(REFUSED)).toEqual({ conversations: 4, messages: 8, memories: 12, documents: 3, chunks: 15, agents: 1 });
   });
 
   it("reports an agent that is not there", async () => {
