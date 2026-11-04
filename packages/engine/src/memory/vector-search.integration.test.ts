@@ -37,6 +37,15 @@ const AGENT = asInstanceSlug(`itest-msearch-${RUN}`);
 const OTHER = asInstanceSlug(`itest-msearch-other-${RUN}`);
 const AGENT_ROWS = 150;
 const OTHER_ROWS = 1350;
+/**
+ * How many of the other agent's rows are nearer the query than the agent's
+ * near-duplicate: five times the index's first window (`hnsw.ef_search`, 40),
+ * so that window holds none of the agent's rows. The rest are far away. Making
+ * every other row nearer only lengthens the walk the index must finish before
+ * it reaches the duplicate, and an approximate walk that long does not always
+ * finish: it ran out and the duplicate was saved twice.
+ */
+const OTHER_NEARER = 200;
 const K = 20;
 
 /** A fixed pseudo-random vector, the same on every run. */
@@ -86,10 +95,12 @@ describe.skipIf(!DB_AVAILABLE)("memory vector search on the HNSW plan (integrati
 
   beforeAll(async () => {
     // The agent's nearest memory is a near-duplicate of the query (similarity ~0.96);
-    // every other agent's rows are nearer still, so the index's first candidates are all theirs.
+    // OTHER_NEARER of the other agent's rows are nearer still, so the index's first
+    // candidates are all theirs.
     const agentVectors = [near(query, 11, 0.3), ...Array.from({ length: AGENT_ROWS - 1 }, (_, i) => vector(i + 1))];
     [duplicateId] = await seed(AGENT, agentVectors);
-    await seed(OTHER, Array.from({ length: OTHER_ROWS }, (_, i) => near(query, 1_000_000 + i, 0.1)));
+    await seed(OTHER, Array.from({ length: OTHER_ROWS }, (_, i) =>
+      i < OTHER_NEARER ? near(query, 1_000_000 + i, 0.1) : vector(2_000_000 + i)));
     await queryClient`ANALYZE memories`;
     await queryClient`SET cpu_operator_cost = 10`;
   }, 120_000);
