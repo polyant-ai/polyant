@@ -414,10 +414,11 @@ const SERVICE_CACHE: NonNullable<ChatRequest["cacheConfig"]> = { enabled: true, 
  * the resolved provider options, and the defaults for its kind of call where
  * the caller set none (see `config.llm`).
  *
- * Bounds: a streamed answer by the silence between its chunks; a single-call
- * service job by its total time; a call that runs tools over several steps (a
- * conversation turn, a sub-agent) by neither, since its tools may run for
- * minutes. Cache: a service call's prefix is rarely read again within the hour,
+ * Bounds: a single-call service job by its total time; any other call (a
+ * conversation turn, a sub-agent), whose tools may run for minutes, by each of
+ * its model requests until the provider starts answering; a streamed answer
+ * also by the wait for its first chunk and the silence between its chunks.
+ * Cache: a service call's prefix is rarely read again within the hour,
  * so it is written at the five-minute lifetime (1.25× input on Anthropic)
  * rather than the default hour (2×).
  */
@@ -432,15 +433,17 @@ function providerRequest(
   const timeout =
     request.timeout ??
     (call.streamed
-      ? { chunkMs: llm.streamChunkTimeoutMs }
+      ? { firstChunkMs: llm.streamFirstChunkTimeoutMs, chunkMs: llm.streamChunkTimeoutMs }
       : call.service && singleCall
         ? { totalMs: llm.serviceCallTimeoutMs }
         : undefined);
+  const requestTimeoutMs = request.requestTimeoutMs ?? (timeout?.totalMs === undefined ? llm.modelRequestTimeoutMs : undefined);
   return {
     ...request,
     messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
     providerOptions: config.providerOptions,
     ...(timeout ? { timeout } : {}),
+    ...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
     ...(cacheConfig ? { cacheConfig } : {}),
     maxRetries: request.maxRetries ?? llm.maxRetries,
   };

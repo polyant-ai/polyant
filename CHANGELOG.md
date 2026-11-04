@@ -10,11 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Every model call is bounded. A streamed answer fails after
-  `LLM_STREAM_CHUNK_TIMEOUT_MS` (default 120000) without a chunk, a background
-  job that makes one model call after `LLM_SERVICE_CALL_TIMEOUT_MS` (default
-  300000); a call that runs tools over several steps without streaming keeps
-  no total bound. Failed requests are retried `LLM_MAX_RETRIES` times (default
-  2, the AI SDK's own default) and each retry is logged.
+  `LLM_STREAM_FIRST_CHUNK_TIMEOUT_MS` (default 300000) without its first chunk
+  and after `LLM_STREAM_CHUNK_TIMEOUT_MS` (default 120000) without a further
+  one, a background job that makes one model call after
+  `LLM_SERVICE_CALL_TIMEOUT_MS` (default 300000). A call that runs tools over
+  several steps keeps no total bound; each of its model requests fails after
+  `LLM_MODEL_REQUEST_TIMEOUT_MS` (default 300000) without the provider starting
+  to answer, its tools not counted. Failed requests are retried
+  `LLM_MAX_RETRIES` times (default 2, the AI SDK's own default) and each retry
+  is logged.
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it

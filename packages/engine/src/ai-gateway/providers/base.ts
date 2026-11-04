@@ -885,19 +885,29 @@ function temperatureCallParam(
 }
 
 /**
- * Log every retry the AI SDK makes of a model request. The SDK retries inside
- * one model call, so neither its callbacks nor `ai_logs` see a retry, and each
- * one can add seconds to a turn. A request that starts after the previous
+ * The middleware around each model request a call makes (its first and each
+ * retry, since the SDK retries inside one model call).
+ *
+ * It logs every retry: neither the SDK's callbacks nor `ai_logs` see one, and
+ * each can add seconds to a turn. A request that starts after the previous
  * request of the same call failed is a retry: a failure the SDK does not retry
- * ends the call.
+ * ends the call. It tells `observer` what each request sent and how it failed,
+ * and runs `deadline` while a request waits for the provider to start
+ * answering: the whole answer, or a stream's first bytes.
  */
-function retryLogging(providerName: string, modelId: string, observer: RequestObserver): LanguageModelMiddleware {
+function requestMiddleware(
+  providerName: string,
+  modelId: string,
+  observer: RequestObserver,
+  deadline: RequestDeadline | undefined,
+): LanguageModelMiddleware {
   let lastFailure: unknown;
   const attempt = async <T>(params: { prompt: unknown; tools?: unknown }, run: () => PromiseLike<T>): Promise<T> => {
     if (lastFailure !== undefined) {
       log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
     }
     observer.requestStarted(params);
+    deadline?.start();
     try {
       const result = await run();
       lastFailure = undefined;
@@ -906,12 +916,38 @@ function retryLogging(providerName: string, modelId: string, observer: RequestOb
       lastFailure = err;
       observer.requestFailed(err);
       throw err;
+    } finally {
+      deadline?.stop();
     }
   };
   return {
     specificationVersion: "v4",
     wrapGenerate: ({ doGenerate, params }) => attempt(params, doGenerate),
     wrapStream: ({ doStream, params }) => attempt(params, doStream),
+  };
+}
+
+/**
+ * The bound on each model request of one call. Its signal is the call's, so a
+ * request that runs out of time ends the call with a `TimeoutError`, as the
+ * SDK's own bounds do; it runs only while a request waits for the provider,
+ * and never while the call's tools run.
+ */
+interface RequestDeadline {
+  signal: AbortSignal;
+  start(): void;
+  stop(): void;
+}
+
+function requestDeadline(timeoutMs: number): RequestDeadline {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    signal: controller.signal,
+    start: () => {
+      timer = setTimeout(() => controller.abort(new DOMException("The model request timed out.", "TimeoutError")), timeoutMs);
+    },
+    stop: () => clearTimeout(timer),
   };
 }
 
@@ -965,17 +1001,19 @@ export function createProvider(
     const prepareStep =
       request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId, request.cacheConfig?.userTurn);
     const completed = completedCallsUsage();
+    const deadline = request.requestTimeoutMs !== undefined ? requestDeadline(request.requestTimeoutMs) : undefined;
+    const abortSignal = deadline && request.abortSignal ? AbortSignal.any([request.abortSignal, deadline.signal]) : (deadline?.signal ?? request.abortSignal);
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
       model: wrapLanguageModel({
         model: createModel(modelId, request.apiKeys),
-        middleware: retryLogging(providerName, modelId, completed.requests),
+        middleware: requestMiddleware(providerName, modelId, completed.requests, deadline),
       }),
       instructions,
       messages,
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
-      abortSignal: request.abortSignal,
+      abortSignal,
       experimental_download: refuseUrlDownloads,
       ...(request.timeout ? { timeout: request.timeout } : {}),
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),

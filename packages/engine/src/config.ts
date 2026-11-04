@@ -195,10 +195,17 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
 
   // Bounds on the model calls the AI gateway makes (milliseconds). The AI SDK
   // sets no timeout of its own, so a provider that stopped answering held the
-  // turn until the socket died. A call that runs tools over several steps and
-  // does not stream (a conversation turn, a sub-agent) gets no total bound: its
-  // tools may legitimately run for minutes.
+  // turn until the socket died. A call that runs tools over several steps (a
+  // conversation turn, a sub-agent) gets no total bound: its tools may
+  // legitimately run for minutes. Each of its model requests is bounded instead.
   llm: z.object({
+    // Each model request of a call with no total bound, until the provider starts
+    // answering: the whole answer when it is not streamed, its first bytes when
+    // it is. Each retry gets its own; tool execution is not counted.
+    modelRequestTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
+    // Streamed answers: the wait for the first chunk of each model response once
+    // the provider has started answering.
+    streamFirstChunkTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
     // Streamed answers: the longest silence between two chunks of one model
     // response, once it has started (tool execution between steps not counted).
     streamChunkTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
@@ -281,6 +288,8 @@ function loadConfig(): Config {
       password: process.env.INITIAL_ADMIN_PASSWORD,
     },
     llm: {
+      modelRequestTimeoutMs: process.env.LLM_MODEL_REQUEST_TIMEOUT_MS,
+      streamFirstChunkTimeoutMs: process.env.LLM_STREAM_FIRST_CHUNK_TIMEOUT_MS,
       streamChunkTimeoutMs: process.env.LLM_STREAM_CHUNK_TIMEOUT_MS,
       serviceCallTimeoutMs: process.env.LLM_SERVICE_CALL_TIMEOUT_MS,
       maxRetries: process.env.LLM_MAX_RETRIES,

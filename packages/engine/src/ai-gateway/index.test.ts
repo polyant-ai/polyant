@@ -720,6 +720,8 @@ describe("AI Gateway", () => {
     // Defaults from the process configuration (none of these variables is set in tests).
     const SERVICE_TOTAL_MS = 300_000;
     const STREAM_CHUNK_MS = 120_000;
+    const STREAM_FIRST_CHUNK_MS = 300_000;
+    const MODEL_REQUEST_MS = 300_000;
     const MAX_RETRIES = 2;
 
     it("bounds a service call's total time and states its retries", async () => {
@@ -728,6 +730,7 @@ describe("AI Gateway", () => {
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
+      expect(sent.requestTimeoutMs).toBeUndefined();
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
@@ -738,22 +741,24 @@ describe("AI Gateway", () => {
       expect((mockProviderChat.mock.calls[0][0] as ChatRequest).timeout).toBeUndefined();
     });
 
-    it("sets no total time on a conversation turn, whose tools may run long", async () => {
+    it("sets no total time on a conversation turn, whose tools may run long, and bounds each of its model requests", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
-      await chat(makeRequest(), { callType: "conversation" });
+      await chat(makeRequest({ maxSteps: 10 }), { callType: "conversation" });
 
       const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
       expect(sent.timeout).toBeUndefined();
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
-    it("bounds the silence between two chunks of a streamed answer", async () => {
+    it("bounds the wait for a streamed answer's first chunk and the silence between two chunks", async () => {
       mockProviderChatStream.mockReturnValue({ textStream: (async function* () {})(), response: Promise.resolve(makeChatResponse()) });
       const stream = await chatStream(makeRequest());
       await stream.response;
 
       const sent = mockProviderChatStream.mock.calls[0][0] as ChatRequest;
-      expect(sent.timeout).toEqual({ chunkMs: STREAM_CHUNK_MS });
+      expect(sent.timeout).toEqual({ firstChunkMs: STREAM_FIRST_CHUNK_MS, chunkMs: STREAM_CHUNK_MS });
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
       expect(sent.maxRetries).toBe(MAX_RETRIES);
     });
 
