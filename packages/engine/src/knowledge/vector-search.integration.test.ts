@@ -61,14 +61,19 @@ async function seed(slug: string, count: number, seedOffset: number): Promise<vo
   }
 }
 
+/**
+ * The agent's k nearest chunks, ranked here rather than by Postgres: with sorts
+ * off for the session, an ORDER BY can still be planned on the vector index,
+ * which would make the expected answer as short as the one under test.
+ */
 async function exactTopIds(query: number[]): Promise<string[]> {
-  return await queryClient.begin(async (tx) => {
-    await tx`SET LOCAL enable_indexscan = off`;
-    const rows = await tx<{ id: string }[]>`
-      SELECT id FROM knowledge_chunks WHERE instance_id = ${AGENT}
-      ORDER BY embedding_1024 <=> ${`[${query.join(",")}]`}::vector LIMIT ${K}`;
-    return rows.map((r) => r.id);
-  });
+  const rows = await queryClient<{ id: string; distance: number }[]>`
+    SELECT id, embedding_1024 <=> ${`[${query.join(",")}]`}::vector AS distance
+    FROM knowledge_chunks WHERE instance_id = ${AGENT}`;
+  return rows
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, K)
+    .map((r) => r.id);
 }
 
 describe.skipIf(!DB_AVAILABLE)("searchByVector on the HNSW plan (integration)", () => {
