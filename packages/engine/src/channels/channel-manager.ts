@@ -24,13 +24,9 @@ import { getOptoutStatus } from "../optout/index.js";
 import { createLogger, shouldLog } from "../utils/create-logger.js";
 
 const log = createLogger();
-import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
-import {
-  DEFAULT_MESSAGE_TIMINGS,
-  resolveMessageTimings,
-  UNSET_AGENT_SETTINGS,
-} from "../instances/agent-settings.js";
+import { DEFAULT_MESSAGE_TIMINGS } from "../instances/agent-settings.js";
+import { resolveInstanceConfig } from "../instances/config-resolver.js";
 import { errMsg } from "../utils/error.js";
 
 /**
@@ -188,11 +184,12 @@ export class ChannelManager {
       this.coordinator = new MessageCoordinator({
         // Per burst, from the agent the message names: the coordinator is a
         // singleton across every channel and agent, so the timings cannot be
-        // captured here the way they used to be.
+        // captured here the way they used to be. Read from the agent's
+        // resolved configuration, which is cached and which the turn reads
+        // anyway, so a burst costs no extra read of the agent row.
         resolveTimings: async (msg) => {
           try {
-            const agent = await findInstanceBySlug(msg.instanceId);
-            return resolveMessageTimings(agent ?? UNSET_AGENT_SETTINGS);
+            return (await resolveInstanceConfig(msg.instanceId)).messageTimings;
           } catch (err) {
             log.error("channel-manager", `timing lookup failed for ${msg.instanceId}; using defaults`, err);
             return DEFAULT_MESSAGE_TIMINGS;
