@@ -2,7 +2,7 @@
 
 import { chunkText } from "./chunker.js";
 import {
-  getDocument,
+  getDocumentFilename,
   hashContent,
   insertChunksAndFinalize,
   touchDocument,
@@ -95,8 +95,7 @@ async function indexDocument(
 
     // Prepend the document title to the first chunk so it contributes to the
     // embedding and FTS tokens (see processDocument docstring).
-    const doc = chunks.length > 0 ? await getDocument(docId) : undefined;
-    const filename = doc?.filename ?? "";
+    const filename = chunks.length > 0 ? ((await getDocumentFilename(docId)) ?? "") : "";
     const titlePrefix = filename ? `# ${filename}\n\n` : "";
 
     const chunkContents = chunks.map((c, i) =>

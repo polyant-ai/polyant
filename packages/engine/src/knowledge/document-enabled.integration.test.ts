@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { queryClient } from "../database/client.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
-import { createDocument, getKnowledgeForExport, listDocuments, searchByKeyword, searchByVector, setDocumentEnabled } from "./store.js";
+import { createDocument, deleteDocument, getKnowledgeForExport, listDocuments, searchByKeyword, searchByVector, setDocumentEnabled } from "./store.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const SLUG = asInstanceSlug(`itest-kdoc-${Date.now()}`);
@@ -65,6 +65,18 @@ describe.skipIf(!DB_AVAILABLE)("knowledge document on/off (integration)", () => 
   it("will not switch another agent's document", async () => {
     expect(await setDocumentEnabled(otherId, SLUG, false)).toBe(false);
     expect((await searchByKeyword("zebrafish", OTHER, 10)).map((r) => r.source)).toEqual(["other.md"]);
+  });
+
+  it("will not delete another agent's document", async () => {
+    expect(await deleteDocument(otherId, SLUG)).toBe(false);
+    expect((await searchByKeyword("zebrafish", OTHER, 10)).map((r) => r.source)).toEqual(["other.md"]);
+  });
+
+  it("deletes a document with its chunks", async () => {
+    const id = await seed(SLUG, "gone.md", "okapi migration routes");
+    expect(await deleteDocument(id, SLUG)).toBe(true);
+    expect(await searchByKeyword("okapi", SLUG, 10)).toEqual([]);
+    expect(await queryClient`SELECT 1 FROM knowledge_chunks WHERE document_id = ${id}`).toHaveLength(0);
   });
 
   it("creates a document switched off when asked, for an import that carried the flag", async () => {

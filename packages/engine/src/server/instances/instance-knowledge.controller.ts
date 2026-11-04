@@ -271,13 +271,9 @@ export class InstanceKnowledgeController {
   @Delete(":docId")
   async remove(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);
-
-    const doc = await getDocument(docId);
-    if (!doc || doc.instanceId !== instance.slug) {
+    if (!(await deleteDocument(docId, instance.slug))) {
       throw new NotFoundException(`Document "${docId}" not found`);
     }
-
-    const deleted = await deleteDocument(docId);
-    return { deleted };
+    return { deleted: true };
   }
 }
