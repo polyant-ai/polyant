@@ -39,6 +39,8 @@ import { runHooks, firstHalt, firstReplaceResponse, firstRegenerate, collectInje
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
+import { startMcpConnections } from "./agents/tools/mcp/mcp-tools.js";
+import type { McpServerRecord } from "./instances/mcp-servers.store.js";
 import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
 import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS } from "./instances/agent-settings.js";
 import { createLogger } from "./utils/create-logger.js";
@@ -665,6 +667,8 @@ export interface PipelinePreResult {
   /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply.
    *  `persist: false` makes the halted turn ephemeral — see `runPipelinePost`. */
   shortCircuit?: { text: string; persist: boolean };
+  /** The agent's MCP servers, read at the start of the turn (`startMcpConnections`). */
+  mcpServers: Promise<McpServerRecord[]>;
 }
 
 export async function runPipelinePre(
@@ -672,6 +676,11 @@ export async function runPipelinePre(
   conversationIdOverride?: string | null,
   abortSignal?: AbortSignal,
 ): Promise<PipelinePreResult> {
+  // The MCP connections open while the context is read and the pre-LLM hooks
+  // run, instead of after them. Only the conversational entry points come here,
+  // and they may use oauth servers (see `SupervisorInput.allowOAuth`).
+  const mcpServers = startMcpConnections({ instanceSlug: msg.instanceId, allowOAuth: true });
+
   // Phase 1: Context preparation
   const contextPrepStart = Date.now();
   const ctx = await preparePipeline(msg, conversationIdOverride);
@@ -723,6 +732,7 @@ export async function runPipelinePre(
     messageText: msg.text,
     hookExecutions,
     shortCircuit: halt ? { text: halt.message, persist: halt.persist !== false } : undefined,
+    mcpServers,
   };
 }
 
