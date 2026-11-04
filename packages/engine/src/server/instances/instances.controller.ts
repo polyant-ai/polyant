@@ -32,10 +32,11 @@ import {
 } from "../../instances/config-resolver.js";
 import {
   InvalidInstanceSettingsError,
-  applyInstancePatch,
   assertModelConfig,
   normalizeInstancePatch,
   planInstancePatch,
+  resetPlannedEmbeddingSpace,
+  writeInstancePatch,
 } from "../../instances/instance-update.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, fastSupported, isThinkingCapable, isReasoningAlwaysOn, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
@@ -367,9 +368,9 @@ export class InstancesController {
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
     const plan = await refusingInvalidSettings(() => planInstancePatch(before, body));
-    const result = await applyInstancePatch(before, body, plan);
-    if (!result) throw new NotFoundException(`Instance "${slug}" not found`);
-    const { instance, wiped } = result;
+    const written = await writeInstancePatch(before, body);
+    if (!written) throw new NotFoundException(`Instance "${slug}" not found`);
+    const { instance, wiped } = await resetPlannedEmbeddingSpace(written, plan);
 
     return {
       instance: {

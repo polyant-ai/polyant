@@ -130,27 +130,30 @@ export async function planInstancePatch(before: Instance, patch: InstancePatch):
 }
 
 /**
- * Write a planned PATCH: store the fields, drop the cached configuration and
- * embedding context, and reset the embedding space when the plan says so.
- * Returns null when the agent no longer exists.
+ * Write a planned PATCH: store the fields and drop the cached configuration
+ * and embedding context. Returns null when the agent no longer exists. The
+ * embedding space is reset by `resetPlannedEmbeddingSpace`, called after it,
+ * so a caller can record the write between the two steps.
  */
-export async function applyInstancePatch(
-  before: Instance,
-  patch: InstancePatch,
-  plan: InstancePatchPlan,
-): Promise<InstancePatchResult | null> {
-  const slug = before.slug;
-  let instance = await updateInstance(slug, patch);
+export async function writeInstancePatch(before: Instance, patch: InstancePatch): Promise<Instance | null> {
+  const instance = await updateInstance(before.slug, patch);
   if (!instance) return null;
-  invalidateInstanceConfigCache(slug);
-  invalidateEmbeddingContext(instance.id, slug);
+  invalidateInstanceConfigCache(before.slug);
+  invalidateEmbeddingContext(instance.id, before.slug);
+  return instance;
+}
 
-  let wiped: EmbeddingResetResult | null = null;
-  if (plan.willWipe) {
-    wiped = await resetEmbeddingSpace(slug, instance.id, plan.embeddingDim);
-    // embedding_dim changed — drop the now-stale cached context and re-read the row.
-    invalidateEmbeddingContext(instance.id, slug);
-    instance = (await findInstanceBySlug(slug)) ?? instance;
-  }
-  return { instance, wiped };
+/**
+ * Reset the embedding space of an agent whose PATCH was written, when the plan
+ * says the space changes, and return the row as it stands afterwards.
+ */
+export async function resetPlannedEmbeddingSpace(
+  instance: Instance,
+  plan: InstancePatchPlan,
+): Promise<InstancePatchResult> {
+  if (!plan.willWipe) return { instance, wiped: null };
+  const wiped = await resetEmbeddingSpace(instance.slug, instance.id, plan.embeddingDim);
+  // embedding_dim changed — drop the now-stale cached context and re-read the row.
+  invalidateEmbeddingContext(instance.id, instance.slug);
+  return { instance: (await findInstanceBySlug(instance.slug)) ?? instance, wiped };
 }

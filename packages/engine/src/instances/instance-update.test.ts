@@ -27,9 +27,10 @@ vi.mock("../knowledge/index.js", () => ({ countDocuments: mockCountDocuments }))
 import { providerConfigs } from "../ai-gateway/config.js";
 import {
   InvalidInstanceSettingsError,
-  applyInstancePatch,
   normalizeInstancePatch,
   planInstancePatch,
+  resetPlannedEmbeddingSpace,
+  writeInstancePatch,
 } from "./instance-update.js";
 import type { Instance } from "./store.js";
 
@@ -95,7 +96,7 @@ describe("planInstancePatch", () => {
   });
 });
 
-describe("applyInstancePatch", () => {
+describe("writeInstancePatch and resetPlannedEmbeddingSpace", () => {
   const resetResult = {
     instanceId: "uuid-1",
     memoriesDeleted: 2,
@@ -104,32 +105,40 @@ describe("applyInstancePatch", () => {
     newEmbeddingDim: 1536,
   };
 
-  it("resets the embedding space at the planned dimension and returns the row read after it", async () => {
+  it("writes without resetting, and resets at the planned dimension only in the second step", async () => {
     mockUpdateInstance.mockResolvedValue(agent);
     mockResetEmbeddings.mockResolvedValue(resetResult);
     mockFindInstanceBySlug.mockResolvedValue({ ...agent, embeddingDim: 1536 });
 
-    const result = await applyInstancePatch(
-      agent,
-      { embeddingDim: 1536, confirmWipe: true },
-      { embeddingProvider: "openai", embeddingDim: 1536, willWipe: true },
-    );
+    const written = await writeInstancePatch(agent, { embeddingDim: 1536, confirmWipe: true });
+    expect(written).toBe(agent);
+    expect(mockResetEmbeddings).not.toHaveBeenCalled();
+
+    const result = await resetPlannedEmbeddingSpace(written!, {
+      embeddingProvider: "openai",
+      embeddingDim: 1536,
+      willWipe: true,
+    });
 
     expect(mockResetEmbeddings).toHaveBeenCalledWith("agent-one", "uuid-1", 1536);
-    expect(result?.instance.embeddingDim).toBe(1536);
-    expect(result?.wiped).toEqual(resetResult);
+    expect(result.instance.embeddingDim).toBe(1536);
+    expect(result.wiped).toEqual(resetResult);
   });
 
-  it("returns null and resets nothing when the agent is gone by the time it writes", async () => {
+  it("returns the written row untouched when the plan keeps the embedding space", async () => {
+    const result = await resetPlannedEmbeddingSpace(agent, {
+      embeddingProvider: "openai",
+      embeddingDim: 1024,
+      willWipe: false,
+    });
+
+    expect(result).toEqual({ instance: agent, wiped: null });
+    expect(mockResetEmbeddings).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the agent is gone by the time it writes", async () => {
     mockUpdateInstance.mockResolvedValue(undefined);
 
-    const result = await applyInstancePatch(
-      agent,
-      { embeddingProvider: "bedrock", confirmWipe: true },
-      { embeddingProvider: "bedrock", embeddingDim: 1024, willWipe: true },
-    );
-
-    expect(result).toBeNull();
-    expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    expect(await writeInstancePatch(agent, { name: "Renamed" })).toBeNull();
   });
 });
