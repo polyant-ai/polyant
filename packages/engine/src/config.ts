@@ -216,6 +216,15 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     maxRetries: z.coerce.number().int().min(0).max(10).default(2),
   }),
 
+  // The work that follows a saved turn, per process: how many jobs of each kind
+  // run at once while the rest wait in their own queue. Titles and summaries are
+  // one model call each, and the summary decides how much history the next turn
+  // sends; a memory extraction adds embeddings and serializable upserts.
+  backgroundJobs: z.object({
+    turnConcurrency: z.coerce.number().int().min(1).max(64).default(4),
+    memoryConcurrency: z.coerce.number().int().min(1).max(64).default(2),
+  }),
+
   // Housekeeping windows that are not platform settings.
   retention: z.object({
     /**
@@ -293,6 +302,10 @@ function loadConfig(): Config {
       streamChunkTimeoutMs: process.env.LLM_STREAM_CHUNK_TIMEOUT_MS,
       serviceCallTimeoutMs: process.env.LLM_SERVICE_CALL_TIMEOUT_MS,
       maxRetries: process.env.LLM_MAX_RETRIES,
+    },
+    backgroundJobs: {
+      turnConcurrency: process.env.BACKGROUND_TURN_JOB_CONCURRENCY,
+      memoryConcurrency: process.env.BACKGROUND_MEMORY_JOB_CONCURRENCY,
     },
     retention: {
       debugPayloadDays: process.env.DEBUG_PAYLOAD_RETENTION_DAYS,

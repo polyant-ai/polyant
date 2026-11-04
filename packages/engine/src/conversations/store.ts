@@ -361,6 +361,15 @@ export class ConversationStore {
    * starting point cannot both land, and the loser's work is dropped instead of
    * overwriting a summary that already covers more. True when it landed.
    */
+  /** How far the conversation's summary reaches now (see {@link advanceSummary}). */
+  async getSummaryThrough(conversationId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ summaryThrough: conversations.summaryThrough })
+      .from(conversations)
+      .where(eq(conversations.conversationId, conversationId));
+    return row?.summaryThrough ?? null;
+  }
+
   async advanceSummary(
     conversationId: string,
     summary: string,

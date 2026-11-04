@@ -576,17 +576,68 @@ export interface TurnTailOptions {
   summaryFold?: SummaryFold;
 }
 
+/** Conversations whose summary fold is queued or running in this process. */
+const foldsPending = new Set<string>();
+
 /**
  * The work that follows a saved turn and that the next turn does not need:
  * the conversation title, the summary of the messages leaving the window, the
  * memory extraction. Shared by every engine that saves a turn (the pipeline,
- * Room and webhook turns). Runs as one bounded background job that shutdown
- * waits for; failures are logged.
+ * Room and webhook turns). Title and summary run as one bounded background job,
+ * the memory extraction as another in its own queue; shutdown waits for both,
+ * failures are logged.
+ *
+ * One fold per conversation at a time: while one is queued or running, a later
+ * turn's fold is dropped, since the one ahead moves the summary and leaves a
+ * history short enough again. A fold whose starting point another one has moved
+ * meanwhile (another process, or a fold that landed before this turn was
+ * saved) is dropped before its model call, which could not land anyway.
  */
 export function afterResponseTail(opts: TurnTailOptions): void {
   const cfg = opts.instanceConfig;
   const langsmith = buildLangsmithConfig(cfg);
-  const work = async () => {
+  const fold = opts.summaryFold && !foldsPending.has(opts.conversationId) ? opts.summaryFold : undefined;
+  if (fold) foldsPending.add(opts.conversationId);
+
+  const summarize = async (fold: SummaryFold) => {
+    const current = await conversationStore.getSummaryThrough(opts.conversationId);
+    if ((current?.getTime() ?? null) !== (fold.previousThrough?.getTime() ?? null)) return;
+    const existing = opts.existingSummary
+      ? `Previous summary: ${opts.existingSummary}\n\n`
+      : "";
+    const droppedText = fold.messages
+      .map(m => {
+        const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
+        return `${label}: ${m.content}`;
+      })
+      .join("\n");
+    const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+    const now = new Date().toLocaleString(datetime.locale, {
+      timeZone: datetime.timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+    const summaryResponse = await chat({
+      tier: "fast",
+      provider: cfg.provider,
+      apiKeys: cfg.apiKeys,
+      langsmith,
+      system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
+      messages: [{
+        role: "user",
+        content: `${existing}Messages to summarize:\n${droppedText}`,
+      }],
+    }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
+
+    // Lands only if no other turn moved the summary meanwhile; until it
+    // lands, turns keep reading from where the summary reached before.
+    const summary = summaryResponse.text.trim();
+    if (summary) {
+      await conversationStore.advanceSummary(opts.conversationId, summary, fold.through, fold.previousThrough);
+    }
+  };
+
+  const turnWork = async () => {
     // Generate title (only once, after first exchange)
     if (opts.titleContent !== undefined) {
       await generateConversationTitle({
@@ -601,56 +652,29 @@ export function afterResponseTail(opts: TurnTailOptions): void {
     }
 
     // Fold the oldest messages of the history into the summary, once per block.
-    if (opts.summaryFold) {
-      const fold = opts.summaryFold;
-      const existing = opts.existingSummary
-        ? `Previous summary: ${opts.existingSummary}\n\n`
-        : "";
-      const droppedText = fold.messages
-        .map(m => {
-          const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
-          return `${label}: ${m.content}`;
-        })
-        .join("\n");
-      try {
-        const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
-        const now = new Date().toLocaleString(datetime.locale, {
-          timeZone: datetime.timezone,
-          dateStyle: "full",
-          timeStyle: "short",
-        });
-        const summaryResponse = await chat({
-          tier: "fast",
-          provider: cfg.provider,
-          apiKeys: cfg.apiKeys,
-          langsmith,
-          system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
-          messages: [{
-            role: "user",
-            content: `${existing}Messages to summarize:\n${droppedText}`,
-          }],
-        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
-
-        // Lands only if no other turn moved the summary meanwhile; until it
-        // lands, turns keep reading from where the summary reached before.
-        const summary = summaryResponse.text.trim();
-        if (summary) {
-          await conversationStore.advanceSummary(opts.conversationId, summary, fold.through, fold.previousThrough);
-        }
-      } catch (err) {
-        log.error("pipeline", "Summary generation failed", err);
-      }
-    }
-
-    // Automatic memory extraction
-    if (cfg.memoryEnabled !== false) {
-      await extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
-        log.error("pipeline", "Memory extraction failed", err),
-      );
+    if (fold) {
+      await summarize(fold).catch((err: unknown) => log.error("pipeline", "Summary generation failed", err));
     }
   };
 
-  void runBackgroundJob(() => work().catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err)));
+  if (opts.titleContent !== undefined || fold) {
+    void runBackgroundJob("turn", () =>
+      turnWork()
+        .catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err))
+        .finally(() => {
+          if (fold) foldsPending.delete(opts.conversationId);
+        }),
+    );
+  }
+
+  // Automatic memory extraction
+  if (cfg.memoryEnabled !== false) {
+    void runBackgroundJob("memory", () =>
+      extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
+        log.error("pipeline", "Memory extraction failed", err),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

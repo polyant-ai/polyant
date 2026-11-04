@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to answer, its tools not counted. Failed requests are retried
   `LLM_MAX_RETRIES` times (default 2, the AI SDK's own default) and each retry
   is logged.
+- The work after a saved turn runs in two queues per process: title and
+  summary (`BACKGROUND_TURN_JOB_CONCURRENCY`, default 4) and memory extraction
+  (`BACKGROUND_MEMORY_JOB_CONCURRENCY`, default 2). A conversation has at most
+  one summary in progress, and a summary whose starting point has already
+  moved is dropped before its model call.
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
