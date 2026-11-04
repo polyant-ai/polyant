@@ -261,6 +261,24 @@ describe("triggerConversation", () => {
       expect(mockRegisterTrigger).toHaveBeenCalledWith("test-slug", "slack", "D77", "test-slug:slack:U5");
     });
 
+    // The contact's own messages arrive without the "whatsapp:" prefix the
+    // configured target carries. Keyed by the target, the trigger opened a second
+    // conversation that the replies reached only while the process remembered
+    // the trigger: after a restart, on another replica or a day later they went
+    // back to the contact's own conversation, and its history split in two.
+    it("keeps the trigger in the conversation the contact's own messages reach", async () => {
+      const whatsappDef: EventDefinition = { ...channelDef, outboundChannel: "whatsapp", outboundTarget: "whatsapp:{{payload.chat_id}}" };
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), whatsappDef, { chat_id: "+393331234567" });
+
+      expect(mockEnsureConversation).toHaveBeenCalledWith(
+        "test-slug:whatsapp:+393331234567",
+        "test-slug",
+        expect.objectContaining({ source: "webhook" }),
+      );
+      expect(mockSendOutbound).toHaveBeenCalledWith("test-slug", "whatsapp", "whatsapp:+393331234567", expect.any(String));
+    });
+
     it("skips channelManager.sendOutbound when replyHandled", async () => {
       mockSupervise.mockResolvedValue({
         ...baseSuperviseResult,
