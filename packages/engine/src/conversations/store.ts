@@ -526,6 +526,20 @@ export class ConversationStore {
   }
 
   /**
+   * Record the stored copies of a saved message's attachments, which are
+   * uploaded after the turn is saved. False when the message is gone (its
+   * conversation was deleted meanwhile).
+   */
+  async setMessageAttachments(conversationId: string, messageId: string, attachments: AttachmentMeta[]): Promise<boolean> {
+    const updated = await db
+      .update(conversationMessages)
+      .set({ attachments: stripNulDeep(attachments) })
+      .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
+      .returning({ id: conversationMessages.id });
+    return updated.length > 0;
+  }
+
+  /**
    * Get the most recent N messages for a conversation, ordered chronologically.
    *
    * Returns ModelMessage shape for direct use by the AI gateway.

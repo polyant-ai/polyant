@@ -7,6 +7,7 @@
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from "node:crypto";
 import type { ModelMessage } from "ai";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
@@ -493,50 +494,19 @@ export interface AfterResponseOptions {
 export async function persistTurn(opts: AfterResponseOptions, state?: ConversationStateBuffer): Promise<void> {
   if (isAutoTask(opts.userMessage)) return;
 
-  // No pre-check: `uploadAttachment` answers `null` for an agent with no
-  // storage configured, which is the ordinary case. Asking first would read
-  // the same secrets twice and give the two reads a chance to disagree.
-  // A failed upload (denied bucket policy, wrong region, revoked credentials,
-  // a transient S3 error) costs that attachment its stored copy, not the
-  // turn: the reply has been produced and tools may have written, so the
-  // turn is persisted without it. Only the error's name is logged — an S3
-  // message carries the object key, and the key carries the conversation id.
-  let attachmentMetas: AttachmentMeta[] | undefined;
-  if (opts.userAttachments?.length) {
-    const results: (AttachmentMeta | null)[] = await Promise.all(
-      opts.userAttachments.map((att) =>
-        att.data
-          ? uploadAttachment(att.data, {
-              type: att.type,
-              mimeType: att.mimeType,
-              fileName: att.fileName,
-              instanceId: opts.instanceId,
-              conversationId: opts.conversationId,
-            }).catch((err: unknown) => {
-              log.warn(
-                "pipeline",
-                `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
-              );
-              return null;
-            })
-          : Promise.resolve(null),
-      ),
-    );
-    const stored = results.filter((r): r is AttachmentMeta => r != null);
-    // Undefined rather than an empty array when nothing was stored: the column
-    // is nullable and an empty array would read as "there were attachments,
-    // and none of them are here".
-    attachmentMetas = stored.length > 0 ? stored : undefined;
-  }
+  // The user row's id is chosen here when it has attachments to store: they are
+  // recorded on it once uploaded, after the turn is saved and delivered.
+  const toStore = opts.userAttachments?.some((att) => att.data) ? opts.userAttachments : undefined;
+  const userRowId = toStore ? randomUUID() : undefined;
 
   // Both rows are stamped by this process's clock: the user row at arrival, the
   // reply now. Mixing in the database's clock for one of them would let a skew
   // between the two hosts order the reply before the message it answers.
   await conversationStore.appendMessages(opts.conversationId, [
     {
+      ...(userRowId ? { id: userRowId } : {}),
       role: "user",
       content: opts.userMessage,
-      attachments: attachmentMetas,
       metadata: opts.inboundMetadata,
       ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
       ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
@@ -559,6 +529,56 @@ export async function persistTurn(opts: AfterResponseOptions, state?: Conversati
         : {}),
     },
   ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
+
+  if (toStore && userRowId) {
+    trackBackgroundTurn(
+      storeAttachments(opts, toStore).then(async (stored) => {
+        if (stored && !(await conversationStore.setMessageAttachments(opts.conversationId, userRowId, stored))) {
+          log.warn("pipeline", `Stored attachments for agent "${opts.instanceId}" found no message to record them on`);
+        }
+      }).catch((err: unknown) => log.error("pipeline", `Failed to record stored attachments for agent "${opts.instanceId}"`, err)),
+    );
+  }
+}
+
+/**
+ * Copy a turn's inbound attachments to the agent's bucket. Runs after the turn
+ * is saved and is waited for by shutdown, never by the reply: the S3 client
+ * retries for up to minutes, and past the point of no return a turn that waits
+ * on it holds the reply and the contact's next messages.
+ *
+ * No pre-check: `uploadAttachment` answers `null` for an agent with no storage
+ * configured, which is the ordinary case. Asking first would read the same
+ * secrets twice and give the two reads a chance to disagree. A failed upload
+ * (denied bucket policy, wrong region, revoked credentials, a transient S3
+ * error) costs that attachment its stored copy, not the turn. Only the error's
+ * name is logged — an S3 message carries the object key, and the key carries
+ * the conversation id. Undefined when nothing was stored: the column is
+ * nullable and an empty array would read as "there were attachments, and none
+ * of them are here".
+ */
+async function storeAttachments(opts: AfterResponseOptions, attachments: Attachment[]): Promise<AttachmentMeta[] | undefined> {
+  const results: (AttachmentMeta | null)[] = await Promise.all(
+    attachments.map((att) =>
+      att.data
+        ? uploadAttachment(att.data, {
+            type: att.type,
+            mimeType: att.mimeType,
+            fileName: att.fileName,
+            instanceId: opts.instanceId,
+            conversationId: opts.conversationId,
+          }).catch((err: unknown) => {
+            log.warn(
+              "pipeline",
+              `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
+            );
+            return null;
+          })
+        : Promise.resolve(null),
+    ),
+  );
+  const stored = results.filter((r): r is AttachmentMeta => r != null);
+  return stored.length > 0 ? stored : undefined;
 }
 
 /** What the work after a saved turn needs; see {@link afterResponseTail}. */
