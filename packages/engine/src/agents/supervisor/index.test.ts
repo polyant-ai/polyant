@@ -723,18 +723,12 @@ describe("superviseStream", () => {
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("stream-inst");
   });
 
-  it("falls back to DEFAULT_INSTANCE_ID when instanceId is not provided", async () => {
-    await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
-
-    expect(mockFindInstanceBySlug).toHaveBeenCalledWith("default");
-  });
-
-  it("returns textStream, fullStream, and completed promise", async () => {
+  it("relays the model's text as it streams", async () => {
     const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
 
-    expect(result.textStream).toBeDefined();
-    expect(result.fullStream).toBeDefined();
-    expect(result.completed).toBeInstanceOf(Promise);
+    const chunks: string[] = [];
+    for await (const chunk of result.textStream) chunks.push(chunk);
+    expect(chunks).toEqual(["Hello ", "world"]);
   });
 
   it("completed resolves with SupervisorOutput", async () => {
