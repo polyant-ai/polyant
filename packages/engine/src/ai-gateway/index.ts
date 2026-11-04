@@ -218,22 +218,30 @@ function reasoningCharCount(response: ChatResponse): number {
 }
 
 /**
- * How many prompt tokens each conversation's latest answered model call left
- * in the provider's cache (read plus written), so the next call of the
- * conversation can be priced as reading them when it is aborted in flight and
- * never reports usage. Per process and bounded: an estimate, not a ledger.
+ * How many prompt tokens each conversation's latest answered turn call left
+ * in the provider's cache (read plus written), on that model, so the next call
+ * of the conversation can be priced as reading them when it is aborted in
+ * flight and never reports usage. Service calls (title, summary, memory) have
+ * prompts of their own and never read the turn's prefix, so they neither set
+ * nor read it. Per process and bounded: an estimate, not a ledger.
  */
 const cachedPrefixByConversation = new Map<string, number>();
 const CACHED_PREFIX_CONVERSATIONS = 10_000;
 
-function rememberCachedPrefix(conversationId: string | undefined, response: ChatResponse): void {
-  if (!conversationId) return;
+/** The key of a conversation's cached prefix on a model, or undefined for a call that has none. */
+function cachedPrefixKey(modelId: string, options: ChatCallOptions | undefined): string | undefined {
+  if (!options?.conversationId || options.callType === "service") return undefined;
+  return `${modelId}\u0000${options.conversationId}`;
+}
+
+function rememberCachedPrefix(key: string | undefined, response: ChatResponse): void {
+  if (!key) return;
   const last = response.steps.at(-1);
   const prefix = last && last.promptTokens !== undefined
     ? (last.cachedInputTokens ?? 0) + (last.cacheCreationInputTokens ?? 0)
     : (response.usage.cachedInputTokens ?? 0) + (response.usage.cacheCreationInputTokens ?? 0);
-  cachedPrefixByConversation.delete(conversationId);
-  cachedPrefixByConversation.set(conversationId, prefix);
+  cachedPrefixByConversation.delete(key);
+  cachedPrefixByConversation.set(key, prefix);
   if (cachedPrefixByConversation.size > CACHED_PREFIX_CONVERSATIONS) {
     cachedPrefixByConversation.delete(cachedPrefixByConversation.keys().next().value!);
   }
@@ -245,7 +253,7 @@ function logAndRecordUsage(
   response: ChatResponse,
   options?: ChatCallOptions,
 ): void {
-  rememberCachedPrefix(options?.conversationId, response);
+  rememberCachedPrefix(cachedPrefixKey(config.modelId, options), response);
   pipelineLog.llmResponse(
     options?.instanceId ?? "",
     config.modelId,
@@ -364,7 +372,7 @@ function logFailedCall(
   const errorKind = aborted ? null : timedOut ? "timeout" : classifyProviderError(err);
   // Aborted or timed out, the call in flight had the prompt and was billed for it.
   const billedInFlight = aborted || errorKind === "timeout";
-  const inFlight = billedInFlight && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, options?.conversationId) : undefined;
+  const inFlight = billedInFlight && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, cachedPrefixKey(config.modelId, options)) : undefined;
   const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
   const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
   aiLogger.log(withPurpose(
@@ -393,8 +401,8 @@ function logFailedCall(
 }
 
 /** The usage of a model call aborted in flight: its estimated prompt, read from cache up to the conversation's cached prefix. */
-function inFlightCall(promptTokens: number, conversationId: string | undefined): NonNullable<ReturnType<typeof usageCompletedBeforeFailure>> {
-  const cached = Math.min(promptTokens, (conversationId && cachedPrefixByConversation.get(conversationId)) || 0);
+function inFlightCall(promptTokens: number, prefixKey: string | undefined): NonNullable<ReturnType<typeof usageCompletedBeforeFailure>> {
+  const cached = Math.min(promptTokens, (prefixKey && cachedPrefixByConversation.get(prefixKey)) || 0);
   const call = { promptTokens, completionTokens: 0, cachedInputTokens: cached, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   return { ...call, calls: [{ ...call, fast: false }] };
 }

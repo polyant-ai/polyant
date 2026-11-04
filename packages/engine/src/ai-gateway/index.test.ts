@@ -899,6 +899,29 @@ describe("AI Gateway", () => {
       expect(loggedEntry().costUsd as number).toBeLessThan(coldCost);
     });
 
+    it("keeps the turn's cached prefix when a service call of the same conversation runs after it", async () => {
+      // The turn leaves 25,000 tokens in the cache.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 26_000, completionTokens: 50, totalTokens: 26_050, cachedInputTokens: 20_000, cacheCreationInputTokens: 5_000 },
+      }));
+      await chat(makeRequest(), { conversationId: "conv-in-flight-service" });
+      // The memory extraction after the turn: a small prompt, nothing cached.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 600, completionTokens: 40, totalTokens: 640, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
+      }));
+      await chat(makeRequest({ tier: "fast" }), { conversationId: "conv-in-flight-service", callType: "service", purpose: "memory" });
+      // The next turn is preempted in flight.
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      const controller = new AbortController();
+      controller.abort();
+      mockProviderChat.mockRejectedValueOnce(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-service" })).rejects.toBe(err);
+
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(25_000);
+    });
+
     it("writes NOTHING when the turn was preempted before any model call started", async () => {
       // cancel-and-restart is the routine path — it fires whenever a user sends a
       // second message before the first reply lands. A turn it stopped before
