@@ -776,7 +776,7 @@
       "idx": 110,
       "version": "7",
       "when": 1793726900000,
-      "tag": "0117_drop_superseded_indexes",
+      "tag": "0117_lock_hot_tables_last",
       "breakpoints": true
     }
   ]
