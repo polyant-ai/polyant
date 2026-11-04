@@ -62,13 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lifetime unless they ask for another.
 - `{{toolCatalog}}` lists the equipped tools by name; their descriptions are
   already in the tool definitions the model receives.
-- A scheduled task's schedule follows one rule wherever it is written: the API,
-  the `scheduleTask` tool and a bundle import. An interval is an integer of at
-  least 60000 ms, an anchor is a date, and fields the type does not have are
-  dropped; anything else answers 400 naming the field (`schedule.everyMs`), and
-  a bundle carrying such a task no longer imports. A task saved earlier with an
-  interval of zero or less is disabled on its next run instead of stopping the
-  engine.
+- A scheduled task's schedule follows one rule wherever it is written through
+  the API or the `scheduleTask` tool: an interval is an integer of at least
+  60000 ms, an anchor is a date, and fields the type does not have are dropped;
+  anything else answers 400 naming the field (`schedule.everyMs`). A bundle
+  import keeps the tasks an earlier export carried and refuses only an interval
+  that never advances (zero, negative or not finite). A task saved earlier with
+  an interval of zero or less is disabled on its next run instead of stopping
+  the engine.
 - The scheduler claims due tasks in one statement, the longest overdue first, so
   replicas ticking together share them. The boot no longer runs or reschedules
   overdue tasks: the tick serves them. A running task holds a lease that its
