@@ -126,4 +126,28 @@ describe.skipIf(!DB_AVAILABLE)("memory extraction reads each message once (integ
     expect(extraction.transcripts[1].split("NEW MESSAGES:")[1]).toContain("my plate is AB123CD");
     expect(await memoriesOf(conversationId)).toEqual(["The user said: my plate is AB123CD"]);
   });
+
+  it("reads the message of a turn saved after a later turn of the same conversation", async () => {
+    const conversationId = `${MARKER}-${randomUUID()}`;
+    await conversationStore.ensureConversation(conversationId, AGENT, { channel: "web" });
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 4, 10, 0, s));
+    // Two turns overlap. B started second and is saved first; its extraction runs.
+    await conversationStore.appendMessages(conversationId, [
+      { role: "user", content: "B: my plate is AB123CD", createdAt: at(1) },
+      { role: "assistant", content: "ok B", createdAt: at(2) },
+    ]);
+    await extractMemories(conversationId, AGENT);
+    // A started first (its user row is stamped at its arrival) and is saved after.
+    await conversationStore.appendMessages(conversationId, [
+      { role: "user", content: "A: I am allergic to penicillin", createdAt: at(0) },
+      { role: "assistant", content: "ok A", createdAt: at(3) },
+    ]);
+    await extractMemories(conversationId, AGENT);
+
+    expect(extraction.transcripts).toHaveLength(2);
+    const fresh = extraction.transcripts[1].split("NEW MESSAGES:")[1];
+    expect(fresh).toContain("A: I am allergic to penicillin");
+    expect(fresh).toContain("ok A");
+    expect(fresh).not.toContain("B: my plate");
+  });
 });

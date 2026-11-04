@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, timestamp, json, jsonb, index, primaryKey, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, json, jsonb, index, primaryKey, integer, bigint } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
   "conversations",
@@ -18,8 +18,11 @@ export const conversations = pgTable(
     // created_at of the last message `summary` covers: the turn's history starts
     // right after it, so summary and history meet with no gap (migration 0102).
     summaryThrough: timestamp("summary_through", { withTimezone: true }),
-    // created_at of the last message memory extraction has read.
+    // created_at of the last message memory extraction read before it was kept by
+    // seq; read only while `memoryThroughSeq` is NULL.
     memoryThrough: timestamp("memory_through", { withTimezone: true }),
+    // seq of the last message memory extraction has read (migration 0114).
+    memoryThroughSeq: bigint("memory_through_seq", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     // Kept by ConversationStore.appendMessages in the statement that bumps
@@ -167,6 +170,13 @@ export const conversationMessages = pgTable(
      */
     exactReplay: json("exact_replay").$type<ExactReplay>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    /**
+     * The order the rows were saved in, which created_at (a message's arrival)
+     * is not when two turns overlap. Filled by the database from the sequence
+     * migration 0114 sets as the column default; never written by the engine.
+     * NULL on rows saved before that migration.
+     */
+    seq: bigint("seq", { mode: "number" }),
   },
   (table) => [
     index("idx_conversation_messages_created_at").on(table.createdAt),

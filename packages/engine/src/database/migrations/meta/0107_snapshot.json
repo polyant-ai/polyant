@@ -1857,6 +1857,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2104,6 +2110,12 @@
         "memory_through": {
           "name": "memory_through",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "memory_through_seq": {
+          "name": "memory_through_seq",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -6016,6 +6028,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "8a170681-2a44-49e3-b674-2d7d2f9f06e9",
+  "id": "9a9d8244-14f0-4ffd-aa70-92fca96f3dfd",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

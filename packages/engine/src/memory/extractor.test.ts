@@ -29,6 +29,7 @@ vi.mock("../conversations/index.js", () => ({
     getMessagesToExtract: async (...args: unknown[]) => ({
       context: [],
       fresh: await mockUnreadMessages(...args),
+      through: 1,
       memoryThrough: null,
     }),
     advanceMemoryThrough: async () => undefined,
