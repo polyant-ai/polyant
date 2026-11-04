@@ -85,7 +85,9 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
   }, [workspaceSlug, lockedInstanceId]);
 
   // Keyed on everything the request depends on, so an answer to an earlier
-  // search, filter or page never replaces the rows of the current one.
+  // search, filter or page never replaces the rows of the current one. The rows
+  // on screen stay until the next answer arrives, so the table and its pager
+  // keep their place; never across workspaces.
   const list = useResource(
     ["conversations", workspaceSlug, instanceFilter, debouncedSearch, contact, offset],
     () =>
@@ -96,6 +98,7 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
         limit: PAGE_SIZE,
         offset,
       }),
+    { keepPreviousWithin: workspaceSlug ?? undefined },
   );
   const conversations: ConversationListItem[] = list.data?.conversations ?? [];
   const totalPages = Math.max(1, Math.ceil((list.data?.total ?? 0) / PAGE_SIZE));

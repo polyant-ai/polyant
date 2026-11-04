@@ -426,14 +426,16 @@ export async function updateInstance(
 const DRAIN_BATCH = { conversations: 500, memories: 5000, documents: 50 } as const;
 
 /**
- * Remove an agent's history a batch at a time, each batch its own statement.
+ * Remove an agent's history a batch at a time, each batch its own statement,
+ * inside the transaction that deletes the agent.
  *
- * One transaction over everything held its locks and its WAL for as long as an
- * agent with tens of thousands of conversations took to delete, and could meet
- * the pool's statement timeout. What arrives while this runs, or what a crash
- * leaves, the final transaction of `deleteInstance` removes.
+ * One statement per table over an agent with tens of thousands of conversations
+ * could meet the pool's statement timeout, which bounds each statement: batches
+ * stay under it. They run in the deletion's transaction, so a deletion that
+ * fails takes none of the history with it. What arrives while this runs, the
+ * statements after it remove.
  */
-async function drainInstanceHistory(slug: InstanceSlug): Promise<void> {
+async function drainInstanceHistory(slug: InstanceSlug, tx: DbExecutor): Promise<void> {
   const batches = [
     // A conversation and its messages go in the same statement.
     sql`WITH batch AS (
@@ -449,7 +451,7 @@ async function drainInstanceHistory(slug: InstanceSlug): Promise<void> {
           SELECT id FROM knowledge_documents WHERE instance_id = ${slug} LIMIT ${DRAIN_BATCH.documents})`,
   ];
   for (const batch of batches) {
-    while (((await db.execute(batch)) as unknown as { count: number }).count > 0) {
+    while (((await tx.execute(batch)) as unknown as { count: number }).count > 0) {
       // Until a batch finds nothing left.
     }
   }
@@ -468,8 +470,8 @@ async function drainInstanceHistory(slug: InstanceSlug): Promise<void> {
  * INTENTIONALLY PRESERVED as a historical record and is left untouched.
  */
 export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
-  await drainInstanceHistory(slug);
   return db.transaction(async (tx) => {
+    await drainInstanceHistory(slug, tx);
     /*
       conversation_messages has no instance_id, so it is deleted through the
       instance's conversations — as a SUBQUERY, not as a list of ids.
