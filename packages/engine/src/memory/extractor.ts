@@ -126,11 +126,10 @@ export async function extractMemories(
     return [];
   }
 
-  // The messages are read: the next extraction starts after them, whatever
-  // happens to the facts below.
-  await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
-
-  if (facts.length === 0) return [];
+  if (facts.length === 0) {
+    await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
+    return [];
+  }
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
@@ -165,6 +164,12 @@ export async function extractMemories(
     });
     results.push(result);
   }
+
+  // The facts are saved: the next extraction starts after these messages. Until
+  // then a failure (the embedding provider down, an upsert refused) leaves them
+  // unread, and the next extraction reads them again; a fact saved before the
+  // failure is matched by similarity then, not duplicated.
+  await conversationStore.advanceMemoryThrough(conversationId, readUpTo, memoryThrough);
 
   const elapsed = Date.now() - start;
   const added = results.filter((r) => r.event === "ADD").length;
