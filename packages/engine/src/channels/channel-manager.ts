@@ -8,7 +8,10 @@ import {
   disableChannel,
   ensureTelegramWebhookSecret,
   getChannelConfig,
+  invalidateWebChannelState,
+  WEB_CHANNEL_TYPE,
 } from "../instances/channels.store.js";
+import { resolveInstanceId } from "../instances/resolve-instance-id.js";
 import { TelegramAdapter, type TelegramConfig } from "./adapters/telegram/index.js";
 import { SlackAdapter, type SlackConfig } from "./adapters/slack/index.js";
 import { WhatsAppAdapter, type WhatsAppConfig } from "./adapters/whatsapp/index.js";
@@ -129,6 +132,12 @@ export class ChannelManager {
    * registration is the saving process's job, so a stop here never deregisters.
    */
   private async reloadFromStore(instanceSlug: string, channelType?: ChannelType): Promise<void> {
+    // The Web switch gates the agent's public endpoints: the cached answer goes
+    // with the signal, instead of lasting until its TTL on this process.
+    if (!channelType || channelType === WEB_CHANNEL_TYPE) {
+      const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
+      if (instanceId) invalidateWebChannelState(instanceId);
+    }
     if (!channelType) {
       await this.stopAllForInstance(instanceSlug);
       await this.startAllForInstance(instanceSlug);

@@ -7,7 +7,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import postgres from "postgres";
 import { config } from "../config.js";
 import { db } from "../database/client.js";
@@ -15,7 +15,8 @@ import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { workspaces } from "../organizations/organization.schema.js";
 import { instances } from "../instances/schema.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
-import { setChannelConfig } from "../instances/channels.store.js";
+import { isWebChannelEnabled, setChannelConfig } from "../instances/channels.store.js";
+import { instanceChannels } from "../instances/channels.schema.js";
 import { ChannelManager } from "./channel-manager.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
@@ -65,6 +66,19 @@ describe.skipIf(!DB_AVAILABLE)("channel changes across processes (integration)",
     await saving.manager.announceChange(SLUG, "agent");
 
     await vi.waitFor(() => expect(other.manager.getAdapter(SLUG, "agent")).toBeUndefined(), { timeout: 5_000 });
+  });
+
+  it("closes the agent's public endpoints there as soon as Web is switched off through one", async () => {
+    await setChannelConfig(instanceId, "web", {}, true);
+    expect(await isWebChannelEnabled(instanceId)).toBe(true);
+    // The other process saves the switch: this one only receives the signal.
+    await db
+      .update(instanceChannels)
+      .set({ enabled: false })
+      .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, "web")));
+    await saving.manager.announceChange(SLUG, "web");
+
+    await vi.waitFor(async () => expect(await isWebChannelEnabled(instanceId)).toBe(false), { timeout: 5_000 });
   });
 
   it("stops every channel there when the agent is deleted", async () => {
