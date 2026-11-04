@@ -43,6 +43,8 @@ export default defineConfig({
   test: {
     globals: true,
     testTimeout: 10000,
+    // A test that asserts nothing passes whatever the code does.
+    expect: { requireAssertions: true },
     projects: [
       {
         extends: true,

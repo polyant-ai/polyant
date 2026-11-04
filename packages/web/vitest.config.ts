@@ -14,6 +14,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // A test that asserts nothing passes whatever the code does.
+    expect: { requireAssertions: true },
     /*
       Each test file still gets a fresh jsdom, but inside a VM context on a
       reused worker thread instead of a new process. Building jsdom per file
