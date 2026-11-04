@@ -198,7 +198,15 @@ export async function listMcpServers(instanceId: InstanceUuid): Promise<McpServe
 }
 
 export async function listEnabledMcpServers(instanceId: InstanceUuid): Promise<McpServerRecord[]> {
-  const rows = await db.select().from(instanceMcpServers).where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.enabled, true)));
+  // Ordered: the servers' order is the order of the MCP tools in every request, and
+  // the tools open the prompt-cache prefix. Without ORDER BY Postgres returns rows in
+  // physical order, which changes whenever a row is updated (health checks, edits),
+  // so the tool list reshuffled between requests and every cached prefix was lost.
+  const rows = await db
+    .select()
+    .from(instanceMcpServers)
+    .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.enabled, true)))
+    .orderBy(instanceMcpServers.slug);
   return rows.map(toRecord);
 }
 
