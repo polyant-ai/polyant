@@ -317,6 +317,95 @@ describe("MessageCoordinator", () => {
     expect(sendOutbound.mock.calls[0][3]).toBe("zombie"); // only the 2nd run delivered
   });
 
+  /**
+   * A run past its commit point has written its turn; it no longer watches the
+   * signal and returns normally even when a new fragment aborted it. Re-running
+   * its fragments stored the first message twice next to a reply nobody received.
+   */
+  it("delivers a run that committed before a new fragment aborted it, and answers the new fragment alone", async () => {
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(async (msg) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { text: `reply to ${msg.text.replaceAll("\n", "+")}`, committed: true };
+    });
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+
+    await c.onMessage(makeMsg({ text: "first" }));
+    await vi.advanceTimersByTimeAsync(2500); // run 1 started at t=2000
+    await c.onMessage(makeMsg({ text: "second" })); // aborts run 1, arms its own run at t=4500
+    await vi.advanceTimersByTimeAsync(500); // run 1 returns, committed
+    expect(sendOutbound.mock.calls.map((call) => call[3])).toEqual(["reply to first"]);
+
+    // The new fragment's run keeps its own window: finishing run 1 does not push it back.
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(handler.mock.calls.map(([m]) => m.text)).toEqual(["first", "second"]);
+
+    await vi.runAllTimersAsync();
+    expect(sendOutbound.mock.calls.map((call) => call[3])).toEqual(["reply to first", "reply to second"]);
+  });
+
+  it("re-runs the fragments of a run that returns after the abort without committing", async () => {
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(async (msg) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { text: `reply to ${msg.text.replaceAll("\n", "+")}` };
+    });
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+
+    await c.onMessage(makeMsg({ text: "first" }));
+    await vi.advanceTimersByTimeAsync(2500);
+    await c.onMessage(makeMsg({ text: "second" }));
+    await vi.runAllTimersAsync();
+
+    expect(handler.mock.calls.map(([m]) => m.text)).toEqual(["first", "first\nsecond"]);
+    expect(sendOutbound.mock.calls.map((call) => call[3])).toEqual(["reply to first+second"]);
+  });
+
+  it("keeps the new fragment's run abortable when it was queued before the committed run finished", async () => {
+    // "first" is past its commit point and ignores the signal; later runs honour it.
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(
+      async (msg, signal) => {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 5000);
+          if (msg.text === "first") return;
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+        return { text: `reply to ${msg.text.replaceAll("\n", "+")}`, committed: true };
+      },
+    );
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+
+    await c.onMessage(makeMsg({ text: "first" }));
+    await vi.advanceTimersByTimeAsync(2500); // run 1 started at t=2000, returns at t=7000
+    await c.onMessage(makeMsg({ text: "second" })); // its run is queued at t=4500, starts at t=7000
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(handler.mock.calls.map(([m]) => m.text)).toEqual(["first", "second"]);
+
+    await c.onMessage(makeMsg({ text: "third" })); // t=9500, while "second" runs
+    await vi.runAllTimersAsync();
+
+    expect(handler.mock.calls.map(([m]) => m.text)).toEqual(["first", "second", "second\nthird"]);
+    expect(sendOutbound.mock.calls.map((call) => call[3])).toEqual(["reply to first", "reply to second+third"]);
+  });
+
   it("keeps per-conversation state independent", async () => {
     const handler = vi.fn().mockResolvedValue({ text: "ok" });
     const sendOutbound = vi.fn().mockResolvedValue(undefined);
