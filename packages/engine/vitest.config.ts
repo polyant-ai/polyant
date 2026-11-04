@@ -37,7 +37,7 @@ export default defineConfig({
   plugins: [drizzleCommonJs],
   resolve: {
     alias: {
-      "@": resolve(__dirname, "src"),
+      "@": resolve(import.meta.dirname, "src"),
     },
   },
   test: {
