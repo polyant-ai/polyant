@@ -30,25 +30,17 @@ import {
   invalidateInstanceConfigCache,
   resolveEffectiveModelSelection,
 } from "../../instances/config-resolver.js";
-import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
-  embeddingSpaceChanged,
-  nextEmbeddingDim,
-  resetEmbeddingSpace,
-  type EmbeddingResetResult,
-} from "../../embeddings-gateway/embedding-reset.service.js";
-import { countMemories } from "../../memory/index.js";
-import { countDocuments } from "../../knowledge/index.js";
+  InvalidInstanceSettingsError,
+  applyInstancePatch,
+  assertModelConfig,
+  normalizeInstancePatch,
+  planInstancePatch,
+} from "../../instances/instance-update.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
-import { providerConfigs, DEFAULT_PROVIDER, fastSupported, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import { providerConfigs, fastSupported, isThinkingCapable, isReasoningAlwaysOn, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
-import {
-  assertDimSupported,
-  isKnownEmbeddingProvider,
-  knownEmbeddingProviders,
-  supportedDimsFor,
-} from "../../embeddings-gateway/config.js";
-import type { EmbeddingDim } from "../../embeddings-gateway/types.js";
+import { knownEmbeddingProviders, supportedDimsFor } from "../../embeddings-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -145,6 +137,16 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
     return { contentType: match[1], body: Buffer.from(match[2], "base64") };
   } catch {
     return null;
+  }
+}
+
+/** Run a domain check and answer its refusal as a 400 carrying the domain's message. */
+async function refusingInvalidSettings<T>(check: () => T | Promise<T>): Promise<T> {
+  try {
+    return await check();
+  } catch (err) {
+    if (err instanceof InvalidInstanceSettingsError) throw new BadRequestException(err.message);
+    throw err;
   }
 }
 
@@ -302,7 +304,7 @@ export class InstancesController {
     @WorkspaceSlug() workspaceSlug?: string,
   ) {
     this.validateSlug(body.slug);
-    this.validateModelConfig(body.provider, body.model);
+    await refusingInvalidSettings(() => assertModelConfig(body.provider, body.model));
     // Resolve the owning organization up front: the store fails closed on an
     // unresolvable one, and that is a caller-side condition (a principal with no
     // org claim on a multi-org deployment), not a server fault — surface it as a
@@ -361,74 +363,13 @@ export class InstancesController {
   @Patch(":slug")
   async update(@Param("slug") slug: string, @Body() rawBody: unknown) {
     this.validateSlug(slug);
-    const body = parseBody(PatchInstanceSchema, rawBody);
-    this.validateEmbeddingProvider(body.embeddingProvider);
-    if (body.temperature !== undefined) {
-      body.temperature = clampTemperature(body.temperature);
-    }
-    // Capture the pre-update state to detect an embedding-provider switch.
+    const body = await refusingInvalidSettings(() => normalizeInstancePatch(parseBody(PatchInstanceSchema, rawBody)));
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
-
-    // The pair the agent will run on after this PATCH is what gets checked:
-    // each field from the body when it carries one, otherwise the stored one.
-    // A PATCH that changes only the model carries no provider; one that changes
-    // only the provider keeps the stored model. Reading the body alone checked a
-    // model against a provider the caller never mentioned, and let a provider
-    // switch keep a model of the old provider — both then failed at the first
-    // message, far from this edit. `null` is a deliberate clear, so it falls
-    // through to the gateway's default. A PATCH that touches neither is left
-    // alone, so an older mismatched row still accepts unrelated edits.
-    if (body.provider !== undefined || body.model !== undefined) {
-      this.validateModelConfig(
-        body.provider !== undefined ? body.provider : before.provider,
-        body.model !== undefined ? body.model : before.model,
-      );
-    }
-
-    // Changing the embedding provider or dimension abandons the old embedding
-    // space (vectors become uninterpretable) — existing memories + knowledge are
-    // wiped, never converted. Changing only the chat provider/model does NOT
-    // trigger this. Require explicit confirmation when there is data to lose, so
-    // a Management-API caller can't destroy it silently.
-    const afterEmbeddingProvider =
-      body.embeddingProvider !== undefined ? body.embeddingProvider : before.embeddingProvider;
-    const afterEmbeddingDim = nextEmbeddingDim(before, afterEmbeddingProvider, body.embeddingDim as EmbeddingDim | undefined);
-    const willWipe = embeddingSpaceChanged(before, {
-      embeddingProvider: afterEmbeddingProvider,
-      embeddingDim: afterEmbeddingDim,
-    });
-    if (willWipe) {
-      // Only a change is checked: an older row whose stored dimension its
-      // provider no longer lists still accepts unrelated edits.
-      try {
-        assertDimSupported(afterEmbeddingProvider, afterEmbeddingDim as EmbeddingDim);
-      } catch (err) {
-        throw new BadRequestException((err as Error).message);
-      }
-    }
-    if (willWipe && !body.confirmWipe) {
-      const hasData =
-        (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
-      if (hasData) {
-        throw new BadRequestException(
-          "Changing the embedding provider or dimension permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
-        );
-      }
-    }
-
-    let instance = await updateInstance(asInstanceSlug(slug), body);
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
-    invalidateEmbeddingContext(instance.id, slug);
-
-    let wiped: EmbeddingResetResult | null = null;
-    if (willWipe) {
-      wiped = await resetEmbeddingSpace(before.slug, instance.id, afterEmbeddingDim as EmbeddingDim);
-      // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
-      invalidateEmbeddingContext(instance.id, slug);
-      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
-    }
+    const plan = await refusingInvalidSettings(() => planInstancePatch(before, body));
+    const result = await applyInstancePatch(before, body, plan);
+    if (!result) throw new NotFoundException(`Instance "${slug}" not found`);
+    const { instance, wiped } = result;
 
     return {
       instance: {
@@ -514,39 +455,6 @@ export class InstancesController {
       throw new BadRequestException(
         `Invalid slug format. Use lowercase alphanumeric, hyphens, or underscores (e.g. "my-assistant").`,
       );
-    }
-  }
-
-  /**
-   * Validate the embedder provider against the embedders this deployment can
-   * actually use — the two built in plus anything registered at boot. Not a
-   * hardcoded pair: an unlisted name would be stored, then fail every embedding
-   * call at runtime instead of failing this request.
-   */
-  private validateEmbeddingProvider(embeddingProvider?: string) {
-    if (embeddingProvider !== undefined && !isKnownEmbeddingProvider(embeddingProvider)) {
-      throw new BadRequestException(
-        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: ${knownEmbeddingProviders().join(", ")}.`,
-      );
-    }
-  }
-
-  /** Validate provider/model values against the configured providerConfigs. */
-  private validateModelConfig(provider?: string | null, model?: string | null) {
-    const validProviders = Object.keys(providerConfigs);
-    if (provider && !validProviders.includes(provider)) {
-      throw new BadRequestException(`Invalid provider "${provider}". Valid providers: ${validProviders.join(", ")}`);
-    }
-    if (model) {
-      const effectiveProvider = provider || DEFAULT_PROVIDER;
-      const cfg = providerConfigs[effectiveProvider];
-      const validModels = cfg ? [
-        ...Object.values(cfg.tiers),
-        ...Object.keys(cfg.models),
-      ] : [];
-      if (!validModels.includes(model)) {
-        throw new BadRequestException(`Invalid model "${model}" for provider "${effectiveProvider}". Valid models: ${validModels.join(", ")}`);
-      }
     }
   }
 }
