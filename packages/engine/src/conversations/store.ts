@@ -355,12 +355,6 @@ export class ConversationStore {
     };
   }
 
-  /**
-   * Replace the summary and move how far it reaches, only if no other turn moved
-   * it since `previousThrough` was read: two summaries computed from the same
-   * starting point cannot both land, and the loser's work is dropped instead of
-   * overwriting a summary that already covers more. True when it landed.
-   */
   /** How far the conversation's summary reaches now (see {@link advanceSummary}). */
   async getSummaryThrough(conversationId: string): Promise<Date | null> {
     const [row] = await db
@@ -370,6 +364,12 @@ export class ConversationStore {
     return row?.summaryThrough ?? null;
   }
 
+  /**
+   * Replace the summary and move how far it reaches, only if no other turn moved
+   * it since `previousThrough` was read: two summaries computed from the same
+   * starting point cannot both land, and the loser's work is dropped instead of
+   * overwriting a summary that already covers more. True when it landed.
+   */
   async advanceSummary(
     conversationId: string,
     summary: string,
