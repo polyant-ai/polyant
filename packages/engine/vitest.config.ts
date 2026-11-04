@@ -58,8 +58,9 @@ export default defineConfig({
             the FIRST setup file: it gives every file fresh engine modules, real
             timers and the initial env. Without it state leaks from one file to
             the next, and nothing fails at the moment it is removed. The
-            test:unit script shuffles the file order and prints the seed, so a
-            new leak shows up as a failure that --sequence.seed reproduces.
+            test:unit script shuffles files and the tests inside them and
+            prints the seed, so a new dependency on order shows up as a
+            failure that --sequence.seed reproduces.
           */
           isolate: false,
           setupFiles: ["./src/test-file-reset.setup.ts", "./src/test-setup.ts"],

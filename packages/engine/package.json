@@ -28,8 +28,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:unit": "vitest run --project unit --sequence.shuffle.files",
-    "test:unit:shuffle": "vitest run --project unit --sequence.shuffle",
+    "test:unit": "vitest run --project unit --sequence.shuffle",
     "test:integration": "vitest run --project integration"
   },
   "dependencies": {
