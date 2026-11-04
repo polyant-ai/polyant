@@ -12,11 +12,8 @@ const { mockResolveConfig } = vi.hoisted(() => ({ mockResolveConfig: vi.fn() }))
 
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
-    ensureConversation: vi.fn(async () => ({ created: false })),
-    getRecentMessages: vi.fn(async () => []),
-    getRecentMessageRows: vi.fn(async () => []),
-    getContextPrompt: vi.fn(async () => null),
-    getSummary: vi.fn(async () => null),
+    openConversationTurn: vi.fn(async () => ({ created: false, contextPrompt: null, summary: null, summaryThrough: null })),
+    getHistoryWindow: vi.fn(async () => []),
   },
 }));
 vi.mock("./conversations/state.buffer.js", () => ({
