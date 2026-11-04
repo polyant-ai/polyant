@@ -202,3 +202,80 @@ describe("providers without cache markers receive the same system text as before
     expect(systemTexts(body)).toEqual([expected]);
   });
 });
+
+describe("cache breakpoints of a multi-step turn with conversation system text and the user turn cached", () => {
+  // Anthropic and Bedrock refuse a request with more than four breakpoints. With
+  // history and the user turn cached, a turn already sits at four from its
+  // second step: the conversation's own system text must not add a fifth.
+  const STEPS = 4;
+  const turn: ModelMessage[] = [
+    { role: "system", content: INJECTED_A },
+    { role: "user", content: "Where is my order?" },
+    { role: "assistant", content: "Which one?" },
+    { role: "user", content: "Number 42" },
+  ];
+  const toolsThatAnswer = {
+    lookup: tool({
+      description: TOOLS.lookup.description,
+      inputSchema: TOOLS.lookup.inputSchema,
+      execute: async () => "shipped",
+    }),
+  };
+
+  /** Each request asks for a tool until the last one, which answers. */
+  function stubToolCalls(toolCallFor: (url: string, call: number) => unknown): void {
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      sentBodies.push(JSON.parse(String(init?.body)));
+      const body = sentBodies.length < STEPS ? toolCallFor(url, sentBodies.length) : fakeResponseFor(url);
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+  }
+
+  async function runTurn(provider: typeof AnthropicProvider, modelId: string, apiKeys: ChatRequest["apiKeys"]) {
+    await provider.chat(
+      {
+        tier: "standard",
+        system: AGENT_SYSTEM,
+        messages: turn,
+        tools: toolsThatAnswer,
+        maxSteps: STEPS,
+        apiKeys,
+        cacheConfig: { enabled: true, ttl: "5m", userTurn: true },
+      },
+      modelId,
+    );
+    expect(sentBodies).toHaveLength(STEPS);
+  }
+
+  it("Anthropic: never above four, and the conversation's text stays unmarked", async () => {
+    stubToolCalls((_url, call) => ({
+      id: `msg_${call}`, type: "message", role: "assistant", model: "claude",
+      content: [{ type: "tool_use", id: `toolu_${call}`, name: "lookup", input: { ref: "42" } }],
+      stop_reason: "tool_use", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await runTurn(AnthropicProvider, "claude-sonnet-4-6", { anthropic: "test" });
+
+    const counts = sentBodies.map((body) => anthropicSegments(body).filter((s) => s.breakpoint).length);
+    expect(counts).toEqual([3, 4, 4, 4]);
+    for (const body of sentBodies) {
+      const own = anthropicSegments(body).find((s) => s.label.startsWith("system") && JSON.parse(s.bytes).text === INJECTED_A);
+      expect(own?.breakpoint).toBe(false);
+    }
+  });
+
+  it("Bedrock: never above four, and the conversation's text stays unmarked", async () => {
+    stubToolCalls((_url, call) => ({
+      output: { message: { role: "assistant", content: [{ toolUse: { toolUseId: `t${call}`, name: "lookup", input: { ref: "42" } } }] } },
+      stopReason: "tool_use", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, metrics: { latencyMs: 1 },
+    }));
+    await runTurn(BedrockProvider, "eu.anthropic.claude-sonnet-4-6", { bedrock_api_key: "test", bedrock_region: "eu-west-1" });
+
+    const counts = sentBodies.map((body) => bedrockSegments(body).filter((s) => s.breakpoint).length);
+    expect(counts).toEqual([3, 4, 4, 4]);
+    for (const body of sentBodies) {
+      const own = bedrockSegments(body).find((s) => s.label.startsWith("system") && JSON.parse(s.bytes).text === INJECTED_A);
+      expect(own?.breakpoint).toBe(false);
+    }
+  });
+});
