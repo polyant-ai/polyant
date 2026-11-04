@@ -5,6 +5,7 @@ import { extname } from "path";
 import { eq, and, desc, sql, inArray, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
+import { completeVectorScanSetting } from "../database/vector-scan.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -552,34 +553,6 @@ export async function insertChunksAndFinalize(
 // ── Search ─────────────────────────────────────────────────────────
 
 /**
- * Whether this database's pgvector can keep walking its HNSW index until a
- * filtered query has its rows (`hnsw.iterative_scan`, pgvector 0.8.0). Read once
- * per process from the installed extension version: a server library newer
- * than the installed version only costs the exact fallback below.
- */
-let hnswIterativeScan: Promise<boolean> | undefined;
-
-function hnswIterativeScanAvailable(): Promise<boolean> {
-  hnswIterativeScan ??= db
-    .execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)
-    .then((rows) => {
-      const version = (rows as unknown as Array<{ extversion?: string }>)[0]?.extversion ?? "";
-      const [major = 0, minor = 0] = version.split(".").map(Number);
-      return major > 0 || minor >= 8;
-    })
-    .catch((err: unknown) => {
-      hnswIterativeScan = undefined;
-      throw err;
-    });
-  return hnswIterativeScan;
-}
-
-/** Pin the capability read from the database; `undefined` reads it again. */
-export function _setHnswIterativeScanForTests(available: boolean | undefined): void {
-  hnswIterativeScan = available === undefined ? undefined : Promise.resolve(available);
-}
-
-/**
  * Semantic search: find nearest chunks and return with parent document filename.
  * Used as one of the two backends fused by `searchKnowledge()` in search.ts.
  *
@@ -601,14 +574,10 @@ export async function searchByVector(
 ): Promise<KnowledgeSearchResult[]> {
   const activeCol = activeKnowledgeChunkColumn(dimensions);
   const distance = cosineDistance(activeCol, queryEmbedding);
-  const iterativeScan = await hnswIterativeScanAvailable();
+  const completeScan = await completeVectorScanSetting();
 
   const rows = await db.transaction(async (tx) => {
-    // SET LOCAL lasts until the end of this transaction; outside one it would
-    // be a silent no-op.
-    await tx.execute(
-      iterativeScan ? sql`SET LOCAL hnsw.iterative_scan = strict_order` : sql`SET LOCAL enable_indexscan = off`,
-    );
+    await tx.execute(completeScan);
     return await tx
       .select({
         id: knowledgeChunks.id,

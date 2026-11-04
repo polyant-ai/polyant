@@ -25,7 +25,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { queryClient } from "../database/client.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
-import { _setHnswIterativeScanForTests, searchByVector } from "./store.js";
+import { _setHnswIterativeScanForTests } from "../database/vector-scan.js";
+import { searchByVector } from "./store.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const RUN = Date.now();
