@@ -19,14 +19,31 @@ vi.mock("../../instances/config-resolver.js", () => ({
 
 const agent = asInstanceSlug("agent");
 
+/** Whether a query condition carries `value` among its parameters. */
+function mentions(condition: unknown, value: string, seen = new WeakSet<object>()): boolean {
+  if (condition === value) return true;
+  if (!condition || typeof condition !== "object" || seen.has(condition)) return false;
+  seen.add(condition);
+  return Object.values(condition).some((item) => mentions(item, value, seen));
+}
+
+/** A db that keeps the rows it was given, and applies an update to the row whose id it names. */
 function recordingDb() {
-  const written: AuditEntry[] = [];
+  const written: (AuditEntry & { id?: string })[] = [];
   return {
     written,
     insert: () => ({
       values: async (rows: unknown) => {
-        written.push(...(rows as AuditEntry[]));
+        written.push(...(rows as AuditEntry[]).map((row) => ({ ...row })));
       },
+    }),
+    update: () => ({
+      set: (changes: Partial<AuditEntry>) => ({
+        where: async (condition: unknown) => {
+          const row = written.find((r) => r.id !== undefined && mentions(condition, r.id));
+          if (row) Object.assign(row, changes);
+        },
+      }),
     }),
   };
 }
@@ -114,6 +131,24 @@ describe("wrapToolWithAudit — the audit row of a tool call", () => {
     expect(db.written).toHaveLength(1);
     expect(db.written[0]!.output).toContain("output of E");
     expect(db.written[0]!.durationMs).toEqual(expect.any(Number));
+  });
+
+  // The audit trail matters most when a tool hangs or the process dies while
+  // it runs; a row held until the call ended was then never written.
+  it("writes the row while the tool is still running", async () => {
+    const g = heldTool("conv-G");
+    const run = (await wrap(g.tool, "conv-G")).execute!({}, {} as never);
+    await tick();
+    await auditStore.flush();
+
+    expect(db.written.map((r) => r.conversationId)).toEqual(["conv-G"]);
+    expect(db.written[0]!.durationMs).toBeUndefined();
+
+    g.release({ result: "output of G" });
+    await run;
+    await auditStore.flush();
+    expect(db.written).toHaveLength(1);
+    expect(db.written[0]!.output).toContain("output of G");
   });
 
   it("stamps the row with the moment the tool recorded it", async () => {

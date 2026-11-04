@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { toolAuditLogs } from "./audit.schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
@@ -20,19 +22,30 @@ export interface AuditEntry {
   output?: string;
 }
 
-/** A buffered row: the entry plus the moment it was recorded, which is the row's `created_at`. */
-type AuditRow = AuditEntry & { createdAt: Date };
+/**
+ * A buffered row: the entry plus the moment it was recorded, which is the row's `created_at`,
+ * and its id, chosen here so the row can be completed after it is written.
+ */
+type AuditRow = AuditEntry & { id: string; createdAt: Date };
 
 /**
- * One tool call in progress. The rows its tool records are held here and written when the call
- * ends, carrying that call's duration and output. Matching rows to calls by tool and agent after
- * the fact gave one conversation's output to another's row.
+ * One tool call in progress, and the last row its tool recorded: written at once like any other,
+ * then completed with that call's duration and output when the call ends. Holding the rows until
+ * then lost them for a tool that never returned or a process that died while it ran. Matching
+ * rows to calls by tool and agent after the fact gave one conversation's output to another's row.
  */
 interface ToolCall {
   toolName: string;
   instanceId: InstanceSlug;
-  rows: AuditRow[];
+  last?: AuditRow;
   ended: boolean;
+}
+
+/** The update `end` writes once a row's insert has started; the shared database client provides it. */
+interface UpdatableDb {
+  update(table: typeof toolAuditLogs): {
+    set(change: Partial<AuditRow>): { where(condition: ReturnType<typeof eq>): Promise<unknown> };
+  };
 }
 
 const currentToolCall = new AsyncLocalStorage<ToolCall>();
@@ -85,35 +98,41 @@ class AuditStore {
     }
     const row: AuditRow = {
       ...entry,
+      id: randomUUID(),
       action: entry.action.slice(0, ACTION_MAX_LEN),
       createdAt: new Date(),
     };
     const call = currentToolCall.getStore();
     if (call && !call.ended && call.toolName === row.toolName && call.instanceId === row.instanceId) {
-      call.rows.push(row);
-      return;
+      call.last = row;
     }
     this.queue.push(row);
   }
 
   /**
-   * Run one tool call. The rows its tool records while it runs are written when `end` is called,
-   * the last of them with the call's `durationMs` and `output` unless the tool set its own. A row
-   * recorded after `end` (work the tool left running) is written as it is.
+   * Run one tool call. The rows its tool records while it runs are written as they come; when
+   * `end` is called, the last of them gets the call's `durationMs` and `output` unless the tool set
+   * its own. A row recorded after `end` (work the tool left running) is written as it is.
    */
   beginToolCall(toolName: string, instanceId: InstanceSlug) {
-    const call: ToolCall = { toolName, instanceId, rows: [], ended: false };
+    const call: ToolCall = { toolName, instanceId, ended: false };
     return {
       run: <T>(execute: () => Promise<T>): Promise<T> => currentToolCall.run(call, execute),
       end: (durationMs: number, output?: string) => {
         if (call.ended) return;
         call.ended = true;
-        const last = call.rows.at(-1);
-        if (last) {
-          last.durationMs ??= durationMs;
-          if (output !== undefined) last.output ??= output;
-        }
-        for (const row of call.rows) this.queue.push(row);
+        const last = call.last;
+        if (!last) return;
+        const change: Partial<AuditRow> = {
+          ...(last.durationMs == null ? { durationMs } : {}),
+          ...(output !== undefined && last.output == null ? { output } : {}),
+        };
+        if (Object.keys(change).length === 0) return;
+        void this.queue
+          .amend(last, change, (db) =>
+            (db as unknown as UpdatableDb).update(toolAuditLogs).set(change).where(eq(toolAuditLogs.id, last.id)),
+          )
+          .catch((err: unknown) => log.warn("audit", `could not record the duration of a "${last.toolName}" call`, err));
       },
     };
   }
