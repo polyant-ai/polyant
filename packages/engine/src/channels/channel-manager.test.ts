@@ -5,8 +5,9 @@ import { ChannelManager } from "./channel-manager.js";
 import type { MessageHandler } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
-const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister, mockTelegramShutdown, mockEnsureTelegramWebhookSecret } = vi.hoisted(() => ({
+const { mockFindInstanceBySlug, mockResolveInstanceConfig, mockTelegramInitialize, mockTelegramDeregister, mockTelegramShutdown, mockEnsureTelegramWebhookSecret } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
+  mockResolveInstanceConfig: vi.fn(),
   mockEnsureTelegramWebhookSecret: vi.fn().mockResolvedValue("minted-secret"),
   mockTelegramShutdown: vi.fn().mockResolvedValue(undefined),
   mockTelegramInitialize: vi.fn().mockResolvedValue(undefined),
@@ -14,6 +15,8 @@ const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister, 
 }));
 
 vi.mock("../instances/store.js", () => ({ findInstanceBySlug: mockFindInstanceBySlug }));
+// The agent's resolved configuration, which the turn reads anyway and which is cached.
+vi.mock("../instances/config-resolver.js", () => ({ resolveInstanceConfig: mockResolveInstanceConfig }));
 vi.mock("../platform/platform-settings.store.js", () => ({
   resolvePlatformSettings: vi.fn().mockResolvedValue({ baseUrl: "https://engine.example.test" }),
 }));
@@ -60,6 +63,7 @@ describe("ChannelManager", () => {
 
   beforeEach(() => {
     mockFindInstanceBySlug.mockReset();
+    mockResolveInstanceConfig.mockReset();
     mockTelegramInitialize.mockClear();
     mockTelegramDeregister.mockReset().mockResolvedValue(undefined);
     mockTelegramShutdown.mockClear();
@@ -218,11 +222,43 @@ describe("ChannelManager", () => {
     });
   });
 
+  it("waits the agent's configured debounce without reading the agent row again for each burst", async () => {
+    vi.useFakeTimers();
+    try {
+      mockResolveInstanceConfig.mockResolvedValue({
+        messageTimings: { softDebounceMs: 40, typingDelayMs: 60_000, maxRestarts: 3 },
+      });
+      // An empty reply sends nothing, so outbound delivery reads nothing either.
+      const pipeline = vi.fn().mockResolvedValue({ text: "" });
+      manager.setMessageHandler(pipeline);
+      await manager.startChannel("my-instance", "telegram", { botToken: "test-token" });
+      const onMessage = mockTelegramInitialize.mock.calls.at(-1)![0] as MessageHandler;
+      const fragment = (channelId: string) => ({
+        channelType: "telegram" as const,
+        channelId,
+        instanceId: asInstanceSlug("my-instance"),
+        text: "hello",
+        metadata: {},
+      });
+
+      await onMessage(fragment("chat-1"));
+      await onMessage(fragment("chat-2"));
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(pipeline).toHaveBeenCalledTimes(2);
+      expect(mockFindInstanceBySlug).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("accepts an inbound fragment with default timings when the agent lookup fails", async () => {
     vi.useFakeTimers();
     const errorLog = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       mockFindInstanceBySlug.mockRejectedValue(new Error("database unavailable"));
+      mockResolveInstanceConfig.mockRejectedValue(new Error("database unavailable"));
       await manager.startChannel("my-instance", "telegram", { botToken: "test-token" });
       const onMessage = mockTelegramInitialize.mock.calls[0][0] as MessageHandler;
 

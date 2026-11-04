@@ -177,13 +177,14 @@ following happen. Run one replica, or accept these effects:
 - **Live views miss writes made elsewhere.** Following a conversation live and
   the Playground's activity feed listen to events raised in the process that
   handled the write. A turn answered by another replica appears only on reload.
-- **A channel change reaches only the replica that saved it.** Saving a
-  Telegram, Slack or WhatsApp channel starts its adapter on the replica that
-  handled the request. The others keep the previous adapter, or none for a new
-  channel, until they restart: their webhooks answer 404 for a new channel and
-  refuse a rotated Telegram token's secret, which the saving replica has
-  already registered with Telegram. Restart every replica after changing a
-  channel; each one registers the Telegram webhook again as it starts.
+- **A channel change reaches the other replicas through Postgres.** Saving a
+  Telegram, Slack or WhatsApp channel restarts its adapter on the replica that
+  handled the request, which then notifies the others (`LISTEN`/`NOTIFY`), and
+  they restart theirs. A notification sent while a replica is reconnecting to
+  the database is lost: that replica keeps the previous adapter, or none for a
+  new channel, until it restarts, and its webhooks answer 404 for a new channel
+  or refuse a rotated Telegram token's secret. Restart that replica if a
+  channel's deliveries keep failing after a change.
 - **Fragments of one message burst can be answered separately.** WhatsApp and
   Telegram messages that arrive close together are merged into one turn per
   process. Fragments that land on different replicas each get their own reply.
@@ -208,6 +209,17 @@ following happen. Run one replica, or accept these effects:
   and another replica can start the task again while the first run is still
   going; one replica alone never does. Give each task a run deadline it does
   not reach.
+
+A rolling deploy stops an engine in two steps. Behind a load balancer, the
+replica first stops receiving new requests for the load balancer's
+deregistration delay (connection draining); only then does it receive
+`SIGTERM`. From there the engine gives open requests and the channel turns it
+has already acknowledged ten seconds to finish, then closes. Set the
+deregistration delay longer than your longest turn, and the platform's stop
+timeout above those ten seconds: a turn that outlasts the delay plus the ten
+seconds is cut. A stop without draining (a manual stop, a rollback that
+replaces the task at once) cuts whatever is still running after the ten
+seconds, and a crash or an out-of-memory kill cuts it at once.
 
 ### Review agents without a pinned model
 
