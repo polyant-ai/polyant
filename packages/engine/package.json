@@ -24,7 +24,7 @@
     "db:migrate": "tsx src/database/migrate.ts",
     "db:snapshot": "tsx scripts/write-schema-snapshot.ts",
     "db:studio": "drizzle-kit studio",
-    "lint": "eslint src/ scripts/ tests/",
+    "lint": "eslint src/ scripts/ tests/ --max-warnings 454",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

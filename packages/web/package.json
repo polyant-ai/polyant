@@ -20,7 +20,7 @@
     "prebuild": "tsx scripts/generate-changelog.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 20",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
