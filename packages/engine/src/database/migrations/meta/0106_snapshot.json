@@ -1845,6 +1845,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "exact_replay": {
+          "name": "exact_replay",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3192,6 +3198,13 @@
           "notNull": true,
           "default": "'1h'"
         },
+        "cache_user_turn": {
+          "name": "cache_user_turn",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "intermediate_text": {
           "name": "intermediate_text",
           "type": "text",
@@ -3211,6 +3224,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "tool_history_replay": {
+          "name": "tool_history_replay",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'compact'"
         },
         "debug_enabled": {
           "name": "debug_enabled",
@@ -5996,6 +6016,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "0be6739f-4288-4268-84aa-063dd76bd1b4",
+  "id": "8a170681-2a44-49e3-b674-2d7d2f9f06e9",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }
