@@ -79,8 +79,8 @@ export default defineConfig({
       A RATCHET, not a target.
 
       These floors sit about two points under what the unit tier actually
-      covered when they were last set, on 2026-10-14 (statements 73.09,
-      branches 66.68, functions 69.99, lines 74.85, measured with
+      covered when they were last set, on 2026-11-04 (statements 75.85,
+      branches 69.58, functions 73.64, lines 77.56, measured with
       `npm run test:unit -- --coverage` over every source file). They are not an aspiration:
       their only job is to stop a PR from LOWERING coverage. The buffer exists so
       a refactor that legitimately deletes covered code does not fail the build.
@@ -97,7 +97,10 @@ export default defineConfig({
       // from it.
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/test-setup.ts", "src/test-file-reset.setup.ts", "src/test-utils.ts", "src/database/test-db.ts"],
-      thresholds: { statements: 71, branches: 64, functions: 68, lines: 72 },
+      thresholds: { statements: 73, branches: 67, functions: 71, lines: 75 },
+      // The totals are what the ratchet reads; the per-file table and the HTML
+      // report filled the CI log and nobody opened them.
+      reporter: ["text-summary"],
     },
   },
 });
