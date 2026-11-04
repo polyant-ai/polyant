@@ -40,7 +40,6 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 import {
   appendAgentDocument,
   upsertAgentDocument,
-  insertChunks,
   insertChunksAndFinalize,
   searchByVector,
   resolveUniqueFilename,
@@ -192,48 +191,6 @@ describe("appendAgentDocument", () => {
   });
 });
 
-describe("insertChunks", () => {
-  const chunk: InsertChunkInput = {
-    documentId: "doc-1",
-    instanceId: "inst-1",
-    content: "hello world",
-    embedding: [0.1, 0.2],
-    chunkIndex: 0,
-  };
-
-  it("inserts a 1536-dim embedding into `embedding`, NULLs `embedding_1024`", async () => {
-    const insChain = createChainMock([]);
-    mockDb.insert.mockReturnValue(insChain);
-
-    const count = await insertChunks([chunk], 1536, "openai");
-
-    expect(count).toBe(1);
-    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(values[0].embedding).toEqual([0.1, 0.2]);
-    expect(values[0].embedding1024).toBeNull();
-    expect(values[0].embeddingProvider).toBe("openai");
-  });
-
-  it("inserts a 1024-dim embedding into `embedding_1024`, NULLs `embedding`", async () => {
-    const insChain = createChainMock([]);
-    mockDb.insert.mockReturnValue(insChain);
-
-    const count = await insertChunks([{ ...chunk, embedding: [0.3, 0.4] }], 1024, "bedrock");
-
-    expect(count).toBe(1);
-    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(values[0].embedding).toBeNull();
-    expect(values[0].embedding1024).toEqual([0.3, 0.4]);
-    expect(values[0].embeddingProvider).toBe("bedrock");
-  });
-
-  it("returns 0 and skips the insert for an empty batch", async () => {
-    const count = await insertChunks([], 1024, "bedrock");
-    expect(count).toBe(0);
-    expect(mockDb.insert).not.toHaveBeenCalled();
-  });
-});
-
 describe("insertChunksAndFinalize", () => {
   const chunk: InsertChunkInput = {
     documentId: "doc-1",
@@ -258,6 +215,21 @@ describe("insertChunksAndFinalize", () => {
     expect(values[0].embedding1024).toEqual([0.5, 0.6]);
     expect(values[0].embeddingProvider).toBe("bedrock");
     expect(mockDb.update).toHaveBeenCalled();
+  });
+
+  it("stores a 1536-dim embedding in `embedding` and NULLs `embedding_1024`", async () => {
+    mockDb.select.mockReturnValue(createChainMock([{ id: "doc-1" }]));
+    mockDb.delete.mockReturnValue(createChainMock([]));
+    const insChain = createChainMock([]);
+    mockDb.insert.mockReturnValue(insChain);
+    mockDb.update.mockReturnValue(createChainMock([]));
+
+    await insertChunksAndFinalize("doc-1", [chunk], 1536, "openai", "hash");
+
+    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(values[0].embedding).toEqual([0.5, 0.6]);
+    expect(values[0].embedding1024).toBeNull();
+    expect(values[0].embeddingProvider).toBe("openai");
   });
 
   // One statement carrying every vector of a large document (thousands of

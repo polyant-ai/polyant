@@ -563,9 +563,12 @@ export const api = {
       ),
   },
   knowledge: {
-    /** One page of the agent's documents; `nextOffset` names the next page, null after the last. */
+    /**
+     * One page of the agent's documents; `nextOffset` names the next page, null
+     * after the last. `total` and `failed` count all of the agent's documents.
+     */
     list: (slug: string, page?: { limit?: number; offset?: number }) =>
-      request<{ documents: KnowledgeDocument[]; nextOffset?: number | null }>(
+      request<{ documents: KnowledgeDocument[]; nextOffset?: number | null; total: number; failed: number }>(
         withQuery(urlPath`/api/instances/${slug}/knowledge`, page ?? {}),
       ),
     get: (slug: string, docId: string) =>

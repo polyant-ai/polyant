@@ -5,7 +5,7 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 
 const store = vi.hoisted(() => ({
   hashContent: (text: string) => `hash:${text}`,
-  getDocument: vi.fn(),
+  getDocumentFilename: vi.fn(),
   insertChunksAndFinalize: vi.fn(),
   updateDocumentStatus: vi.fn(),
   touchDocument: vi.fn(),
@@ -24,7 +24,7 @@ import { processDocument } from "./ingestion.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  store.getDocument.mockResolvedValue({ filename: "a.txt" });
+  store.getDocumentFilename.mockResolvedValue("a.txt");
   store.updateDocumentStatus.mockResolvedValue(true);
   store.touchDocument.mockResolvedValue(undefined);
   store.insertChunksAndFinalize.mockResolvedValue(250);

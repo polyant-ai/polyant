@@ -176,14 +176,27 @@ export async function getDocument(docId: string): Promise<KnowledgeDocument | un
   return doc as KnowledgeDocument | undefined;
 }
 
-/** Delete document + all its chunks (CASCADE via FK, but explicit for safety). */
-export async function deleteDocument(docId: string): Promise<boolean> {
-  await db.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, docId));
-  const result = await db
-    .delete(knowledgeDocuments)
+/** A document's filename, without reading its content. */
+export async function getDocumentFilename(docId: string): Promise<string | undefined> {
+  const [doc] = await db
+    .select({ filename: knowledgeDocuments.filename })
+    .from(knowledgeDocuments)
     .where(eq(knowledgeDocuments.id, docId))
-    .returning();
-  return result.length > 0;
+    .limit(1);
+  return doc?.filename;
+}
+
+/**
+ * Delete a document of this agent; its chunks go with it (the foreign key
+ * cascades). Scoped to the agent: a document of another agent is not found.
+ * Returns whether it existed.
+ */
+export async function deleteDocument(docId: string, instanceId: InstanceSlug): Promise<boolean> {
+  const deleted = await db
+    .delete(knowledgeDocuments)
+    .where(and(eq(knowledgeDocuments.id, docId), eq(knowledgeDocuments.instanceId, instanceId)))
+    .returning({ id: knowledgeDocuments.id });
+  return deleted.length > 0;
 }
 
 /**
@@ -485,19 +498,6 @@ function chunkRowValues(c: InsertChunkInput, dimensions: EmbeddingDim, provider:
   };
 }
 
-export async function insertChunks(
-  chunks: InsertChunkInput[],
-  dimensions: EmbeddingDim,
-  provider: EmbeddingProvider,
-): Promise<number> {
-  if (chunks.length === 0) return 0;
-
-  await db.insert(knowledgeChunks).values(
-    chunks.map((c) => chunkRowValues(c, dimensions, provider)),
-  );
-  return chunks.length;
-}
-
 /** Chunks per INSERT statement when a document's chunks are stored. */
 const INSERT_BLOCK_SIZE = 500;
 
@@ -660,6 +660,18 @@ export async function countChunks(instanceId: InstanceSlug): Promise<number> {
     .from(knowledgeChunks)
     .where(eq(knowledgeChunks.instanceId, instanceId));
   return Number(row.count);
+}
+
+/** How many documents an agent holds, and how many of them failed to index. */
+export async function countDocumentOutcomes(instanceId: InstanceSlug): Promise<{ total: number; failed: number }> {
+  const [row] = await db
+    .select({
+      total: drizzleCount(),
+      failed: sql<number>`count(*) filter (where ${knowledgeDocuments.status} = 'error')`.mapWith(Number),
+    })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.instanceId, instanceId));
+  return { total: Number(row.total), failed: row.failed };
 }
 
 /** Count knowledge documents owned by an instance (used to enforce the per-instance cap). */

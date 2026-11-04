@@ -7,6 +7,8 @@ import { connectWithTimeout, type McpConnection } from "./mcp-connect.js";
 import { acquireMcpConnection } from "./mcp-client-pool.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
+import { resolveInstanceUuid } from "../../../instances/instance-meta.js";
+import { findInstanceBySlug } from "../../../instances/store.js";
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, usesSharedAccount, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
@@ -96,11 +98,10 @@ function capModelToolName(name: string): string {
   return name.length > MAX_MCP_TOOL_NAME_LENGTH ? name.slice(0, MAX_MCP_TOOL_NAME_LENGTH) : name;
 }
 
-export async function buildMcpTools(opts: {
+interface McpTurnOptions {
   instanceUuid: InstanceUuid;
   instanceSlug: InstanceSlug;
   conversationId?: string;
-  abortSignal?: AbortSignal;
   /**
    * Whether this call site may hand an oauth server an authorize link and persist
    * tokens/PKCE verifiers against `conversationId`. Only the conversational entry
@@ -114,87 +115,145 @@ export async function buildMcpTools(opts: {
    * forgets to set it doesn't silently regress into that pile-up.
    */
   allowOAuth?: boolean;
+}
+
+/** How a turn reaches one server, or why it skips it (`reason` is logged when set). */
+type ServerConnection =
+  | { skip: true; reason?: string }
+  | {
+      skip?: false;
+      /** Shared across turns through the pool; false for a per-conversation OAuth client. */
+      pooled: boolean;
+      provider?: McpVaultOAuthProvider;
+      connect: (abortSignal?: AbortSignal) => Promise<McpConnection>;
+    };
+
+async function serverConnection(server: McpServerRecord, opts: McpTurnOptions): Promise<ServerConnection> {
+  // The auth mode is decided ONCE here, in the branch that also enforces the
+  // oauth preconditions — rather than gating above and re-testing the mode in
+  // a ternary below, which read as two decisions that could drift apart.
+  let provider: McpVaultOAuthProvider | undefined;
+  // A shared account's tokens belong to the agent, not to this conversation,
+  // so its connection is pooled like a static one.
+  let pooled = true;
+  if (server.authMode === "oauth") {
+    if (!opts.allowOAuth) {
+      return { skip: true, reason: "oauth not permitted on this call path (ephemeral/non-interactive conversation)" };
+    }
+    if (usesSharedAccount(server.authMode, server.config)) {
+      // Nobody in the conversation can authorize the agent's account, so a
+      // server waiting for an admin offers nothing rather than a connect link.
+      if (!server.sharedAccount) return { skip: true, reason: "shared account not connected" };
+      provider = new McpSharedOAuthProvider({
+        baseUrl: (await resolvePlatformSettings()).baseUrl,
+        instanceUuid: opts.instanceUuid,
+        instanceSlug: opts.instanceSlug,
+        serverSlug: server.slug,
+        config: server.config,
+        mode: { kind: "turn" },
+      });
+    } else {
+      // No stable conversation to persist tokens against (defensive — allowOAuth
+      // callers always pass one).
+      if (!opts.conversationId) return { skip: true };
+      pooled = false;
+      provider = makeMcpOAuthProvider({
+        baseUrl: (await resolvePlatformSettings()).baseUrl,
+        instanceUuid: opts.instanceUuid,
+        instanceSlug: opts.instanceSlug,
+        conversationId: opts.conversationId,
+        serverSlug: server.slug,
+        config: server.config,
+      });
+    }
+  }
+  const transport = provider
+    ? { type: "http" as const, url: server.url, authProvider: provider }
+    : { type: "http" as const, url: server.url, headers: staticHeaders(server) };
+  const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
+  // Re-check the URL on every connect, resolved addresses included. The
+  // write-time check in the controller approved this URL once; the name
+  // behind it can have been repointed at an internal host since (see
+  // `assertSafeMcpUrlResolved`). A rejection skips the server — same
+  // degradation as an unreachable one. A turn served by a pooled connection
+  // opens nothing, so it resolves nothing; the pool's renewal re-checks.
+  const connect = async (abortSignal?: AbortSignal) => {
+    try {
+      await assertSafeMcpUrlResolved(server.url);
+    } catch (e) {
+      mcpLog.error("mcp", `server '${server.slug}': URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
+      throw e;
+    }
+    return connectWithTimeout(transport, mcpConnectTimeoutMs, abortSignal);
+  };
+  return { pooled, provider, connect };
+}
+
+/**
+ * Starts a turn's MCP work before the turn needs it: reads the agent's enabled
+ * servers and starts opening their pooled connections, waiting for neither. The
+ * context reads and the pre-model hooks run meanwhile. Pass the result to
+ * `buildMcpTools` as `servers`: the turn then reads the list once and leases the
+ * connections already in flight. A turn that stops before the model call leaves
+ * them in the pool for the next turn, as any turn does; per-conversation OAuth
+ * clients are not opened here, since only the turn that uses one can close it.
+ */
+export function startMcpConnections(opts: Omit<McpTurnOptions, "instanceUuid">): Promise<McpServerRecord[]> {
+  const started = (async () => {
+    const instanceUuid =
+      (await resolveInstanceUuid(opts.instanceSlug)) ?? (await findInstanceBySlug(opts.instanceSlug))?.id;
+    if (!instanceUuid) return { instanceUuid, servers: [] };
+    return { instanceUuid, servers: await listEnabledMcpServers(instanceUuid) };
+  })();
+  void started
+    .then(async ({ instanceUuid, servers }) => {
+      if (!instanceUuid) return;
+      for (const server of servers) {
+        const connection = await serverConnection(server, { ...opts, instanceUuid });
+        if (connection.skip || !connection.pooled) continue;
+        // A lease taken and given back at once: the connection stays pooled.
+        acquireMcpConnection(server, () => connection.connect()).release();
+      }
+    })
+    // The turn meets any failure again when it builds its tools.
+    .catch(() => { /* best-effort */ });
+  const servers = started.then((s) => s.servers);
+  // A turn that stops before the model call never reads the list: its failure
+  // must not surface as an unhandled rejection. `buildMcpTools` still sees it.
+  servers.catch(() => { /* handled where it is awaited */ });
+  return servers;
+}
+
+export async function buildMcpTools(opts: McpTurnOptions & {
+  abortSignal?: AbortSignal;
+  /** The server list from `startMcpConnections`; read here when absent. */
+  servers?: Promise<McpServerRecord[]>;
 }): Promise<McpBuildResult> {
   const tools: Record<string, Tool> = {};
   const clients: Array<{ close: () => Promise<void> }> = [];
   const leases: Array<{ release: () => void }> = [];
-  const servers = await listEnabledMcpServers(opts.instanceUuid);
+  const servers = await (opts.servers ?? listEnabledMcpServers(opts.instanceUuid));
 
   for (const server of servers) {
-    // The auth mode is decided ONCE here, in the branch that also enforces the
-    // oauth preconditions — rather than gating above and re-testing the mode in
-    // a ternary below, which read as two decisions that could drift apart.
     let provider: McpVaultOAuthProvider | undefined;
-    // A shared account's tokens belong to the agent, not to this conversation,
-    // so its connection is pooled like a static one.
-    let pooled = true;
-    if (server.authMode === "oauth") {
-      if (!opts.allowOAuth) {
-        mcpLog.warn("mcp", `server '${server.slug}' skipped: oauth not permitted on this call path (ephemeral/non-interactive conversation)`);
+    try {
+      const connection = await serverConnection(server, opts);
+      if (connection.skip) {
+        if (connection.reason) mcpLog.warn("mcp", `server '${server.slug}' skipped: ${connection.reason}`);
         continue;
       }
-      if (usesSharedAccount(server.authMode, server.config)) {
-        // Nobody in the conversation can authorize the agent's account, so a
-        // server waiting for an admin offers nothing rather than a connect link.
-        if (!server.sharedAccount) {
-          mcpLog.warn("mcp", `server '${server.slug}' skipped: shared account not connected`);
-          continue;
-        }
-        provider = new McpSharedOAuthProvider({
-          baseUrl: (await resolvePlatformSettings()).baseUrl,
-          instanceUuid: opts.instanceUuid,
-          instanceSlug: opts.instanceSlug,
-          serverSlug: server.slug,
-          config: server.config,
-          mode: { kind: "turn" },
-        });
-      } else {
-        // No stable conversation to persist tokens against (defensive — allowOAuth
-        // callers always pass one).
-        if (!opts.conversationId) continue;
-        pooled = false;
-        provider = makeMcpOAuthProvider({
-          baseUrl: (await resolvePlatformSettings()).baseUrl,
-          instanceUuid: opts.instanceUuid,
-          instanceSlug: opts.instanceSlug,
-          conversationId: opts.conversationId,
-          serverSlug: server.slug,
-          config: server.config,
-        });
-      }
-    }
-    const allowList = (server.config as { allowList?: string[] }).allowList;
-    const transport = provider
-      ? { type: "http" as const, url: server.url, authProvider: provider }
-      : { type: "http" as const, url: server.url, headers: staticHeaders(server) };
-
-    try {
-      const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
-      // Re-check the URL on every connect, resolved addresses included. The
-      // write-time check in the controller approved this URL once; the name
-      // behind it can have been repointed at an internal host since (see
-      // `assertSafeMcpUrlResolved`). A rejection skips the server — same
-      // degradation as an unreachable one. A turn served by a pooled connection
-      // opens nothing, so it resolves nothing; the pool's renewal re-checks.
-      const connect = async (abortSignal?: AbortSignal) => {
-        try {
-          await assertSafeMcpUrlResolved(server.url);
-        } catch (e) {
-          mcpLog.error("mcp", `server '${server.slug}': URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
-          throw e;
-        }
-        return connectWithTimeout(transport, mcpConnectTimeoutMs, abortSignal);
-      };
+      provider = connection.provider;
+      const allowList = (server.config as { allowList?: string[] }).allowList;
       // Per-conversation OAuth tokens belong to this conversation: that client
       // lives for the turn. Every other server shares a pooled connection across turns.
       let toolSet: McpConnection["toolSet"];
       let onCallError: (() => void) | undefined;
-      if (!pooled) {
-        const connection = await connect(opts.abortSignal);
-        toolSet = connection.toolSet;
-        clients.push(connection.client);
+      if (!connection.pooled) {
+        const opened = await connection.connect(opts.abortSignal);
+        toolSet = opened.toolSet;
+        clients.push(opened.client);
       } else {
-        const lease = acquireMcpConnection(server, () => connect());
+        const lease = acquireMcpConnection(server, () => connection.connect());
         leases.push(lease);
         toolSet = (await untilAborted(lease.connection, opts.abortSignal)).toolSet;
         onCallError = lease.retire;

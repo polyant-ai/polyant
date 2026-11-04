@@ -38,6 +38,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
+import type { McpServerRecord } from "../../instances/mcp-servers.store.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
@@ -149,6 +150,8 @@ export interface SupervisorInput {
    * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
    */
   allowOAuth?: boolean;
+  /** The agent's MCP servers when the turn already read them (`startMcpConnections`). */
+  mcpServers?: Promise<McpServerRecord[]>;
 }
 
 export interface SupervisorOutput {
@@ -606,6 +609,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     conversationId: input.conversationId,
     abortSignal: input.abortSignal,
     allowOAuth: input.allowOAuth ?? false,
+    servers: input.mcpServers,
   });
 
   // Everything below opens no new resources, but it DOES await (DB calls in

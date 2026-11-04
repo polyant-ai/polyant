@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The next request then starts with the prefix the provider already cached, so
   the history is read from the prompt cache instead of written to it every turn.
   The context grows with every tool result kept whole, which is why it is opt-in.
+- `GET /api/instances/:slug/knowledge` returns `total` and `failed`, counted
+  over all of the agent's documents whatever the page. The agent's status
+  checks and the first-steps card read them, so an agent with more documents
+  than one page is no longer under-reported.
 
 ### Changed
 
@@ -66,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same grace period as acknowledged channel turns.
 - A Room cycle titles its conversation from what it handled instead of asking the
   model for a title.
+- A conversational turn reads its agent's MCP servers and starts opening their
+  shared connections when it starts, while the context is read and the
+  pre-model hooks run, instead of after them. A server that answered only the
+  older `initialize` handshake is no longer probed with `server/discover` on
+  every reconnect.
 
 ### Removed
 
@@ -76,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Monitor search box no longer drops what was typed while the previous
+  search was still reaching the address bar.
 - On Anthropic and Bedrock, system text that belongs to one conversation (a
   hook's injected context, a persisted trigger message, a webhook context
   prompt) is sent after the cached agent prompt instead of inside it, so a new
