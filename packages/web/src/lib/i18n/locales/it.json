@@ -715,6 +715,7 @@
   "users.pagination.range": "{from}-{to} di {total}",
   "common.close": "Chiudi",
   "common.language": "Lingua",
+  "common.languageLoadFailed": "Non è stato possibile scaricare i testi in questa lingua. Controlla la connessione e riprova.",
   "common.save": "Salva modifiche",
   "common.saved": "Salvato",
   "common.saving": "Salvataggio...",
