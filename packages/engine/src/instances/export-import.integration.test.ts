@@ -124,7 +124,7 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     const bundle = await exportInstance(source.slug);
     expect(bundle.instance.sttProvider).toBe("disabled");
 
-    const result = await importNewInstance(bundle, orgId);
+    const result = await importCopy(bundle);
     const [row] = await queryClient<{ stt_provider: string }[]>`
       SELECT stt_provider FROM instances WHERE slug = ${result.slug}`;
     expect(row.stt_provider).toBe("disabled");
@@ -137,7 +137,7 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
       INSERT INTO scheduled_tasks (instance_id, name, schedule, prompt)
       VALUES (${source.slug}, 'poll', ${JSON.stringify({ type: "interval", everyMs: 30_000 })}::jsonb, 'Check the queue')`;
 
-    const result = await importNewInstance(await exportInstance(source.slug), orgId);
+    const result = await importCopy(await exportInstance(source.slug));
 
     const rows = await queryClient<{ schedule: unknown; next_run_at: Date | null }[]>`
       SELECT schedule, next_run_at FROM scheduled_tasks WHERE instance_id = ${result.slug}`;
@@ -157,7 +157,7 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
 
     const bundle = await exportInstance(source.slug);
     expect(bundle.instance.icon).toBe(icon);
-    const result = await importNewInstance(bundle, orgId);
+    const result = await importCopy(bundle);
     expect(await findInstanceIcon(asInstanceSlug(result.slug))).toBe(icon);
   });
 
