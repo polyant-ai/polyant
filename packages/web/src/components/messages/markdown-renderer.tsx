@@ -81,7 +81,7 @@ const MARKDOWN_COMPONENTS: Components = {
     return (
       <div className="group relative">
         <pre
-          className="overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-4 text-xs"
+          className="overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-current/10 p-4 text-xs"
           {...props}
         >
           {children}
@@ -95,7 +95,7 @@ const MARKDOWN_COMPONENTS: Components = {
     if (isInline) {
       return (
         <code
-          className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium"
+          className="rounded-sm bg-current/10 px-1.5 py-0.5 text-xs font-medium"
           {...props}
         >
           {children}
