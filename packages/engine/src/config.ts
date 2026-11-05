@@ -97,6 +97,12 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      * its locks until then. 0 turns it off.
      */
     idleInTransactionTimeoutMs: z.coerce.number().int().min(0).default(60_000),
+    /**
+     * How long a migration waits for a table lock before it gives up and is
+     * tried again (`database/run-migrations.ts`). Short, so an `ALTER TABLE`
+     * queued behind a long query does not hold up every query after it.
+     */
+    migrationLockTimeoutMs: z.coerce.number().int().min(100).default(3_000),
   }),
 
   // HTTP Server (NestJS)
@@ -276,6 +282,7 @@ function loadConfig(): Config {
       analyticsStatementTimeoutMs: process.env.POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS,
       statementTimeoutMs: process.env.POSTGRES_STATEMENT_TIMEOUT_MS,
       idleInTransactionTimeoutMs: process.env.POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+      migrationLockTimeoutMs: process.env.POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
     },
     server: {
       port: process.env.API_PORT,

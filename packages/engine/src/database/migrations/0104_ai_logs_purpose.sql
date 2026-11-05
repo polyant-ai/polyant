@@ -1,3 +1,2 @@
--- The `purpose` column of `ai_logs` is added by 0118, with the release's other
--- changes to tables every turn reads, so the lock it takes is held only at the
--- end of the batch. Kept so the numbering of the release does not move.
+-- The `purpose` column of `ai_logs` is added by 0118. Kept so the numbering of
+-- the release does not move.

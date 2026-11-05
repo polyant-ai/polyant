@@ -1,13 +1,65 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi } from "vitest";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { Sql } from "postgres";
 import {
   describeMigrationError,
   waitForDatabase,
   isConnectionNotReadyError,
+  readMigrations,
   CONNECT_RETRY_DELAYS_MS,
 } from "./run-migrations.js";
+
+const migrationsFolder = resolve(dirname(fileURLToPath(import.meta.url)), "migrations");
+
+/** A migrations folder holding the given files, in journal order. */
+function folderWith(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "migrations-"));
+  mkdirSync(join(dir, "meta"));
+  const entries = Object.keys(files).map((tag, idx) => ({ idx, version: "7", when: 1_000 + idx, tag, breakpoints: true }));
+  writeFileSync(join(dir, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries }));
+  for (const [tag, sql] of Object.entries(files)) writeFileSync(join(dir, `${tag}.sql`), sql);
+  return dir;
+}
+
+describe("readMigrations", () => {
+  it("records every migration with the hash, timestamp and statements drizzle's migrator uses", () => {
+    const ours = readMigrations(migrationsFolder);
+    const drizzles = readMigrationFiles({ migrationsFolder });
+    expect(ours.length).toBeGreaterThan(100);
+    expect(ours.map((m) => ({ hash: m.hash, when: m.when, sql: m.statements }))).toEqual(
+      drizzles.map((m) => ({ hash: m.hash, when: m.folderMillis, sql: m.sql })),
+    );
+  });
+
+  it("runs a file of concurrent index statements outside a transaction, and any other file inside one", () => {
+    const folder = folderWith({
+      a_table: 'CREATE TABLE "t" ("a" int);\nCREATE INDEX IF NOT EXISTS "t_a" ON "t" ("a");',
+      b_concurrent:
+        '-- comment\nCREATE INDEX CONCURRENTLY IF NOT EXISTS "t_b" ON "t" ("a");\n--> statement-breakpoint\n' +
+        'DROP INDEX CONCURRENTLY IF EXISTS "t_a";\n',
+      c_comment_only: "-- nothing to do\n",
+    });
+    expect(readMigrations(folder).map((m) => [m.tag, m.concurrent])).toEqual([
+      ["a_table", false],
+      ["b_concurrent", true],
+      ["c_comment_only", false],
+    ]);
+  });
+
+  it.each([
+    ["with other SQL", 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "i" ON "t" ("a");\n--> statement-breakpoint\nALTER TABLE "t" ADD COLUMN "b" int;'],
+    ["two in one part", 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "i" ON "t" ("a"); DROP INDEX CONCURRENTLY IF EXISTS "j";'],
+    ["without IF NOT EXISTS", 'CREATE INDEX CONCURRENTLY "i" ON "t" ("a");'],
+  ])("rejects a concurrent index statement %s before anything runs", (_, sql) => {
+    expect(() => readMigrations(folderWith({ bad: sql }))).toThrow(/Migration bad mixes concurrent index statements/);
+  });
+});
 
 function pgError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });

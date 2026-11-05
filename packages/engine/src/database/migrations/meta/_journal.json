@@ -785,6 +785,20 @@
       "when": 1793727100000,
       "tag": "0118_lock_hot_tables_last",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1793727200000,
+      "tag": "0119_drop_replaced_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1793727300000,
+      "tag": "0120_event_backlog_processing_index",
+      "breakpoints": true
     }
   ]
 }
