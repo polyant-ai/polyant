@@ -37,6 +37,12 @@ export const scheduledTasks = pgTable(
     lastError: text("last_error"),
     lastConversationId: text("last_conversation_id"),
     consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+    /**
+     * While `running`: until when the run's process vouches for it, on the database
+     * clock. The process renews it as the run goes on; past it, the run is taken as
+     * interrupted. Null for a row claimed before leases existed.
+     */
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     totalRuns: integer("total_runs").notNull().default(0),
 
     // --- Outbound notification ---
@@ -115,6 +121,8 @@ export const scheduledTaskRuns = pgTable(
   (table) => [
     index("idx_task_runs_instance_started").on(table.instanceId, table.startedAt),
     index("idx_task_runs_task_started").on(table.taskId, table.startedAt),
+    // The cleanup deletes by age.
+    index("idx_task_runs_started").on(table.startedAt),
   ],
 );
 

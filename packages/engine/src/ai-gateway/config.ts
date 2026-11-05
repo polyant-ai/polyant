@@ -539,6 +539,15 @@ export function resolveReasoningLevel(provider: string, modelId: string, request
   return levels[0] ?? "medium";
 }
 
+/** Reasoning levels from least to most effort. */
+const REASONING_LEVEL_ORDER: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** The least effort the model accepts, for a model that cannot stop reasoning; `low` when the catalog lists none. */
+export function lowestReasoningLevel(provider: string, modelId: string): ReasoningLevel {
+  const levels = reasoningLevelsFor(provider, modelId);
+  return REASONING_LEVEL_ORDER.find((level) => levels.includes(level)) ?? "low";
+}
+
 /**
  * Clamp a sampling temperature into the valid [0, 2] range. `null`/`undefined`
  * pass through as `null` (meaning "use the provider default"); non-finite

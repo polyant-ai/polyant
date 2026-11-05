@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-export type STTProviderName = "openai" | "aws" | "deepgram";
+export const STT_PROVIDER_NAMES = ["openai", "aws", "deepgram"] as const;
+export type STTProviderName = (typeof STT_PROVIDER_NAMES)[number];
 
 /** Per-instance STT setting: a real provider, or the explicit opt-out. */
-export type InstanceSttSetting = STTProviderName | "disabled";
+export const INSTANCE_STT_SETTINGS = [...STT_PROVIDER_NAMES, "disabled"] as const;
+export type InstanceSttSetting = (typeof INSTANCE_STT_SETTINGS)[number];
 
 export interface STTOpenAICredentials {
   apiKey: string;

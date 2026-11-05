@@ -70,7 +70,7 @@ export function withoutProviderCacheMarker(message: ModelMessage, providerKey: s
  * Pure function — does not mutate `messages`.
  */
 export function injectCacheBreakpoints(
-  { system, messages }: { system: string | undefined; messages: ModelMessage[] },
+  { system, systemTail, messages }: { system: string | undefined; systemTail?: string; messages: ModelMessage[] },
   applyMarker: (message: ModelMessage) => ModelMessage,
 ): { instructions: Instructions | undefined; messages: ModelMessage[] } {
   const out = [...messages];
@@ -91,11 +91,19 @@ export function injectCacheBreakpoints(
   // cacheControl / cachePoint rides along in its providerOptions exactly as
   // before. Not `allowSystemInMessages: true` — that only re-enables the
   // deprecated shape and would leave the same code to migrate later.
+  //
+  // `systemTail` — system text that belongs to this conversation (a hook's
+  // one-shot context, a persisted system row) — follows as a second, unmarked
+  // system block. Inside the marked one it would make every conversation write
+  // its own copy of the whole tools + system prefix instead of reading the
+  // agent's. Without an agent system prompt it is still sent unmarked: the
+  // history breakpoint caches it from the second turn on.
   if (system && system.length > 0) {
-    return { instructions: applyMarker({ role: "system", content: system }) as SystemModelMessage, messages: out };
+    const marked = applyMarker({ role: "system", content: system }) as SystemModelMessage;
+    return { instructions: systemTail ? [marked, { role: "system", content: systemTail }] : marked, messages: out };
   }
 
-  return { instructions: system, messages: out };
+  return { instructions: systemTail ?? system, messages: out };
 }
 
 /**

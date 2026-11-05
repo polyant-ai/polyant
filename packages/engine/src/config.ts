@@ -85,6 +85,18 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     analyticsPoolMax: z.coerce.number().int().min(1).default(3),
     /** Per-statement cap on that pool, so one runaway aggregate cannot hold a connection. */
     analyticsStatementTimeoutMs: z.coerce.number().int().min(1000).default(15_000),
+    /**
+     * Per-statement cap on the main pool, generous so no turn or job statement
+     * meets it, and there so a stuck statement gives its connection back. 0
+     * turns it off. Migrations run on their own connection, without it.
+     */
+    statementTimeoutMs: z.coerce.number().int().min(0).default(60_000),
+    /**
+     * How long a transaction on the main pool may sit idle before Postgres ends
+     * it and frees the connection: one left open by an application error holds
+     * its locks until then. 0 turns it off.
+     */
+    idleInTransactionTimeoutMs: z.coerce.number().int().min(0).default(60_000),
   }),
 
   // HTTP Server (NestJS)
@@ -181,6 +193,49 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
   }),
 
 
+  // Bounds on the model calls the AI gateway makes (milliseconds). The AI SDK
+  // sets no timeout of its own, so a provider that stopped answering held the
+  // turn until the socket died. A call that runs tools over several steps (a
+  // conversation turn, a sub-agent) gets no total bound: its tools may
+  // legitimately run for minutes. Each of its model requests is bounded instead.
+  llm: z.object({
+    // Each model request of a call with no total bound, until the provider starts
+    // answering: the whole answer when it is not streamed, its first bytes when
+    // it is. Each retry gets its own; tool execution is not counted.
+    modelRequestTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
+    // Streamed answers: the wait for the first chunk of each model response once
+    // the provider has started answering.
+    streamFirstChunkTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
+    // Streamed answers: the longest silence between two chunks of one model
+    // response, once it has started (tool execution between steps not counted).
+    streamChunkTimeoutMs: z.coerce.number().int().min(1000).default(120_000),
+    // Single-call service jobs (titles, summaries, memory, matchers, a tool's or a
+    // hook's own model call): the whole call.
+    serviceCallTimeoutMs: z.coerce.number().int().min(1000).default(300_000),
+    // Retries of a failed model request. 2 is the AI SDK's own default; each retry is logged.
+    maxRetries: z.coerce.number().int().min(0).max(10).default(2),
+  }),
+
+  // The work that follows a saved turn, per process: how many jobs of each kind
+  // run at once while the rest wait in their own queue. Titles and summaries are
+  // one model call each, and the summary decides how much history the next turn
+  // sends; a memory extraction adds embeddings and serializable upserts.
+  backgroundJobs: z.object({
+    turnConcurrency: z.coerce.number().int().min(1).max(64).default(4),
+    memoryConcurrency: z.coerce.number().int().min(1).max(64).default(2),
+  }),
+
+  // Housekeeping windows that are not platform settings.
+  retention: z.object({
+    /**
+     * Days a debug-mode turn keeps the request it sent to the model
+     * (`conversation_messages.debug_payload`): the full prompt and conversation,
+     * so personal data, and the heaviest column in the database. The message
+     * itself stays; only the payload is cleared.
+     */
+    debugPayloadDays: z.coerce.number().int().min(1).default(7),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -219,6 +274,8 @@ function loadConfig(): Config {
       poolMax: process.env.POSTGRES_POOL_MAX,
       analyticsPoolMax: process.env.POSTGRES_ANALYTICS_POOL_MAX,
       analyticsStatementTimeoutMs: process.env.POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS,
+      statementTimeoutMs: process.env.POSTGRES_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: process.env.POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     },
     server: {
       port: process.env.API_PORT,
@@ -238,6 +295,20 @@ function loadConfig(): Config {
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
+    },
+    llm: {
+      modelRequestTimeoutMs: process.env.LLM_MODEL_REQUEST_TIMEOUT_MS,
+      streamFirstChunkTimeoutMs: process.env.LLM_STREAM_FIRST_CHUNK_TIMEOUT_MS,
+      streamChunkTimeoutMs: process.env.LLM_STREAM_CHUNK_TIMEOUT_MS,
+      serviceCallTimeoutMs: process.env.LLM_SERVICE_CALL_TIMEOUT_MS,
+      maxRetries: process.env.LLM_MAX_RETRIES,
+    },
+    backgroundJobs: {
+      turnConcurrency: process.env.BACKGROUND_TURN_JOB_CONCURRENCY,
+      memoryConcurrency: process.env.BACKGROUND_MEMORY_JOB_CONCURRENCY,
+    },
+    retention: {
+      debugPayloadDays: process.env.DEBUG_PAYLOAD_RETENTION_DAYS,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the

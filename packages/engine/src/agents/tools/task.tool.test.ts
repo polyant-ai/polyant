@@ -29,7 +29,24 @@ describe("createTaskTool", () => {
     expect(tool.inputSchema).toBeDefined();
   });
 
-  it("calls chat with standard tier and system prompt containing the task", async () => {
+  // The system prompt and the tool definitions form the prefix a provider
+  // caches. With the task inside the system prompt every delegation wrote a
+  // new prefix; the task travels in the user message only.
+  it("sends the same system prompt for every task, and the task as the user message", async () => {
+    mockChat.mockResolvedValue({ text: "ok", steps: [], durationMs: 1 } as never);
+    const tool = createTaskTool({});
+
+    await tool.execute!({ task: "Summarise the open orders", label: null }, { toolCallId: "tc-1", messages: [] } as never);
+    await tool.execute!({ task: "List overdue invoices", label: null }, { toolCallId: "tc-2", messages: [] } as never);
+
+    const [first, second] = mockChat.mock.calls.map((c) => c[0]);
+    expect(first.system).toBe(second.system);
+    expect(first.system).not.toContain("Summarise the open orders");
+    expect(first.messages).toEqual([{ role: "user", content: "Summarise the open orders" }]);
+    expect(second.messages).toEqual([{ role: "user", content: "List overdue invoices" }]);
+  });
+
+  it("calls chat with standard tier and the task as the user message", async () => {
     mockChat.mockResolvedValue({
       text: "Task completed successfully",
       steps: [
@@ -58,7 +75,7 @@ describe("createTaskTool", () => {
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
         tier: "standard",
-        system: expect.stringContaining("Research the latest AI trends"),
+        messages: [{ role: "user", content: "Research the latest AI trends" }],
         maxSteps: 10,
       }),
       expect.objectContaining({ callType: "service" }),

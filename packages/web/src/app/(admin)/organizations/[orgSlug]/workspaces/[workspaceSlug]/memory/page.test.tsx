@@ -39,8 +39,6 @@ vi.mock("@/lib/format", async (importOriginal) => ({
 const mockPaginationFns = vi.hoisted(() => ({
   setPage: vi.fn(),
   setSearch: vi.fn(),
-  setTotal: vi.fn(),
-  reset: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-pagination", () => ({
@@ -50,10 +48,7 @@ vi.mock("@/hooks/use-pagination", () => ({
     search: "",
     setSearch: mockPaginationFns.setSearch,
     debouncedSearch: "",
-    totalPages: 1,
-    setTotal: mockPaginationFns.setTotal,
     offset: 0,
-    reset: mockPaginationFns.reset,
   })),
 }));
 
@@ -154,6 +149,30 @@ describe("MemoryPage", () => {
     await waitFor(() => expect(mockMemoriesList).toHaveBeenCalled());
     expect(mockMemoriesList.mock.calls[0][0]).toMatchObject({ instanceId: "alpha" });
     expect(screen.queryByText("memory.selectInstancePrompt")).not.toBeInTheDocument();
+  });
+
+  // The list must show the agent picked, even when the previous agent's
+  // memories answer last.
+  it("shows the memories of the agent picked, not of a slower previous one", async () => {
+    mockInstancesList.mockResolvedValue({ instances: [{ slug: "alpha", name: "Alpha" }, { slug: "beta", name: "Beta" }] });
+    let answerAlpha: (value: unknown) => void = () => {};
+    mockMemoriesList.mockImplementation(({ instanceId }: { instanceId: string }) =>
+      instanceId === "alpha"
+        ? new Promise((resolve) => (answerAlpha = resolve))
+        : Promise.resolve({ memories: [{ id: "b1", content: "Beta memory", category: "fact", importance: 5, updatedAt: "2026-10-01T00:00:00Z" }], total: 1, limit: 20, offset: 0 }),
+    );
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await waitFor(() => expect(mockMemoriesList).toHaveBeenCalledWith(expect.objectContaining({ instanceId: "alpha" })));
+
+    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(await screen.findByRole("option", { name: "Beta" }));
+    expect(await screen.findByText("Beta memory")).toBeInTheDocument();
+
+    answerAlpha({ memories: [{ id: "a1", content: "Alpha memory", category: "fact", importance: 5, updatedAt: "2026-10-01T00:00:00Z" }], total: 1, limit: 20, offset: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("Alpha memory")).not.toBeInTheDocument();
+    expect(screen.getByText("Beta memory")).toBeInTheDocument();
   });
 
   it("fetches instances on mount for the filter dropdown", async () => {

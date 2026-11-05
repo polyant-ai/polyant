@@ -6,6 +6,7 @@ import { defineTool } from "@polyant-ai/plugin-sdk";
 import type { ToolContext } from "./registry.js";
 import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
+import { requestSignal } from "../../utils/safe-http.js";
 
 const SUPPORTED_PROVIDERS = ["tavily", "serpapi", "duckduckgo"] as const;
 type SearchProvider = (typeof SUPPORTED_PROVIDERS)[number];
@@ -147,7 +148,7 @@ async function dispatchSearch(
     case "serpapi":
       return searchSerpapi(ctx, input);
     case "duckduckgo":
-      return searchDuckduckgo(input);
+      return searchDuckduckgo(ctx, input);
   }
 }
 
@@ -194,7 +195,7 @@ async function searchSerpapi(ctx: ToolContext, input: SearchInput): Promise<Prov
     num: String(input.maxResults ?? 5),
   });
   const res = await fetch(`https://serpapi.com/search?${params}`, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: requestSignal(FETCH_TIMEOUT_MS, ctx.abortSignal),
   });
   if (!res.ok) {
     return { results: [], error: `SerpAPI HTTP ${res.status}: ${res.statusText}` };
@@ -228,7 +229,7 @@ interface DuckduckgoResponse {
  * answers" (Wikipedia infoboxes, disambiguations, calculators) — NOT a full web
  * search. Use only as a budget fallback; expect very limited result sets.
  */
-async function searchDuckduckgo(input: SearchInput): Promise<ProviderOutput> {
+async function searchDuckduckgo(ctx: ToolContext, input: SearchInput): Promise<ProviderOutput> {
   const params = new URLSearchParams({
     q: input.query,
     format: "json",
@@ -236,7 +237,7 @@ async function searchDuckduckgo(input: SearchInput): Promise<ProviderOutput> {
     skip_disambig: "1",
   });
   const res = await fetch(`https://api.duckduckgo.com/?${params}`, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: requestSignal(FETCH_TIMEOUT_MS, ctx.abortSignal),
   });
   if (!res.ok) {
     return { results: [], error: `DuckDuckGo HTTP ${res.status}: ${res.statusText}` };

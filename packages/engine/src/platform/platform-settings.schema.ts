@@ -56,11 +56,11 @@ export const platformSettings = pgTable("platform_settings", {
   /** Budget of one MCP server's connect + list-tools round trip. */
   mcpConnectTimeoutMs: integer("mcp_connect_timeout_ms"),
   /**
-   * Scheduler crash safety: how old a `running` row must be before it is assumed
-   * orphaned, and the deadline for a run whose task declares none. Both are
-   * judgements about how long a deploy takes and how long a task may legitimately
-   * run — properties of THIS installation, which is why they stopped being
-   * properties of the image.
+   * Scheduler crash safety: how long a running task's lease outlives its last
+   * renewal before the run is taken as orphaned, and the deadline for a run whose
+   * task declares none. Both are judgements about this installation (how long the
+   * database may be out of reach, how long a task may legitimately run), which is
+   * why they stopped being properties of the image.
    */
   schedulerOrphanGraceMs: integer("scheduler_orphan_grace_ms"),
   schedulerDefaultMaxRunMs: integer("scheduler_default_max_run_ms"),

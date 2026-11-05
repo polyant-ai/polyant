@@ -18,15 +18,18 @@ import { runHooks, firstReplaceResponse, firstRegenerate } from "./hooks/hook-ru
 import type { HookExecutionSummary, HookFunctionDefinition } from "./hooks/hook-types.js";
 import { conversationStore } from "./conversations/index.js";
 import { traceStore } from "./analytics/trace.store.js";
+import { generateConversationTitle } from "./utils/title-generator.js";
+import { drainBackgroundTurns } from "./channels/background-turns.js";
 
 vi.mock("./hooks/hooks.store.js", () => ({ getEnabledHooks: vi.fn() }));
 vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn() }));
 vi.mock("./analytics/trace.store.js", () => ({ traceStore: { record: vi.fn() } }));
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
-    appendMessages: vi.fn(async () => undefined),
-    getSystemMessageContents: vi.fn(async () => new Set<string>()),
-    updateSummary: vi.fn(async () => undefined),
+    // Runs the writes that share the turn's transaction, as the real store does.
+    appendMessages: vi.fn(async (_id: string, _rows: unknown[], options?: { inTransaction?: (tx: unknown) => Promise<void> }) => {
+      await options?.inTransaction?.({});
+    }),
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
@@ -34,6 +37,7 @@ vi.mock("./conversations/index.js", () => ({
   },
 }));
 vi.mock("./memory/index.js", () => ({ extractMemories: vi.fn(async () => undefined) }));
+vi.mock("./utils/title-generator.js", () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
 vi.mock("./hooks/hook-runner.js", () => ({
   runHooks: vi.fn(),
   firstHalt: vi.fn(),
@@ -54,12 +58,9 @@ function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
     stateBuffer: undefined,
     history: undefined,
     isFirstTurn: true,
-    hasOverflow: false,
-    droppedMessages: undefined,
-    instanceConfig: {} as PipelineContext["instanceConfig"],
+    instanceConfig: { langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
     langsmith: undefined,
     userAttachments: undefined,
-    incomingSystemMessages: undefined,
     isAutoTaskTurn: false,
     inboundMetadata: undefined,
     ...overrides,
@@ -264,7 +265,7 @@ describe("runPipelinePost persistence gate", () => {
 
     expect(traceStore.record).toHaveBeenCalledOnce();
     expect(flush).toHaveBeenCalled();
-    await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
+    expect(conversationStore.appendMessages).toHaveBeenCalled();
   });
 
   it("persists nothing when the run is aborted while response_generated hooks run", async () => {
@@ -285,7 +286,20 @@ describe("runPipelinePost persistence gate", () => {
     expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
   });
 
-  it("writes no messages when the run is aborted while the state flush is awaited", async () => {
+  it("writes nothing when the channel's commit gate refuses the turn", async () => {
+    const commitGate = vi.fn(() => false);
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, commitGate, contextPrompt: "one-shot" });
+
+    await runPipelinePost(postOptions(ctx));
+
+    expect(commitGate).toHaveBeenCalledOnce();
+    expect(flush).not.toHaveBeenCalled();
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(traceStore.record).not.toHaveBeenCalled();
+    expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
+  });
+
+  it("saves a turn that passed the commit point even when an abort lands while it is being saved", async () => {
     const ac = new AbortController();
     const abortingFlush = vi.fn(async () => {
       ac.abort();
@@ -294,9 +308,29 @@ describe("runPipelinePost persistence gate", () => {
 
     await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
 
-    expect(abortingFlush).toHaveBeenCalledOnce();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(abortingFlush).toHaveBeenCalled();
+    expect(conversationStore.appendMessages).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the post-response work (title, summary, memory) where shutdown waits for it", async () => {
+    let finishTitle!: () => void;
+    vi.mocked(generateConversationTitle).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishTitle = resolve)),
+    );
+
+    await runPipelinePost(postOptions(ctxWith({})));
+
+    // The turn is saved and returned; its title is still being written.
+    expect(await drainBackgroundTurns(50)).toEqual({ pending: 1 });
+    finishTitle();
+    expect(await drainBackgroundTurns(1_000)).toEqual({ pending: 0 });
+  });
+
+  it("fails the turn when it cannot be saved, so the reply is not delivered", async () => {
+    vi.mocked(conversationStore.appendMessages).mockRejectedValueOnce(new Error("db down"));
+
+    await expect(runPipelinePost(postOptions(ctxWith({})))).rejects.toThrow("db down");
+    expect(traceStore.record).not.toHaveBeenCalled();
   });
 });
 

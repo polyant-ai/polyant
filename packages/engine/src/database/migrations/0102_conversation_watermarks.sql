@@ -1,0 +1,4 @@
+-- The conversation watermarks (`summary_through`, `memory_through`) are added by
+-- 0118, with the release's other changes to tables every turn reads, so the lock
+-- they take is held only at the end of the batch. Kept so the numbering of the
+-- release does not move.

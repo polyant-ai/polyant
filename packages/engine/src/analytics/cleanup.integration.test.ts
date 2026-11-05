@@ -11,7 +11,7 @@
  * may age out.
  */
 
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { lockRoomEventBacklog, resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { queryClient } from "../database/client.js";
 import { computeCutoff, runAnalyticsCleanup } from "./cleanup.js";
@@ -19,12 +19,20 @@ import { computeCutoff, runAnalyticsCleanup } from "./cleanup.js";
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-retention";
 
-const OLD = "now() - interval '400 days'";
+/*
+  The cleanup deletes by age across the whole table, not per agent. Other suites
+  seed rows dated months back in the same tables while this file runs, so a
+  90-day window would delete their rows and count them here. A window of a
+  century reaches only the rows this file dates before it.
+*/
+const RETENTION_DAYS = 36500;
+const OLD = "now() - interval '101 years'";
 const NEW = "now() - interval '1 day'";
 
 let instanceUuid: string;
 let instanceSlug: string;
 let definitionId: string;
+let releaseBacklog: () => Promise<void>;
 
 async function teardown(): Promise<void> {
   await queryClient`DELETE FROM event_backlog WHERE instance_id IN (SELECT id FROM instances WHERE slug LIKE ${MARKER + "%"})`;
@@ -32,6 +40,7 @@ async function teardown(): Promise<void> {
   await queryClient`DELETE FROM event_sources WHERE name LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM tool_audit_logs WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM hook_executions WHERE conversation_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM conversation_messages WHERE conversation_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -39,6 +48,8 @@ async function teardown(): Promise<void> {
 
 describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
   beforeAll(async () => {
+    // This suite keeps a `processing` row; a Room tick elsewhere would requeue it.
+    releaseBacklog = await lockRoomEventBacklog("shared");
     await teardown();
     const [{ id: orgId }] = await queryClient<{ id: string }[]>`
       INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER}, 'r', false) RETURNING id`;
@@ -58,7 +69,10 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
     definitionId = defId;
   });
 
-  afterAll(teardown);
+  afterAll(async () => {
+    await teardown();
+    await releaseBacklog();
+  });
 
   beforeEach(async () => {
     await queryClient`DELETE FROM event_backlog WHERE instance_id = ${instanceUuid}`;
@@ -72,7 +86,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
        VALUES ('${instanceSlug}', 't', 'a', true, ${OLD}), ('${instanceSlug}', 't', 'a', true, ${NEW})`,
     );
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     // The driver must report a count for a delete with no RETURNING — the whole
     // point of not materialising ids in a job built for large deletes.
@@ -85,8 +99,8 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
 
   /*
     event_backlog is the one table here with a lifecycle. `pending` is work still
-    queued and `processing` may be a zombie that resetStuckProcessingEvents()
-    recovers at boot — ageing either out by date would silently drop events the
+    queued and `processing` may be a zombie that the Room tick requeues once its
+    lease expires — ageing either out by date would silently drop events the
     system still owes an answer for.
   */
   it("should_age_out_only_COMPLETED_backlog_events", async () => {
@@ -97,12 +111,37 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
       );
     }
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     expect(result.eventBacklogDeleted).toBe(1);
     const rows = await queryClient<{ status: string }[]>`
       SELECT status FROM event_backlog WHERE instance_id = ${instanceUuid} ORDER BY status`;
     expect(rows.map((r) => r.status)).toEqual(["pending", "processing"]);
+  });
+
+  /*
+    The request a debug-mode agent stores per turn holds the whole prompt and the
+    conversation so far: personal data, and the heaviest column in the database.
+    It is kept for a few days, the message itself as long as the conversation.
+  */
+  it("should_clear_debug_payloads_past_their_short_window_and_keep_the_messages", async () => {
+    const conversationId = `${MARKER}-debug`;
+    await queryClient.unsafe(
+      `INSERT INTO conversation_messages (conversation_id, role, content, debug_payload, created_at)
+       VALUES ('${conversationId}', 'assistant', 'old', '{"system":"s"}'::jsonb, now() - interval '30 days'),
+              ('${conversationId}', 'assistant', 'new', '{"system":"s"}'::jsonb, ${NEW})`,
+    );
+
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
+
+    expect(result.debugPayloadsCleared).toBeGreaterThanOrEqual(1);
+    const rows = await queryClient<{ content: string; has_payload: boolean }[]>`
+      SELECT content, debug_payload IS NOT NULL AS has_payload FROM conversation_messages
+      WHERE conversation_id = ${conversationId} ORDER BY content`;
+    expect(rows).toEqual([
+      { content: "new", has_payload: true },
+      { content: "old", has_payload: false },
+    ]);
   });
 
   it("should_report_zero_and_touch_nothing_when_everything_is_recent", async () => {
@@ -111,7 +150,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
        VALUES ('${instanceSlug}', 't', 'a', true, ${NEW})`,
     );
 
-    const result = await runAnalyticsCleanup(90);
+    const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
     expect(result.toolAuditLogsDeleted).toBe(0);
     expect(result.cutoff.getTime()).toBeLessThan(Date.now());

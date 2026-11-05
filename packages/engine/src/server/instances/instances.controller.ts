@@ -19,6 +19,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
+  findInstanceIcon,
   createInstanceWithDefaults,
   updateInstance,
   deleteInstance,
@@ -29,26 +30,18 @@ import {
   invalidateInstanceConfigCache,
   resolveEffectiveModelSelection,
 } from "../../instances/config-resolver.js";
-import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
-import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
-  embeddingSpaceChanged,
-  nextEmbeddingDim,
-  resetEmbeddingSpace,
-  type EmbeddingResetResult,
-} from "../../embeddings-gateway/embedding-reset.service.js";
-import { countMemories } from "../../memory/index.js";
-import { countDocuments } from "../../knowledge/index.js";
+  InvalidInstanceSettingsError,
+  assertModelConfig,
+  normalizeInstancePatch,
+  planInstancePatch,
+  resetPlannedEmbeddingSpace,
+  writeInstancePatch,
+} from "../../instances/instance-update.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
-import { providerConfigs, DEFAULT_PROVIDER, fastSupported, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import { providerConfigs, fastSupported, isThinkingCapable, isReasoningAlwaysOn, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
-import {
-  assertDimSupported,
-  isKnownEmbeddingProvider,
-  knownEmbeddingProviders,
-  supportedDimsFor,
-} from "../../embeddings-gateway/config.js";
-import type { EmbeddingDim } from "../../embeddings-gateway/types.js";
+import { knownEmbeddingProviders, supportedDimsFor } from "../../embeddings-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -67,16 +60,8 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 import { createLogger } from "../../utils/create-logger.js";
-import {
-  INTERMEDIATE_TEXT_POLICIES,
-  isIntermediateTextPolicy,
-  type IntermediateTextPolicy,
-} from "../../ai-gateway/intermediate-text.js";
-import {
-  TOOL_HISTORY_REPLAY_MODES,
-  isToolHistoryReplay,
-  type ToolHistoryReplay,
-} from "../../conversations/tool-history.js";
+import { parseBody } from "../utils/parse-body.js";
+import { PatchInstanceSchema } from "./instance-patch.schema.js";
 
 const log = createLogger();
 
@@ -139,7 +124,7 @@ function toInstanceDto(instance: Instance) {
     sttProvider: instance.sttProvider,
     embeddingDim: instance.embeddingDim,
     embeddingProvider: instance.embeddingProvider,
-    icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
+    icon: buildInstanceIconUrl(instance.slug, instance.hasIcon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
   };
@@ -153,6 +138,16 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
     return { contentType: match[1], body: Buffer.from(match[2], "base64") };
   } catch {
     return null;
+  }
+}
+
+/** Run a domain check and answer its refusal as a 400 carrying the domain's message. */
+async function refusingInvalidSettings<T>(check: () => T | Promise<T>): Promise<T> {
+  try {
+    return await check();
+  } catch (err) {
+    if (err instanceof InvalidInstanceSettingsError) throw new BadRequestException(err.message);
+    throw err;
   }
 }
 
@@ -287,11 +282,11 @@ export class InstancesController {
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!instance || !instance.icon) {
+    const icon = await findInstanceIcon(asInstanceSlug(slug));
+    if (!icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
-    const parsed = parseDataUri(instance.icon);
+    const parsed = parseDataUri(icon);
     if (!parsed) {
       throw new NotFoundException(`Icon for instance "${slug}" is not a valid data URI`);
     }
@@ -310,7 +305,7 @@ export class InstancesController {
     @WorkspaceSlug() workspaceSlug?: string,
   ) {
     this.validateSlug(body.slug);
-    this.validateModelConfig(body.provider, body.model);
+    await refusingInvalidSettings(() => assertModelConfig(body.provider, body.model));
     // Resolve the owning organization up front: the store fails closed on an
     // unresolvable one, and that is a caller-side condition (a principal with no
     // org claim on a multi-org deployment), not a server fault — surface it as a
@@ -367,179 +362,15 @@ export class InstancesController {
   // PATCH /api/instances/:slug — update
   @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
-  async update(
-    @Param("slug") slug: string,
-    @Body() body: {
-      name?: string;
-      description?: string | null;
-      status?: string;
-      provider?: string | null;
-      model?: string | null;
-      /** Embedder provider, independent of the chat provider. Changing it wipes data. */
-      // Validated against the embedder registry (validateEmbeddingProvider), not
-      // a closed union: an embedder can be registered at boot.
-      embeddingProvider?: string;
-      /**
-       * Embedding dimension, checked against what the (new or stored) embedder
-       * can emit. Changing it wipes data like a provider switch. Omitted on a
-       * provider switch, the new provider's default is used.
-       */
-      embeddingDim?: number;
-      memoryEnabled?: boolean;
-      knowledgeEnabled?: boolean;
-      langsmithEnabled?: boolean;
-      langsmithProject?: string | null;
-      authEnabled?: boolean;
-      thinkingEnabled?: boolean;
-      thinkingLevel?: string;
-      temperature?: number | null;
-      fastMode?: boolean;
-      stateInPromptEnabled?: boolean;
-      datetimeInjectionEnabled?: boolean;
-      /**
-       * The six behaviours that used to be deployment configuration. `null`
-       * CLEARS one back to the deployment default, which is why they are
-       * nullable rather than merely optional: omitting a field leaves it alone,
-       * and sending null is a decision.
-       */
-      datetimeTimezone?: string | null;
-      datetimeLocale?: string | null;
-      dedupSimilarityThreshold?: number | null;
-      messageSoftDebounceMs?: number | null;
-      messageTypingDelayMs?: number | null;
-      messageMaxRestarts?: number | null;
-      cacheEnabled?: boolean;
-      cacheTtl?: string;
-      cacheUserTurn?: boolean;
-      /** `null` clears the policy back to the behaviour from before it existed. */
-      intermediateText?: IntermediateTextPolicy | null;
-      a2aEnabled?: boolean;
-      toolResultsInHistoryEnabled?: boolean;
-      toolHistoryReplay?: ToolHistoryReplay;
-      debugEnabled?: boolean;
-      attachmentStorageEnabled?: boolean;
-      sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
-      optoutEnabled?: boolean;
-      optoutStopKeywords?: string[];
-      optoutResumeKeywords?: string[];
-      optoutClosingMessage?: string | null;
-      optoutResumeMessage?: string | null;
-      optoutInjectPromptHint?: boolean;
-      webContextFieldMapping?: Record<string, string>;
-      /**
-       * Explicit acknowledgement that changing the embedding provider or dimension will
-       * permanently delete this instance's memories and knowledge base. Required
-       * when the switch would discard existing data — protects scripted callers
-       * from accidental data loss. The UI sets it after the user confirms.
-       */
-      confirmWipe?: boolean;
-    },
-  ) {
+  async update(@Param("slug") slug: string, @Body() rawBody: unknown) {
     this.validateSlug(slug);
-    this.validateEmbeddingProvider(body.embeddingProvider);
-    body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
-    body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
-    if (body.webContextFieldMapping !== undefined) {
-      try {
-        body.webContextFieldMapping = normalizeFieldMapping(body.webContextFieldMapping, "webContextFieldMapping");
-      } catch (err) {
-        throw new BadRequestException((err as Error).message);
-      }
-    }
-    if (body.temperature !== undefined) {
-      body.temperature = clampTemperature(body.temperature);
-    }
-    // A string "false" would reach the column as true: the switch that decides
-    // whether end users' files are kept must be a boolean or nothing.
-    if (body.attachmentStorageEnabled !== undefined && typeof body.attachmentStorageEnabled !== "boolean") {
-      throw new BadRequestException("attachmentStorageEnabled must be a boolean");
-    }
-    if (body.fastMode !== undefined && typeof body.fastMode !== "boolean") {
-      throw new BadRequestException("fastMode must be a boolean");
-    }
-    if (body.cacheUserTurn !== undefined && typeof body.cacheUserTurn !== "boolean") {
-      throw new BadRequestException("cacheUserTurn must be a boolean");
-    }
-    if (body.intermediateText != null && !isIntermediateTextPolicy(body.intermediateText)) {
-      throw new BadRequestException(
-        `intermediateText must be null or one of ${INTERMEDIATE_TEXT_POLICIES.map((p) => `"${p}"`).join(", ")}`,
-      );
-    }
-    if (body.toolHistoryReplay !== undefined && !isToolHistoryReplay(body.toolHistoryReplay)) {
-      throw new BadRequestException(
-        `toolHistoryReplay must be one of ${TOOL_HISTORY_REPLAY_MODES.map((m) => `"${m}"`).join(", ")}`,
-      );
-    }
-    this.validateAgentSettings(body);
-    // Accept the full effort union; the ai-gateway clamps to the chosen model's
-    // catalog reasoningLevels at call time (so xhigh/max never reach a model that
-    // rejects them), and the FE only offers the model's actual subset.
-    if (body.thinkingLevel !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(body.thinkingLevel)) {
-      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high", "xhigh", "max"');
-    }
-    // Capture the pre-update state to detect an embedding-provider switch.
+    const body = await refusingInvalidSettings(() => normalizeInstancePatch(parseBody(PatchInstanceSchema, rawBody)));
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
-
-    // The pair the agent will run on after this PATCH is what gets checked:
-    // each field from the body when it carries one, otherwise the stored one.
-    // A PATCH that changes only the model carries no provider; one that changes
-    // only the provider keeps the stored model. Reading the body alone checked a
-    // model against a provider the caller never mentioned, and let a provider
-    // switch keep a model of the old provider — both then failed at the first
-    // message, far from this edit. `null` is a deliberate clear, so it falls
-    // through to the gateway's default. A PATCH that touches neither is left
-    // alone, so an older mismatched row still accepts unrelated edits.
-    if (body.provider !== undefined || body.model !== undefined) {
-      this.validateModelConfig(
-        body.provider !== undefined ? body.provider : before.provider,
-        body.model !== undefined ? body.model : before.model,
-      );
-    }
-
-    // Changing the embedding provider or dimension abandons the old embedding
-    // space (vectors become uninterpretable) — existing memories + knowledge are
-    // wiped, never converted. Changing only the chat provider/model does NOT
-    // trigger this. Require explicit confirmation when there is data to lose, so
-    // a Management-API caller can't destroy it silently.
-    const afterEmbeddingProvider =
-      body.embeddingProvider !== undefined ? body.embeddingProvider : before.embeddingProvider;
-    const afterEmbeddingDim = nextEmbeddingDim(before, afterEmbeddingProvider, body.embeddingDim as EmbeddingDim | undefined);
-    const willWipe = embeddingSpaceChanged(before, {
-      embeddingProvider: afterEmbeddingProvider,
-      embeddingDim: afterEmbeddingDim,
-    });
-    if (willWipe) {
-      // Only a change is checked: an older row whose stored dimension its
-      // provider no longer lists still accepts unrelated edits.
-      try {
-        assertDimSupported(afterEmbeddingProvider, afterEmbeddingDim as EmbeddingDim);
-      } catch (err) {
-        throw new BadRequestException((err as Error).message);
-      }
-    }
-    if (willWipe && !body.confirmWipe) {
-      const hasData =
-        (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
-      if (hasData) {
-        throw new BadRequestException(
-          "Changing the embedding provider or dimension permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
-        );
-      }
-    }
-
-    let instance = await updateInstance(asInstanceSlug(slug), body);
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
-    invalidateEmbeddingContext(instance.id, slug);
-
-    let wiped: EmbeddingResetResult | null = null;
-    if (willWipe) {
-      wiped = await resetEmbeddingSpace(before.slug, instance.id, afterEmbeddingDim as EmbeddingDim);
-      // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
-      invalidateEmbeddingContext(instance.id, slug);
-      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
-    }
+    const plan = await refusingInvalidSettings(() => planInstancePatch(before, body));
+    const written = await writeInstancePatch(before, body);
+    if (!written) throw new NotFoundException(`Instance "${slug}" not found`);
+    const { instance, wiped } = await resetPlannedEmbeddingSpace(written, plan);
 
     return {
       instance: {
@@ -571,9 +402,12 @@ export class InstancesController {
     const cleanupAttachments = await prepareAttachmentCleanup(asInstanceSlug(slug), { allConversations: true });
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    await channelManager.announceChange(slug);
     // Slugs are reusable: a cached client would point a new agent of the same
-    // name at this one's bucket.
+    // name at this one's bucket, and a cached config or id would keep the web
+    // gate answering for an agent that no longer exists.
     invalidateAgentS3(asInstanceSlug(slug));
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
     void cleanupAttachments();
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
@@ -622,126 +456,6 @@ export class InstancesController {
       throw new BadRequestException(
         `Invalid slug format. Use lowercase alphanumeric, hyphens, or underscores (e.g. "my-assistant").`,
       );
-    }
-  }
-
-  /** Validate + normalize a keyword list: non-empty trimmed strings, deduped (case-insensitive). */
-  private normalizeKeywords(keywords: string[] | undefined, field: string): string[] | undefined {
-    if (keywords === undefined) return undefined;
-    if (!Array.isArray(keywords)) throw new BadRequestException(`${field} must be an array of strings`);
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const raw of keywords) {
-      if (typeof raw !== "string") throw new BadRequestException(`${field} must contain only strings`);
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      const lower = trimmed.toLowerCase();
-      if (seen.has(lower)) continue;
-      seen.add(lower);
-      out.push(trimmed);
-    }
-    if (out.length === 0) throw new BadRequestException(`${field} must contain at least one non-empty keyword`);
-    return out;
-  }
-
-  /**
-   * The six per-agent settings, refused at the edge rather than by the database.
-   * The migration's CHECK constraints say the same thing, but a 400 naming the
-   * field is a better answer than a driver error, and the panel shows it.
-   *
-   * A timezone or a locale is validated by ASKING Intl, not by a regex: the
-   * accepted set is the runtime's, and a value it rejects would throw on every
-   * turn that formats a date — far from here, and only for that agent.
-   *
-   * `null` is the CLEAR: it drops the column and hands the agent back to the
-   * deployment default. Everything else is checked for its TYPE first, because
-   * the body is JSON and nothing upstream narrows it — a truthiness test let
-   * `""` reach Intl, and two numeric comparisons are both false when the
-   * operand is a string, so `"abc"` passed as a threshold.
-   */
-  private validateAgentSettings(body: {
-    datetimeTimezone?: string | null;
-    datetimeLocale?: string | null;
-    dedupSimilarityThreshold?: number | null;
-    messageSoftDebounceMs?: number | null;
-    messageTypingDelayMs?: number | null;
-    messageMaxRestarts?: number | null;
-  }): void {
-    const timezone = body.datetimeTimezone;
-    if (timezone !== undefined && timezone !== null) {
-      if (typeof timezone !== "string" || timezone.trim() === "") {
-        throw new BadRequestException(
-          "datetimeTimezone must be a non-empty IANA time zone name, or null to use the deployment default",
-        );
-      }
-      try {
-        new Intl.DateTimeFormat("en-US", { timeZone: timezone });
-      } catch {
-        throw new BadRequestException(`datetimeTimezone "${timezone}" is not a known IANA time zone`);
-      }
-    }
-    const locale = body.datetimeLocale;
-    if (locale !== undefined && locale !== null) {
-      if (typeof locale !== "string" || locale.trim() === "") {
-        throw new BadRequestException(
-          "datetimeLocale must be a non-empty BCP 47 locale, or null to use the deployment default",
-        );
-      }
-      try {
-        new Intl.DateTimeFormat(locale);
-      } catch {
-        throw new BadRequestException(`datetimeLocale "${locale}" is not a valid BCP 47 locale`);
-      }
-    }
-    const threshold = body.dedupSimilarityThreshold;
-    if (threshold !== undefined && threshold !== null) {
-      if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-        throw new BadRequestException("dedupSimilarityThreshold must be a number between 0 and 1");
-      }
-    }
-    // Zero is legitimate for all three — no debounce, no typing delay, no
-    // restart — so the floor is non-negative rather than positive.
-    for (const [field, value] of [
-      ["messageSoftDebounceMs", body.messageSoftDebounceMs],
-      ["messageTypingDelayMs", body.messageTypingDelayMs],
-      ["messageMaxRestarts", body.messageMaxRestarts],
-    ] as const) {
-      if (value !== undefined && value !== null && (!Number.isInteger(value) || value < 0)) {
-        throw new BadRequestException(`${field} must be a non-negative integer`);
-      }
-    }
-  }
-
-  /**
-   * Validate the embedder provider against the embedders this deployment can
-   * actually use — the two built in plus anything registered at boot. Not a
-   * hardcoded pair: an unlisted name would be stored, then fail every embedding
-   * call at runtime instead of failing this request.
-   */
-  private validateEmbeddingProvider(embeddingProvider?: string) {
-    if (embeddingProvider !== undefined && !isKnownEmbeddingProvider(embeddingProvider)) {
-      throw new BadRequestException(
-        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: ${knownEmbeddingProviders().join(", ")}.`,
-      );
-    }
-  }
-
-  /** Validate provider/model values against the configured providerConfigs. */
-  private validateModelConfig(provider?: string | null, model?: string | null) {
-    const validProviders = Object.keys(providerConfigs);
-    if (provider && !validProviders.includes(provider)) {
-      throw new BadRequestException(`Invalid provider "${provider}". Valid providers: ${validProviders.join(", ")}`);
-    }
-    if (model) {
-      const effectiveProvider = provider || DEFAULT_PROVIDER;
-      const cfg = providerConfigs[effectiveProvider];
-      const validModels = cfg ? [
-        ...Object.values(cfg.tiers),
-        ...Object.keys(cfg.models),
-      ] : [];
-      if (!validModels.includes(model)) {
-        throw new BadRequestException(`Invalid model "${model}" for provider "${effectiveProvider}". Valid models: ${validModels.join(", ")}`);
-      }
     }
   }
 }

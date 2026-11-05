@@ -51,9 +51,6 @@ export const CHANNEL_MAX_LENGTH: Record<"telegram" | "slack" | "whatsapp", numbe
   whatsapp: 1600,
 };
 
-/** Metadata key used to override the auto-generated conversationId in the pipeline. */
-export const METADATA_CONVERSATION_ID_OVERRIDE = "conversationIdOverride";
-
 export interface IncomingMessage {
   /** Channel this message came from */
   channelType: MessageChannelType;
@@ -63,6 +60,14 @@ export interface IncomingMessage {
 
   /** Instance ID (determines which workspace/personality to use) */
   instanceId: InstanceSlug;
+
+  /**
+   * The conversation this message continues, when the channel keys it on more
+   * than `channelId` (a Slack thread). Set only by server-side channel adapters
+   * from provider data, never from request fields or `metadata`, which carry
+   * caller input: a caller-chosen id would write into another conversation.
+   */
+  conversationId?: string;
 
   /** User display name (when available) */
   userName?: string;
@@ -84,6 +89,37 @@ export interface IncomingMessage {
    * cannot take back?" has an answer that no other event can race.
    */
   toolGate?: (toolName: string) => boolean;
+
+  /**
+   * Asked once, synchronously, right before the turn writes anything (its
+   * conversation state, its messages). False: the turn was cancelled and
+   * writes nothing. True: the turn is no longer cancelled, so what it saves is
+   * also what it delivers. Set only in-process, like `toolGate`, by whoever can
+   * cut the turn short.
+   */
+  commitGate?: () => boolean;
+
+  /**
+   * The burst of fragments this message belongs to, shared by every run the
+   * message coordinator starts for it (a cancel-and-restart included). Set only
+   * in-process by the coordinator.
+   */
+  burst?: TurnBurst;
+}
+
+/** One burst of fragments the coordinator answers as one turn; see `IncomingMessage.burst`. */
+export interface TurnBurst {
+  /** Stable for the burst, across its restarted runs. */
+  readonly id: string;
+  /**
+   * What the `conversation_start` hooks produced in a run of this burst that
+   * completed them. A restarted run reuses it instead of running them again —
+   * their external calls (a contact lookup, a CRM write) already happened.
+   */
+  conversationStart?: {
+    summaries: import("../hooks/hook-types.js").HookExecutionSummary[];
+    state: import("../conversations/state.buffer.js").StateChanges | undefined;
+  };
 }
 
 /** Why a turn produced a warning instead of an answer. Channels ignore it; API bridges map it to an error status. */

@@ -65,7 +65,7 @@ describe("exact replay storage (integration)", () => {
       { role: "assistant", content: "29,90 euro.", exactReplay: { messages: response, prefixKey: "key-A" } },
     ]);
 
-    const rows = await conversationStore.getRecentMessageRows(CID, 16);
+    const rows = await conversationStore.getHistoryWindow(CID, { after: null, limit: 16, withSteps: true, withExactReplay: true });
     const history = buildExactHistory(rows, { keepReasoning: true });
 
     expect(JSON.stringify(history)).toBe(JSON.stringify([user, ...response]));

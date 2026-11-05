@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { MessageBubble } from "./message-bubble";
-import type { ChatMessage } from "../_hooks/use-chat";
+import type { ChatMessage } from "./use-chat";
 
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en" }),

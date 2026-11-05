@@ -18,6 +18,9 @@
  *   - Server-side `?instance=<slug>` filter — events for other instances are
  *     never emitted on this socket (no client-side trust).
  *   - Server-side ORGANIZATION filter — see `resolveVisibleSlugs`.
+ *   - Lifetime:     a stream ends after `MAX_STREAM_LIFETIME_MS`, and a client
+ *                   that stops reading has it ended past `MAX_PENDING_PER_CLIENT`
+ *                   queued frames; the EventSource reconnects either way.
  *
  * `GET /api/activity-stream/conversation` is the same stream narrowed to one
  * conversation, plus a `persisted` signal after each stored write to it. Both
@@ -41,11 +44,19 @@ import { orgScope } from "../authz/scope-filter.js";
 import { NO_TRANSACTION } from "../database/client.js";
 
 /**
- * Per-client backpressure cap. If a slow client accumulates more than this
- * many pending events, we drop the oldest to keep memory bounded — better
- * to lose a few events on a frozen connection than to pin RAM forever.
+ * Per-client backpressure cap. Frames wait in the queue while the socket's
+ * buffer is full; a client that lets more than this many pile up (a suspended
+ * laptop, a stalled proxy) has its stream ended, so the memory it can pin stays
+ * bounded. Its EventSource reconnects once it reads again.
  */
 const MAX_PENDING_PER_CLIENT = 200;
+
+/**
+ * How long one stream stays open. Who may see what is decided at connect; ending
+ * the stream makes the EventSource reconnect and the caller be authorized again,
+ * so a revoked access or a newly created agent counts within this bound.
+ */
+const MAX_STREAM_LIFETIME_MS = 15 * 60_000;
 
 /** Global SSE connection counter (module-scoped). */
 let activeConnections = 0;
@@ -84,7 +95,8 @@ export function closeActivityStreams(): number {
  * Resolved at connect time into a Set rather than per event on purpose: the
  * handler is synchronous and runs on every event on the bus, so a lookup there
  * would put a query on the hot path. The trade-off is that an agent created
- * DURING a connection is not visible until the client reconnects — which matches
+ * DURING a connection is not visible until the client reconnects, at the latest
+ * when the stream reaches its maximum lifetime — which matches
  * what this endpoint already promises ("a client that connects after a turn has
  * started will only see events from that point onward").
  *
@@ -155,35 +167,44 @@ function openFeed(
   // until the first real event lands.
   res.write(": connected\n\n");
 
-  // Serialized SSE frames, so bus events and named signals share one
-  // backpressure bound.
+  // Serialized SSE frames, so bus events, named signals and heartbeats share
+  // one backpressure bound.
   const queue: string[] = [];
-  let writing = false;
+  let waitingForDrain = false;
   let closed = false;
   let decremented = false;
 
+  // Write until the socket's buffer is full, then wait for it to drain: what
+  // `write()` refuses stays in the queue, where the cap below can see it.
   const flush = () => {
-    if (writing || closed) return;
-    writing = true;
+    if (waitingForDrain || closed) return;
     while (queue.length > 0) {
       const frame = queue.shift()!;
+      let accepted: boolean;
       try {
-        res.write(frame);
+        accepted = res.write(frame);
       } catch {
         // Connection broke between checks; tear down.
         closed = true;
-        break;
+        return;
+      }
+      if (!accepted) {
+        waitingForDrain = true;
+        res.once("drain", () => {
+          waitingForDrain = false;
+          flush();
+        });
+        return;
       }
     }
-    writing = false;
   };
 
   const enqueue = (frame: string) => {
     if (closed) return;
     queue.push(frame);
     if (queue.length > MAX_PENDING_PER_CLIENT) {
-      // Backpressure: drop oldest frames; preserve the most recent.
-      queue.splice(0, queue.length - MAX_PENDING_PER_CLIENT);
+      teardown();
+      return;
     }
     flush();
   };
@@ -197,14 +218,8 @@ function openFeed(
   // Heartbeat to keep idle proxies (Render, nginx, …) from killing the
   // connection at 30–60 s of silence. Comment lines are ignored by the
   // EventSource browser API.
-  const heartbeat = setInterval(() => {
-    if (closed) return;
-    try {
-      res.write(": ping\n\n");
-    } catch {
-      closed = true;
-    }
-  }, 25_000);
+  const heartbeat = setInterval(() => enqueue(": ping\n\n"), 25_000);
+  const expiry = setTimeout(() => teardown(), MAX_STREAM_LIFETIME_MS);
 
   const decrementCounters = () => {
     if (decremented) return;
@@ -233,7 +248,9 @@ function openFeed(
   const teardown = () => {
     const wasOpen = !closed;
     closed = true;
+    queue.length = 0;
     clearInterval(heartbeat);
+    clearTimeout(expiry);
     unsubscribe();
     unsubscribeExtra?.();
     // Only end a response that was still considered open — ending twice is

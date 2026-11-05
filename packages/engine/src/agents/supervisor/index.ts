@@ -38,6 +38,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
+import type { McpServerRecord } from "../../instances/mcp-servers.store.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
@@ -149,6 +150,8 @@ export interface SupervisorInput {
    * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
    */
   allowOAuth?: boolean;
+  /** The agent's MCP servers when the turn already read them (`startMcpConnections`). */
+  mcpServers?: Promise<McpServerRecord[]>;
 }
 
 export interface SupervisorOutput {
@@ -265,8 +268,9 @@ export function wrapToolWithAudit(
         return { error: TOOL_NOT_RUN, notRun: true };
       }
 
+      const auditCall = auditStore.beginToolCall(name, instanceId);
       try {
-        const output = await originalExecute(params);
+        const output = await auditCall.run(() => originalExecute(params));
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
@@ -280,16 +284,13 @@ export function wrapToolWithAudit(
           }
         }
         toolCallTraces?.push({ name, duration_ms: durationMs, success: !hasError });
-        // Backfill duration + output on the audit entry logged by the tool
-        auditStore.patchDuration(name, instanceId, durationMs);
-        const outputPreview = safeOutputPreview(output);
-        if (outputPreview) auditStore.patchOutput(name, instanceId, outputPreview);
+        auditCall.end(durationMs, safeOutputPreview(output));
         emitToolEnd({ kind: "success", output });
         return output;
       } catch (err) {
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
-        auditStore.patchDuration(name, instanceId, durationMs);
+        auditCall.end(durationMs);
         emitToolEnd({ kind: "error", message: errMsg(err) });
         throw err;
       }
@@ -370,7 +371,7 @@ async function buildTools(opts: BuildToolsOptions) {
         // takeable here, so the store needs no per-tool authorization of its own.
         artifacts: artifactApiFor(instanceId, conversationId),
         // No `model`: a pinned model would override the tier the tool asks for.
-        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId }),
+        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId, purpose: "tool" }),
         abortSignal,
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
@@ -608,6 +609,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     conversationId: input.conversationId,
     abortSignal: input.abortSignal,
     allowOAuth: input.allowOAuth ?? false,
+    servers: input.mcpServers,
   });
 
   // Everything below opens no new resources, but it DOES await (DB calls in
@@ -627,7 +629,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
     }
 
-    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+    const { system: systemPrompt, conversationSystem, turnContext } = await buildSupervisorSystemPrompt({
       tools,
       instanceId: instanceUuid,
       instanceSlug,
@@ -649,7 +651,12 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     // Build user message — multimodal when attachments are present. The per-turn
     // volatile context rides the tail of this message (see buildUserContent).
     const userContent = buildUserContent(input.message, turnContext, input.attachments);
-    const history = input.conversationHistory ?? [];
+    // Conversation-only system text leads the history: the gateway sends it
+    // after the cached agent prompt, ahead of the history's own system rows.
+    const history: ModelMessage[] = [
+      ...(conversationSystem ? [{ role: "system" as const, content: conversationSystem }] : []),
+      ...(input.conversationHistory ?? []),
+    ];
     const prefixKey = requestPrefixKey({
       system: systemPrompt,
       messages: history,

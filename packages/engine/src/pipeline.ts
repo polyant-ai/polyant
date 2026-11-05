@@ -3,10 +3,11 @@
 // ---------------------------------------------------------------------------
 // Pipeline — Extracted shared logic for message handling
 // ---------------------------------------------------------------------------
-// Houses preparePipeline, afterResponse, runPipelinePre, runPipelinePost,
+// Houses preparePipeline, persistTurn, afterResponseTail, runPipelinePre, runPipelinePost,
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from "node:crypto";
 import type { ModelMessage } from "ai";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
@@ -19,10 +20,12 @@ import {
   toExactUserMessage,
   type ExactTurn,
 } from "./conversations/tool-history.js";
-import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
+import { rowsToModelMessages, type ConversationTurnContext, type MessageRow } from "./conversations/store.js";
+import { HISTORY_HARD_CAP, messagesToFold } from "./conversations/history-window.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { contactConversationId } from "./channels/outbound-conversation.js";
+import { runBackgroundJob, trackBackgroundTurn } from "./channels/background-turns.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
@@ -37,6 +40,8 @@ import { runHooks, firstHalt, firstReplaceResponse, firstRegenerate, collectInje
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
+import { startMcpConnections } from "./agents/tools/mcp/mcp-tools.js";
+import type { McpServerRecord } from "./instances/mcp-servers.store.js";
 import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
 import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS } from "./instances/agent-settings.js";
 import { createLogger } from "./utils/create-logger.js";
@@ -108,6 +113,27 @@ export function missingKeyStream(): StreamOutgoingMessage {
   };
 }
 
+/**
+ * The oldest messages of the history, to fold into the summary after the turn
+ * (see `conversations/history-window.ts`).
+ */
+export interface SummaryFold {
+  messages: ModelMessage[];
+  /** created_at of the last of them: where the summary will reach. */
+  through: Date;
+  /** Where the summary reached when the turn read it. */
+  previousThrough: Date | null;
+  /**
+   * The turn read as many messages as it reads at most, so older messages it
+   * never read may lie between `previousThrough` and `messages`: the fold reads
+   * them itself, from where the summary reached.
+   */
+  readCut?: boolean;
+}
+
+/** The most messages a fold that reads them itself summarizes at once; the next fold goes on from there. */
+const FOLD_READ_MAX = 200;
+
 // ---------------------------------------------------------------------------
 // PipelineContext — everything preparePipeline returns
 // ---------------------------------------------------------------------------
@@ -121,17 +147,17 @@ export interface PipelineContext {
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
   /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
   stateBuffer: ConversationStateBuffer | undefined;
+  /** The channel's point of no return (`IncomingMessage.commitGate`), asked once before the turn is saved. */
+  commitGate?: () => boolean;
   history: ModelMessage[] | undefined;
   /** True when no message rows were persisted before this turn (first successful turn). */
   isFirstTurn: boolean;
-  hasOverflow: boolean;
-  droppedMessages: ModelMessage[] | undefined;
+  /** Set when this turn takes the history past its window: what to fold into the summary once it is saved. */
+  summaryFold?: SummaryFold;
   instanceConfig: InstanceConfig;
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
   userAttachments: Attachment[] | undefined;
-  /** External system messages to persist alongside the user message. */
-  incomingSystemMessages: Array<{ role: string; content: string }> | undefined;
   /** Whether this turn is an automated Open WebUI task (title/tag gen) — persistence skipped. */
   isAutoTaskTurn: boolean;
   /** Raw inbound metadata (e.g. audio STT block) — forwarded to the saved user message row. */
@@ -148,6 +174,25 @@ function buildLangsmithConfig(cfg: InstanceConfig): { apiKey: string; project: s
   return { apiKey: cfg.langsmith.apiKey, project: cfg.langsmith.project ?? "default" };
 }
 
+/**
+ * `response_sent` work still running, by conversation. The conversation's next
+ * turn waits for it before reading the state, so a delivery hook that writes is
+ * never read stale. Process-local, like the message coordinator.
+ */
+const deliveryHooks = new Map<string, Promise<void>>();
+
+function holdNextTurn(conversationId: string, work: Promise<unknown>): void {
+  const settled = work.then(
+    () => undefined,
+    (err: unknown) => log.error("pipeline", `response_sent hooks failed for ${conversationId}`, err),
+  );
+  deliveryHooks.set(conversationId, settled);
+  trackBackgroundTurn(settled);
+  void settled.then(() => {
+    if (deliveryHooks.get(conversationId) === settled) deliveryHooks.delete(conversationId);
+  });
+}
+
 export async function preparePipeline(
   msg: IncomingMessage,
   conversationIdOverride?: string | null,
@@ -157,27 +202,59 @@ export async function preparePipeline(
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride
+    ?? msg.conversationId
     ?? contactConversationId(instanceId, msg.channelType, msg.channelId);
   const isAutoTaskTurn = isAutoTask(msg.text);
+  const source = (msg.metadata?.source as string) ?? "user";
 
-  // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
-  if (!isAutoTaskTurn) {
-    const source = (msg.metadata?.source as string) ?? "user";
-    const ensureResult = await conversationStore
-      .ensureConversation(conversationId, instanceId, {
-        channel: msg.channelType,
-        userIdentifier: msg.userName,
-        source,
+  // The conversation row first (its summary says where the history starts),
+  // then the history; the config and the state meanwhile. Automated tasks
+  // (e.g. Open WebUI title/tag generation) read the row without creating it.
+  const instanceConfigPromise = resolveInstanceConfig(instanceId);
+  const turnPromise = conversationStore
+    .openConversationTurn(
+      conversationId,
+      instanceId,
+      isAutoTaskTurn ? undefined : { channel: msg.channelType, userIdentifier: msg.userName, source },
+    )
+    .catch((err): ConversationTurnContext => {
+      log.error("pipeline", `Failed to open conversation ${conversationId}`, err);
+      return { created: false, contextPrompt: null, summary: null, summaryThrough: null };
+    });
+  // Tool-result replay (opt-in per agent) reads the rows with their steps, and
+  // exact replay with the messages each row was sent as.
+  const replayPromise = instanceConfigPromise.then((config) => config.toolResultsInHistoryEnabled && !isAutoTaskTurn);
+  const historyPromise = Promise.all([turnPromise, replayPromise, instanceConfigPromise]).then(([turn, withSteps, config]) =>
+    conversationStore
+      .getHistoryWindow(conversationId, {
+        after: turn.summaryThrough,
+        limit: HISTORY_HARD_CAP,
+        withSteps,
+        withExactReplay: withSteps && config.toolHistoryReplay === "exact",
       })
-      .catch((err) => {
-        log.error("pipeline", `Failed to ensure conversation ${conversationId}`, err);
-        return { created: false };
-      });
+      .catch(() => [] as MessageRow[]),
+  );
+  const [turn, rows, replay, instanceConfig, stateBuffer] = await Promise.all([
+    turnPromise,
+    historyPromise,
+    replayPromise,
+    instanceConfigPromise,
+    isAutoTaskTurn
+      ? Promise.resolve(undefined)
+      : Promise.resolve(deliveryHooks.get(conversationId))
+          .then(() => ConversationStateBuffer.load(conversationId, instanceId))
+          .catch((err) => {
+            log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
+            return new ConversationStateBuffer(conversationId, instanceId);
+          }),
+  ]);
+  const contextPrompt = turn.contextPrompt ?? undefined;
 
+  if (!isAutoTaskTurn) {
     // Activity-stream emit: lifecycle event when a brand-new conversation row
     // is created (never on subsequent turns of the same conversation).
     // Skipped for synthetic channels covered by other emitters.
-    if (ensureResult.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+    if (turn.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
       resolveInstanceMeta(instanceId)
         .then((instance) => {
           emitConversation({
@@ -215,81 +292,47 @@ export async function preparePipeline(
     }
   }
 
-  // Fetch history, instance config, and context prompt in parallel — all independent
-  // except that the history query depends on the config's tool-result replay flag.
-  // Replay agents read the raw rows ONCE and derive the text history from them,
-  // instead of running the same ordered query twice. The config is the 30s-cached one.
-  const instanceConfigPromise = resolveInstanceConfig(instanceId);
-  const textHistory = () =>
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]);
-  const historyPromise: Promise<{ messages: ModelMessage[]; rows?: MessageRow[] }> =
-    instanceConfigPromise.then(async (config) => {
-      if (config.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
-        try {
-          const rows = await conversationStore.getRecentMessageRows(conversationId, 16);
-          return { messages: rowsToModelMessages(rows), rows };
-        } catch {
-          // Same degradation as before: the text read stands in for the rows.
-        }
-      }
-      return { messages: await textHistory() };
-    });
-  const [{ messages: conversationHistory, rows: replayRows }, instanceConfig, contextPrompt, stateBuffer] =
-    await Promise.all([
-      historyPromise,
-      instanceConfigPromise,
-      conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
-      isAutoTaskTurn
-        ? Promise.resolve(undefined)
-        : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
-            log.error("pipeline", `Failed to load conversation state for ${conversationId}`, err);
-            return new ConversationStateBuffer(conversationId, instanceId);
-          }),
-    ]);
-
   // First persisted turn — computed from PERSISTED rows, NOT the metadata
   // fallback below: the OpenAI-compat path passes client-side history that must
   // not suppress the conversation_start hook. Abort-safe by construction: an
   // aborted run persists nothing, so the restarted run still sees zero rows.
-  const isFirstTurn = conversationHistory.length === 0;
+  const isFirstTurn = rows.length === 0 && turn.summaryThrough === null;
 
-  // NOTE: user message and incoming system messages are NOT persisted here.
-  // They are persisted in `afterResponse()` only after the pipeline succeeds,
-  // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
-  const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
+  // NOTE: the user message is NOT persisted here. `persistTurn()` writes it
+  // only after the pipeline succeeds, so that an aborted pipeline
+  // (cancel-and-restart) leaves no trace in DB.
 
-  // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
-  const hasOverflow = conversationHistory.length > 15;
+  // The summary covers everything before the history: both go to the model.
+  const conversationSummary = turn.summary ?? undefined;
+  const conversationHistory = rowsToModelMessages(rows);
   let history: ModelMessage[] | undefined;
-  let conversationSummary: string | undefined;
-  let droppedMessages: ModelMessage[] | undefined;
-
-  if (hasOverflow) {
-    conversationSummary =
-      (await conversationStore.getSummary(conversationId).catch(() => null)) ?? undefined;
-    history = conversationHistory.slice(-10);
-    droppedMessages = conversationHistory.slice(0, -10);
+  if (rows.length === 0) {
+    history = msg.metadata?.conversationHistory as ModelMessage[] | undefined;
   } else {
-    conversationSummary = undefined;
-    history = conversationHistory.length > 0
+    // Tool-result replay rebuilds tool_use/tool_result blocks from the persisted
+    // `steps`, so the model retains tool outputs across turns. Exact replay sends
+    // each row's messages as they were sent; a thinking block is bound to
+    // everything before it, so reasoning is replayed only while the history
+    // still starts where the conversation does (nothing folded, nothing cut).
+    history = !replay
       ? conversationHistory
-      : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
+      : instanceConfig.toolHistoryReplay === "exact"
+        ? buildExactHistory(rows, { keepReasoning: turn.summaryThrough === null && rows.length < HISTORY_HARD_CAP })
+        : buildHistoryWithToolResults(rows);
   }
 
-  // Tool-result replay (opt-in per instance): rebuild the in-window history from
-  // the raw rows read above, reconstructing tool_use/tool_result blocks from the
-  // persisted `steps` so the model retains tool outputs across turns. The dropped
-  // messages / summary stay text-only. The window is counted in rows in both
-  // modes, so an exact turn of several steps enters and leaves it whole.
-  if (replayRows && replayRows.length > 0) {
-    const windowRows = hasOverflow ? replayRows.slice(-10) : replayRows;
-    history =
-      instanceConfig.toolHistoryReplay === "exact"
-        ? // A window cut from the front changes what every replayed thinking block
-          // is bound to, so reasoning is replayed only while nothing was cut.
-          buildExactHistory(windowRows, { keepReasoning: !hasOverflow })
-        : buildHistoryWithToolResults(windowRows);
-  }
+  // This turn adds two messages: when that takes the history past its window,
+  // the oldest are folded into the summary after the turn is saved.
+  const fold = isAutoTaskTurn ? 0 : messagesToFold(rows, 2);
+  const summaryFold: SummaryFold | undefined =
+    fold > 0
+      ? {
+          messages: conversationHistory.slice(0, fold),
+          through: rows[fold - 1].createdAt!,
+          previousThrough: turn.summaryThrough,
+          ...(rows.length >= HISTORY_HARD_CAP ? { readCut: true } : {}),
+        }
+      : undefined;
 
   const langsmith = buildLangsmithConfig(instanceConfig);
 
@@ -317,14 +360,13 @@ export async function preparePipeline(
     contextPrompt,
     channelIdentity,
     stateBuffer,
+    commitGate: msg.commitGate,
     history,
     isFirstTurn,
-    hasOverflow,
-    droppedMessages,
+    summaryFold,
     instanceConfig,
     langsmith,
     userAttachments: msg.attachments,
-    incomingSystemMessages: incomingSystemMessages.length > 0 ? incomingSystemMessages : undefined,
     isAutoTaskTurn,
     inboundMetadata: Object.keys(msg.metadata).length > 0 ? msg.metadata : undefined,
   };
@@ -419,7 +461,13 @@ export async function runResponseGeneratedHooks(
 }
 
 // ---------------------------------------------------------------------------
-// afterResponse — fire-and-forget post-processing (extracted from ~lines 118-200)
+// After the response — split into:
+//   • persistTurn(opts):        awaited; the user and assistant rows, one transaction
+//   • afterResponseTail(opts):  in the background; title, summary, memory extraction
+//
+// The turn is saved before runPipelinePost returns, so before the channel sends
+// the reply: a reply that has no matching record is never delivered, and a
+// follow-up message always finds the previous exchange in the history.
 // ---------------------------------------------------------------------------
 
 export interface AfterResponseOptions {
@@ -434,21 +482,8 @@ export interface AfterResponseOptions {
   debugPayload?: LlmDebugPayload;
   /** Pre-generated assistant message UUID (streaming path) — keeps the persisted id stable. */
   assistantMessageId?: string;
-  existingSummary?: string;
-  /** When true, the sliding window overflowed — generate/update summary. */
-  needsSummaryUpdate?: boolean;
-  /** Messages that fell outside the retained window (to be summarized). */
-  droppedMessages?: ModelMessage[];
-  memoryEnabled?: boolean;
-  /** The agent's resolved datetime formatting, for the summary's "as of" stamp. */
-  datetime?: InstanceConfig["datetime"];
-  provider?: string;
-  apiKeys?: InstanceConfig["apiKeys"];
-  langsmith?: { apiKey: string; project: string };
   /** User-message attachments to upload + persist alongside the user row. */
   userAttachments?: Attachment[];
-  /** External system messages to persist before the user row. */
-  incomingSystemMessages?: Array<{ role: string; content: string }>;
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
   inboundMetadata?: Record<string, unknown>;
   /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
@@ -460,160 +495,237 @@ export interface AfterResponseOptions {
   exactTurn?: ExactTurn;
 }
 
-export function afterResponse(opts: AfterResponseOptions): void {
-  // Skip automated Open WebUI tasks entirely
+/**
+ * Persist the user message and the reply — with the run's buffered
+ * conversation state, when given — in one transaction, and throw when that
+ * fails: the caller must then treat the turn as failed and not deliver a
+ * reply that the history does not hold. No-op for automated Open WebUI tasks.
+ */
+export async function persistTurn(opts: AfterResponseOptions, state?: ConversationStateBuffer): Promise<void> {
   if (isAutoTask(opts.userMessage)) return;
 
-  const work = async () => {
-    // 0. Persist external system messages + user message (deferred from pre-pipeline
-    // so that an aborted/restarted pipeline leaves no orphan rows in DB).
-    // Deduplicate against system messages already in the conversation: clients
-    // that replay history (playground, open-webui) re-send the same system block
-    // every turn, which would otherwise accumulate one duplicate row per turn
-    // (a repeated context card in the UI). Only genuinely new content is written.
-    if (opts.incomingSystemMessages?.length) {
-      const seen = await conversationStore
-        .getSystemMessageContents(opts.conversationId)
-        .catch(() => new Set<string>());
-      const novel: Array<{ role: string; content: string }> = [];
-      for (const sm of opts.incomingSystemMessages) {
-        if (seen.has(sm.content)) continue;
-        seen.add(sm.content);
-        novel.push({ role: "system", content: sm.content });
-      }
-      if (novel.length > 0) {
-        await conversationStore
-          .appendMessages(opts.conversationId, novel)
-          .catch((err) => log.error("pipeline", `Failed to persist system messages for ${opts.conversationId}`, err));
-      }
-    }
+  // The user row's id is chosen here when it has attachments to store: they are
+  // recorded on it once uploaded, after the turn is saved and delivered.
+  const toStore = opts.userAttachments?.some((att) => att.data) ? opts.userAttachments : undefined;
+  const userRowId = toStore ? randomUUID() : undefined;
 
-    // No pre-check: `uploadAttachment` answers `null` for an agent with no
-    // storage configured, which is the ordinary case. Asking first would read
-    // the same secrets twice and give the two reads a chance to disagree.
-    // A failed upload (denied bucket policy, wrong region, revoked credentials,
-    // a transient S3 error) costs that attachment its stored copy, not the
-    // turn: the reply has been produced and tools may have written, so the
-    // turn is persisted without it. Only the error's name is logged — an S3
-    // message carries the object key, and the key carries the conversation id.
-    let attachmentMetas: AttachmentMeta[] | undefined;
-    if (opts.userAttachments?.length) {
-      const results: (AttachmentMeta | null)[] = await Promise.all(
-        opts.userAttachments.map((att) =>
-          att.data
-            ? uploadAttachment(att.data, {
-                type: att.type,
-                mimeType: att.mimeType,
-                fileName: att.fileName,
-                instanceId: opts.instanceId,
-                conversationId: opts.conversationId,
-              }).catch((err: unknown) => {
-                log.warn(
-                  "pipeline",
-                  `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
-                );
-                return null;
-              })
-            : Promise.resolve(null),
-        ),
-      );
-      const stored = results.filter((r): r is AttachmentMeta => r != null);
-      // Undefined rather than an empty array when nothing was stored: the column
-      // is nullable and an empty array would read as "there were attachments,
-      // and none of them are here".
-      attachmentMetas = stored.length > 0 ? stored : undefined;
-    }
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        role: "user",
-        content: opts.userMessage,
-        attachments: attachmentMetas,
-        metadata: opts.inboundMetadata,
-        ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
-        // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
-        // and it always precedes the assistant row persisted just below.
-        ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
-      },
-    ]);
+  // Both rows are stamped by this process's clock: the user row at arrival, the
+  // reply now. Mixing in the database's clock for one of them would let a skew
+  // between the two hosts order the reply before the message it answers.
+  await conversationStore.appendMessages(opts.conversationId, [
+    {
+      ...(userRowId ? { id: userRowId } : {}),
+      role: "user",
+      content: opts.userMessage,
+      metadata: opts.inboundMetadata,
+      ...(opts.exactTurn ? { exactReplay: { messages: [toExactUserMessage(opts.exactTurn.user)] } } : {}),
+      ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
+    },
+    {
+      // Pre-generated on the streaming path so the client can correlate it with
+      // the per-message debug payload, present only when DEBUG was on.
+      ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
+      createdAt: new Date(),
+      role: "assistant",
+      content: opts.assistantResponse,
+      steps: opts.steps,
+      reasoning: opts.reasoning,
+      debugPayload: opts.debugPayload,
+      metadata: opts.provenance,
+      // A reply a hook wrote is not what the model produced: that row replays
+      // compactly, from the text the user received.
+      ...(opts.exactTurn && opts.exactTurn.response.length > 0 && !opts.provenance
+        ? { exactReplay: { messages: opts.exactTurn.response, prefixKey: opts.exactTurn.prefixKey } }
+        : {}),
+    },
+  ], state ? { inTransaction: (tx) => state.flush(tx) } : undefined);
 
-    // 1. Save assistant message to PostgreSQL. The id is pre-generated on the
-    // streaming path so the client can correlate it with the per-message debug
-    // payload; the debug payload itself is present only when DEBUG was on.
-    await conversationStore.appendMessages(opts.conversationId, [
-      {
-        ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
-        role: "assistant",
-        content: opts.assistantResponse,
-        steps: opts.steps,
-        reasoning: opts.reasoning,
-        debugPayload: opts.debugPayload,
-        metadata: opts.provenance,
-        // A reply a hook wrote is not what the model produced: that row replays
-        // compactly, from the text the user received.
-        ...(opts.exactTurn && opts.exactTurn.response.length > 0 && !opts.provenance
-          ? { exactReplay: { messages: opts.exactTurn.response, prefixKey: opts.exactTurn.prefixKey } }
-          : {}),
-      },
-    ]);
-
-    // 1.5 Generate title (only once, after first exchange)
-    await generateConversationTitle({
-      conversationId: opts.conversationId,
-      instanceId: opts.instanceId,
-      provider: opts.provider,
-      apiKeys: opts.apiKeys,
-      langsmith: opts.langsmith,
-      content: `User: ${opts.userMessage}\nAssistant: ${opts.assistantResponse}`,
-    });
-
-    // 2. Update conversation summary (only when sliding window overflows)
-    if (opts.needsSummaryUpdate && opts.droppedMessages?.length) {
-      const existing = opts.existingSummary
-        ? `Previous summary: ${opts.existingSummary}\n\n`
-        : "";
-      const droppedText = opts.droppedMessages
-        .map(m => {
-          const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
-          return `${label}: ${m.content}`;
-        })
-        .join("\n");
-      try {
-        const datetime = opts.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
-        const now = new Date().toLocaleString(datetime.locale, {
-          timeZone: datetime.timezone,
-          dateStyle: "full",
-          timeStyle: "short",
-        });
-        const summaryResponse = await chat({
-          tier: "fast",
-          provider: opts.provider,
-          apiKeys: opts.apiKeys,
-          langsmith: opts.langsmith,
-          system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
-          messages: [{
-            role: "user",
-            content: `${existing}Messages to summarize:\n${droppedText}`,
-          }],
-        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
-
-        const summary = summaryResponse.text.trim();
-        if (summary) {
-          await conversationStore.updateSummary(opts.conversationId, summary);
+  if (toStore && userRowId) {
+    trackBackgroundTurn(
+      storeAttachments(opts, toStore).then(async (stored) => {
+        if (stored && !(await conversationStore.setMessageAttachments(opts.conversationId, userRowId, stored))) {
+          log.warn("pipeline", `Stored attachments for agent "${opts.instanceId}" found no message to record them on`);
         }
-      } catch (err) {
-        log.error("pipeline", "Summary generation failed", err);
-      }
-    }
+      }).catch((err: unknown) => log.error("pipeline", `Failed to record stored attachments for agent "${opts.instanceId}"`, err)),
+    );
+  }
+}
 
-    // 3. Automatic memory extraction (fire-and-forget within fire-and-forget)
-    if (opts.memoryEnabled !== false) {
-      extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
-        log.error("pipeline", "Memory extraction failed", err),
-      );
+/**
+ * Copy a turn's inbound attachments to the agent's bucket. Runs after the turn
+ * is saved and is waited for by shutdown, never by the reply: the S3 client
+ * retries for up to minutes, and past the point of no return a turn that waits
+ * on it holds the reply and the contact's next messages.
+ *
+ * No pre-check: `uploadAttachment` answers `null` for an agent with no storage
+ * configured, which is the ordinary case. Asking first would read the same
+ * secrets twice and give the two reads a chance to disagree. A failed upload
+ * (denied bucket policy, wrong region, revoked credentials, a transient S3
+ * error) costs that attachment its stored copy, not the turn. Only the error's
+ * name is logged — an S3 message carries the object key, and the key carries
+ * the conversation id. Undefined when nothing was stored: the column is
+ * nullable and an empty array would read as "there were attachments, and none
+ * of them are here".
+ */
+async function storeAttachments(opts: AfterResponseOptions, attachments: Attachment[]): Promise<AttachmentMeta[] | undefined> {
+  const results: (AttachmentMeta | null)[] = await Promise.all(
+    attachments.map((att) =>
+      att.data
+        ? uploadAttachment(att.data, {
+            type: att.type,
+            mimeType: att.mimeType,
+            fileName: att.fileName,
+            instanceId: opts.instanceId,
+            conversationId: opts.conversationId,
+          }).catch((err: unknown) => {
+            log.warn(
+              "pipeline",
+              `Attachment upload failed for agent "${opts.instanceId}" (${err instanceof Error ? err.name : "unknown error"}); the turn is saved without it`,
+            );
+            return null;
+          })
+        : Promise.resolve(null),
+    ),
+  );
+  const stored = results.filter((r): r is AttachmentMeta => r != null);
+  return stored.length > 0 ? stored : undefined;
+}
+
+/** What the work after a saved turn needs; see {@link afterResponseTail}. */
+export interface TurnTailOptions {
+  conversationId: string;
+  instanceId: InstanceSlug;
+  /** The agent's config: provider, keys, LangSmith, memory switch, timezone. */
+  instanceConfig: InstanceConfig;
+  /** What the conversation title is generated from, and an optional hint for it. No title without it. */
+  titleContent?: string;
+  titleContext?: string;
+  /** The summary the turn read, which a fold extends. */
+  existingSummary?: string;
+  /** The oldest messages of the history, to fold into the summary. */
+  summaryFold?: SummaryFold;
+}
+
+/**
+ * A fold whose turn did not read every message after the summary: the
+ * messages from where the summary reached, read in order, up to the turn's
+ * fold or {@link FOLD_READ_MAX} of them, ending between two instants as
+ * {@link messagesToFold} does. Undefined when there is nothing to fold.
+ */
+async function foldFromSummary(conversationId: string, fold: SummaryFold): Promise<SummaryFold | undefined> {
+  const rows = await conversationStore.getMessagesAfter(conversationId, {
+    after: fold.previousThrough,
+    through: fold.through,
+    limit: FOLD_READ_MAX + 1,
+  });
+  let end = Math.min(rows.length, FOLD_READ_MAX);
+  while (end > 0 && end < rows.length && rows[end - 1].createdAt?.getTime() === rows[end].createdAt?.getTime()) end--;
+  const last = rows[end - 1]?.createdAt;
+  if (!last) return undefined;
+  return { messages: rowsToModelMessages(rows.slice(0, end)), through: last, previousThrough: fold.previousThrough };
+}
+
+/** Conversations whose summary fold is queued or running in this process. */
+const foldsPending = new Set<string>();
+
+/**
+ * The work that follows a saved turn and that the next turn does not need:
+ * the conversation title, the summary of the messages leaving the window, the
+ * memory extraction. Shared by every engine that saves a turn (the pipeline,
+ * Room and webhook turns). Title and summary run as one bounded background job,
+ * the memory extraction as another in its own queue; shutdown waits for both,
+ * failures are logged.
+ *
+ * One fold per conversation at a time: while one is queued or running, a later
+ * turn's fold is dropped, since the one ahead moves the summary and leaves a
+ * history short enough again. A fold whose starting point another one has moved
+ * meanwhile (another process, or a fold that landed before this turn was
+ * saved) is dropped before its model call, which could not land anyway.
+ */
+export function afterResponseTail(opts: TurnTailOptions): void {
+  const cfg = opts.instanceConfig;
+  const langsmith = buildLangsmithConfig(cfg);
+  const fold = opts.summaryFold && !foldsPending.has(opts.conversationId) ? opts.summaryFold : undefined;
+  if (fold) foldsPending.add(opts.conversationId);
+
+  const summarize = async (turnFold: SummaryFold) => {
+    const current = await conversationStore.getSummaryThrough(opts.conversationId);
+    if ((current?.getTime() ?? null) !== (turnFold.previousThrough?.getTime() ?? null)) return;
+    const covered = turnFold.readCut ? await foldFromSummary(opts.conversationId, turnFold) : turnFold;
+    if (!covered) return;
+    const existing = opts.existingSummary
+      ? `Previous summary: ${opts.existingSummary}\n\n`
+      : "";
+    const droppedText = covered.messages
+      .map(m => {
+        const label = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
+        return `${label}: ${m.content}`;
+      })
+      .join("\n");
+    const datetime = cfg.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+    const now = new Date().toLocaleString(datetime.locale, {
+      timeZone: datetime.timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+    const summaryResponse = await chat({
+      tier: "fast",
+      provider: cfg.provider,
+      apiKeys: cfg.apiKeys,
+      langsmith,
+      system: `Today's date: ${now}. Summarize the following conversation context in 2-3 concise sentences, in the same language as the conversation. Include key facts, decisions, and context needed to continue the conversation. Preserve exact dates and figures — never paraphrase or approximate timestamps. Respond ONLY with the summary, no other text.`,
+      messages: [{
+        role: "user",
+        content: `${existing}Messages to summarize:\n${droppedText}`,
+      }],
+    }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service", purpose: "summary" });
+
+    // Lands only if no other turn moved the summary meanwhile; until it
+    // lands, turns keep reading from where the summary reached before.
+    const summary = summaryResponse.text.trim();
+    if (summary) {
+      await conversationStore.advanceSummary(opts.conversationId, summary, covered.through, covered.previousThrough);
     }
   };
 
-  work().catch((err: unknown) => log.error("pipeline", "afterResponse error", err));
+  const turnWork = async () => {
+    // Generate title (only once, after first exchange)
+    if (opts.titleContent !== undefined) {
+      await generateConversationTitle({
+        conversationId: opts.conversationId,
+        instanceId: opts.instanceId,
+        provider: cfg.provider,
+        apiKeys: cfg.apiKeys,
+        langsmith,
+        content: opts.titleContent,
+        context: opts.titleContext,
+      });
+    }
+
+    // Fold the oldest messages of the history into the summary, once per block.
+    if (fold) {
+      await summarize(fold).catch((err: unknown) => log.error("pipeline", "Summary generation failed", err));
+    }
+  };
+
+  if (opts.titleContent !== undefined || fold) {
+    void runBackgroundJob("turn", () =>
+      turnWork()
+        .catch((err: unknown) => log.error("pipeline", "afterResponseTail error", err))
+        .finally(() => {
+          if (fold) foldsPending.delete(opts.conversationId);
+        }),
+    );
+  }
+
+  // Automatic memory extraction
+  if (cfg.memoryEnabled !== false) {
+    void runBackgroundJob("memory", () =>
+      extractMemories(opts.conversationId, opts.instanceId, cfg.apiKeys, cfg.provider, langsmith).catch((err) =>
+        log.error("pipeline", "Memory extraction failed", err),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +742,8 @@ export interface PipelinePreResult {
   /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply.
    *  `persist: false` makes the halted turn ephemeral — see `runPipelinePost`. */
   shortCircuit?: { text: string; persist: boolean };
+  /** The agent's MCP servers, read at the start of the turn (`startMcpConnections`). */
+  mcpServers: Promise<McpServerRecord[]>;
 }
 
 export async function runPipelinePre(
@@ -637,6 +751,11 @@ export async function runPipelinePre(
   conversationIdOverride?: string | null,
   abortSignal?: AbortSignal,
 ): Promise<PipelinePreResult> {
+  // The MCP connections open while the context is read and the pre-LLM hooks
+  // run, instead of after them. Only the conversational entry points come here,
+  // and they may use oauth servers (see `SupervisorInput.allowOAuth`).
+  const mcpServers = startMcpConnections({ instanceSlug: msg.instanceId, allowOAuth: true });
+
   // Phase 1: Context preparation
   const contextPrepStart = Date.now();
   const ctx = await preparePipeline(msg, conversationIdOverride);
@@ -651,13 +770,28 @@ export async function runPipelinePre(
   if (hookPayload) {
     const hookCtx = buildHookRunContext(ctx, abortSignal);
     if (ctx.isFirstTurn) {
-      hookExecutions.push(...(await runHooks("conversation_start", hookPayload, hookCtx)));
+      // A run the coordinator restarted is still the first turn (the cancelled
+      // run saved nothing), but its conversation_start hooks already ran: reuse
+      // what they produced — injected context, halt, state writes — instead of
+      // repeating their external calls.
+      const carried = msg.burst?.conversationStart;
+      if (carried) {
+        hookExecutions.push(...carried.summaries);
+        if (carried.state) ctx.stateBuffer?.applyChanges(carried.state);
+      } else {
+        const summaries = await runHooks("conversation_start", hookPayload, hookCtx);
+        hookExecutions.push(...summaries);
+        if (msg.burst && !abortSignal?.aborted) {
+          msg.burst.conversationStart = { summaries, state: ctx.stateBuffer?.pendingChanges() };
+        }
+      }
     }
     hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
   }
 
   // A pre-LLM hook may contribute one-shot context to this turn's LLM input.
-  // The engine folds mid-array `system` messages into the top-level system prompt.
+  // The gateway lifts mid-array `system` messages out of the turns and sends them
+  // after the agent's cached system prompt, so they never invalidate it.
   const injected = collectInjectContext(hookExecutions);
   if (injected.length > 0) {
     const sys: ModelMessage[] = injected.map((text) => ({ role: "system", content: text }));
@@ -673,11 +807,12 @@ export async function runPipelinePre(
     messageText: msg.text,
     hookExecutions,
     shortCircuit: halt ? { text: halt.message, persist: halt.persist !== false } : undefined,
+    mcpServers,
   };
 }
 
 // ---------------------------------------------------------------------------
-// runPipelinePost — trace recording + afterResponse
+// runPipelinePost — trace recording + persistence
 // ---------------------------------------------------------------------------
 
 export interface PipelinePostOptions {
@@ -720,7 +855,7 @@ export interface PipelinePostOptions {
   abortSignal?: AbortSignal;
   /**
    * When false, skip every persistence side effect for this turn: no latency trace,
-   * no conversation-state flush, no `afterResponse` (messages, summary, memory,
+   * no conversation-state flush, no `persistTurn`/`afterResponseTail` (messages, summary, memory,
    * debug payload) and no contextPrompt clear. Set by a pre-LLM hook halt carrying
    * `persist: false` — the hook execution is still audited and its telemetry row
    * written, only the turn is ephemeral.
@@ -738,7 +873,8 @@ export interface PipelinePostOptions {
 
 export interface PipelinePostResult {
   finalText: string;
-  /** Post-LLM hook outcomes (response_generated + response_sent). */
+  /** Post-LLM hook outcomes: response_generated, plus response_sent on a streamed
+   *  turn (on the others those hooks run after this result is returned). */
   hookExecutions: HookExecutionSummary[];
 }
 
@@ -749,7 +885,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // and are audited, but nothing about the turn is written. Absent ⇒ persist.
   const persist = opts.persist !== false;
 
-  // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
+  // Aborted pipelines leave no trace: skip trace and persistence entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
     return { finalText: opts.resultText, hookExecutions: [] };
@@ -778,66 +914,22 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
   const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
-  // The coordinator can abort while the hooks above were awaited (a new fragment
-  // arrived). Re-check before any write: an aborted run persists nothing.
-  if (opts.abortSignal?.aborted) {
+  // Point of no return, right before the first write. A run that was cancelled
+  // meanwhile (a newer fragment arrived while the hooks above were awaited)
+  // writes nothing. A run that passes is no longer cancelled: a fragment that
+  // arrives while the turn is being saved gets a run of its own, instead of
+  // discarding a reply that is already in the history. Without a gate (no
+  // coordinator) the abort signal decides, once, here.
+  const committed = ctx.commitGate ? ctx.commitGate() : !opts.abortSignal?.aborted;
+  if (!committed) {
     return { finalText, hookExecutions };
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
 
-  // Fire-and-forget: record pipeline trace
-  if (persist && !isAutoTask(opts.messageText)) {
-    const sttFields = extractSttFields(ctx.inboundMetadata);
-    const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
-    traceStore.record({
-      conversationId: ctx.conversationId,
-      messageId: opts.assistantMessageId,
-      instanceId: ctx.instanceId,
-      channel: opts.channel,
-      contextPrepMs: opts.contextPrepMs,
-      toolBuildingMs: opts.toolBuildingMs,
-      llmCallMs: opts.durationMs,
-      totalMs,
-      ttfbMs: opts.ttfbMs,
-      promptTokens: opts.usage.promptTokens,
-      completionTokens: opts.usage.completionTokens,
-      cachedInputTokens: opts.usage.cachedInputTokens,
-      cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
-      cacheCreation5mInputTokens: opts.usage.cacheCreation5mInputTokens,
-      model: opts.model,
-      provider: opts.provider,
-      cost: opts.cost,
-      thinking: opts.thinking,
-      temperature: opts.temperature,
-      toolCalls: opts.toolCallTraces,
-      isStreaming: opts.isStreaming,
-      parentConversationId: agentCall?.callerConversationId,
-      parentTraceId: agentCall?.parentTraceId,
-      ...sttFields,
-    });
-  }
-
-  // Persist conversation state (commit-on-success): reached only when not aborted
-  // (the abort gates above already returned). Awaited — a single fast upsert — so a
-  // tool's derived value is durable before the next turn reads it.
-  if (persist && ctx.stateBuffer) {
-    try {
-      await ctx.stateBuffer.flush();
-    } catch (err) {
-      log.error("pipeline", `Failed to flush conversation state for ${ctx.conversationId}`, err);
-    }
-  }
-
-  // The flush is awaited, so the coordinator may have aborted meanwhile. The state
-  // upsert is idempotent for the restarted run; the messages must not be written.
-  if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
-  }
-
   if (persist) {
-    afterResponse({
+    const turn: AfterResponseOptions = {
       conversationId: ctx.conversationId,
       instanceId: ctx.instanceId,
       userMessage: opts.messageText,
@@ -846,18 +938,9 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       reasoning: opts.reasoning,
       debugPayload: opts.debugPayload,
       assistantMessageId: opts.assistantMessageId,
-      existingSummary: ctx.conversationSummary,
-      needsSummaryUpdate: ctx.hasOverflow,
-      droppedMessages: ctx.droppedMessages,
-      memoryEnabled: ctx.instanceConfig.memoryEnabled,
-      datetime: ctx.instanceConfig.datetime,
-      provider: ctx.instanceConfig.provider,
-      apiKeys: ctx.instanceConfig.apiKeys,
-      langsmith: ctx.langsmith,
       // Copied to the agent's bucket only when the agent opted in. The model
       // already had them inline; this decides whether they are kept.
       userAttachments: ctx.instanceConfig.attachmentStorageEnabled ? ctx.userAttachments : undefined,
-      incomingSystemMessages: ctx.incomingSystemMessages,
       inboundMetadata: ctx.inboundMetadata,
       provenance,
       receivedAt: new Date(ctx.pipelineStart),
@@ -865,7 +948,51 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
         ctx.instanceConfig.toolResultsInHistoryEnabled && ctx.instanceConfig.toolHistoryReplay === "exact"
           ? opts.exactTurn
           : undefined,
-    });
+    };
+    // The conversation state (commit-on-success) is written in the same
+    // transaction as the messages: a tool's derived value is durable before the
+    // next turn reads it, and never without the turn that produced it.
+    await persistTurn(turn, ctx.stateBuffer);
+
+    if (!isAutoTask(opts.messageText)) {
+      const sttFields = extractSttFields(ctx.inboundMetadata);
+      const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
+      traceStore.record({
+        conversationId: ctx.conversationId,
+        messageId: opts.assistantMessageId,
+        instanceId: ctx.instanceId,
+        channel: opts.channel,
+        contextPrepMs: opts.contextPrepMs,
+        toolBuildingMs: opts.toolBuildingMs,
+        llmCallMs: opts.durationMs,
+        totalMs,
+        ttfbMs: opts.ttfbMs,
+        promptTokens: opts.usage.promptTokens,
+        completionTokens: opts.usage.completionTokens,
+        cachedInputTokens: opts.usage.cachedInputTokens,
+        cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
+        cacheCreation5mInputTokens: opts.usage.cacheCreation5mInputTokens,
+        model: opts.model,
+        provider: opts.provider,
+        cost: opts.cost,
+        thinking: opts.thinking,
+        temperature: opts.temperature,
+        toolCalls: opts.toolCallTraces,
+        isStreaming: opts.isStreaming,
+        parentConversationId: agentCall?.callerConversationId,
+        parentTraceId: agentCall?.parentTraceId,
+        ...sttFields,
+      });
+
+      afterResponseTail({
+        conversationId: ctx.conversationId,
+        instanceId: ctx.instanceId,
+        instanceConfig: ctx.instanceConfig,
+        titleContent: `User: ${opts.messageText}\nAssistant: ${finalText}`,
+        existingSummary: ctx.conversationSummary,
+        summaryFold: ctx.summaryFold,
+      });
+    }
 
     // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
     // subsequent inbound turns don't see stale webhook-trigger instructions.
@@ -879,17 +1006,25 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
 
   // Lifecycle hooks: response_sent fires once the turn is finalized and handed
   // to the channel (the pipeline never observes physical delivery — see the
-  // hooks design doc). The main flush already ran, so persist any state these
-  // hooks wrote with a second flush (no-op when nothing changed).
+  // hooks design doc). The turn's state is already saved, so persist any state
+  // these hooks wrote with a second flush (no-op when nothing changed).
   if (hookPayload && hookCtx) {
-    hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
-    if (persist && ctx.stateBuffer) {
-      try {
-        await ctx.stateBuffer.flush();
-      } catch (err) {
-        log.error("pipeline", `Failed to flush hook state for ${ctx.conversationId}`, err);
+    const responseSent = runHooks("response_sent", hookPayload, hookCtx).then(async (summaries) => {
+      if (persist && ctx.stateBuffer) {
+        try {
+          await ctx.stateBuffer.flush();
+        } catch (err) {
+          log.error("pipeline", `Failed to flush hook state for ${ctx.conversationId}`, err);
+        }
       }
-    }
+      return summaries;
+    });
+    // A streamed reply has already reached the client: waiting costs no delivery
+    // time and brings the outcomes to the client before `done`. Otherwise the
+    // channel sends only after this function returns, so the hooks run after
+    // it, and the conversation's next turn waits for their state.
+    if (opts.isStreaming) hookExecutions.push(...(await responseSent));
+    else holdNextTurn(ctx.conversationId, responseSent);
   }
 
   return { finalText, hookExecutions };

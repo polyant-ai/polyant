@@ -26,3 +26,18 @@ export async function login(page: Page, user: RbacTestUser): Promise<void> {
 export async function loginAs(page: Page, role: RbacRoleKey): Promise<void> {
   await login(page, getTestUser(role));
 }
+
+/**
+ * Set the logged-in user's first-access guidance through the panel's own route.
+ * "closed" dismisses the wizard and both tours, so a spec about navigation sees
+ * the page it navigated to and not the wizard opened over it; "new" is a person
+ * who has never seen them. The state is the user's and lasts across specs, so a
+ * spec that depends on it sets it.
+ */
+export async function setGuidance(page: Page, state: "closed" | "new"): Promise<void> {
+  const value = state === "closed" ? "dismissed" : "new";
+  const response = await page.request.patch("/api/me/onboarding", {
+    data: { wizard: value, interfaceTour: value, agentTour: value },
+  });
+  expect(response.ok()).toBe(true);
+}

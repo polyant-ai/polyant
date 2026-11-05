@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 const { setDocumentEnabled } = vi.hoisted(() => ({ setDocumentEnabled: vi.fn() }));
 vi.mock("../../knowledge/index.js", () => ({ setDocumentEnabled }));
 vi.mock("../../knowledge/ingestion.js", () => ({ processDocument: vi.fn() }));
-vi.mock("../../knowledge/doc-cap.js", () => ({ resolveKnowledgeDocCap: vi.fn() }));
+vi.mock("../../knowledge/doc-cap.js", () => ({ DEFAULT_KNOWLEDGE_DOC_CAP: 500, resolveKnowledgeDocCap: vi.fn() }));
 vi.mock("./instance-helpers.js", () => ({ findInstanceOrFail: async (slug: string) => ({ slug }) }));
 vi.mock("../utils/require-embedding-context.js", () => ({ requireEmbeddingContext: vi.fn() }));
 

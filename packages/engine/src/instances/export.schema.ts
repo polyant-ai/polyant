@@ -6,6 +6,8 @@
 
 import { z } from "zod";
 import { INTERMEDIATE_TEXT_POLICIES } from "../ai-gateway/intermediate-text.js";
+import { storedScheduleSchema } from "../scheduled-tasks/schedule-utils.js";
+import { INSTANCE_STT_SETTINGS } from "../stt-gateway/types.js";
 import { TOOL_HISTORY_REPLAY_MODES } from "../conversations/tool-history.js";
 
 // ---------------------------------------------------------------------------
@@ -75,7 +77,6 @@ export const exportRoomSchema = z.object({
   prompt: z.string(),
   outboundChannel: z.string().nullable(),
   outboundTarget: z.string().nullable(),
-  evalIntervalMinutes: z.number(),
 });
 
 export const exportEventDefinitionSchema = z.object({
@@ -101,7 +102,8 @@ export const exportScheduledTaskSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   enabled: z.boolean(),
-  schedule: z.object({ type: z.string() }).passthrough(), // ScheduleConfig union
+  // The schedule as the source agent stored it: a bundle refuses only one that never runs.
+  schedule: storedScheduleSchema,
   prompt: z.string(),
   outboundChannel: z.string().nullable(),
   outboundTarget: z.string().nullable(),
@@ -167,7 +169,8 @@ export const exportInstanceDataSchema = z.object({
    * turning it off.
    */
   attachmentStorageEnabled: z.boolean().optional(),
-  sttProvider: z.string().default("openai"),
+  // A value an older release stored without checking is off, as the runtime reads it.
+  sttProvider: z.enum(INSTANCE_STT_SETTINGS).catch("disabled").default("openai"),
   // Embedding provider/dim are applied on import-NEW only — switching them on an
   // existing instance is destructive (wipes vectors), so import-OVERWRITE leaves
   // them untouched. See import.service.ts.

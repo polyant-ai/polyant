@@ -808,6 +808,21 @@ describe("createProvider – system message folding", () => {
   });
 });
 
+describe("createProvider – output cap", () => {
+  it("passes a caller's output cap to the SDK, and none when the caller sets none", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValue(fakeGenerateTextResult as any);
+    const adapter = createProvider("test-provider", (_m) => ({}) as any);
+
+    await adapter.chat({ ...baseRequest, maxOutputTokens: 256 }, "gpt-4o");
+    await adapter.chat(baseRequest, "gpt-4o");
+
+    expect(spy.mock.calls[0][0]).toMatchObject({ maxOutputTokens: 256 });
+    expect(spy.mock.calls[1][0]).not.toHaveProperty("maxOutputTokens");
+  });
+});
+
 describe("createProvider – cache token usage", () => {
   it("extracts the normalized inputTokenDetails cache breakdown into usage", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);

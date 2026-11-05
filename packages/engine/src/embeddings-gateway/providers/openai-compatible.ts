@@ -3,7 +3,7 @@
 import { embed, embedMany } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { EmbeddingDim, EmbeddingResult } from "../types.js";
-import { assertDimSupported } from "../config.js";
+import { EMBEDDING_MAX_PARALLEL_CALLS, assertDimSupported } from "../config.js";
 import type { EmbeddingProviderRegistration } from "../registry.js";
 
 /**
@@ -56,6 +56,7 @@ export async function embedManyCompatible(texts: string[], opts: CompatibleCallO
   const { embeddings, usage } = await embedMany({
     model: buildModel(opts),
     values: texts,
+    maxParallelCalls: EMBEDDING_MAX_PARALLEL_CALLS,
     providerOptions: { [opts.registration.name]: { dimensions: opts.dimensions } },
   });
   return { embeddings: assertVectorLength(embeddings, opts), tokens: usage?.tokens ?? 0 };

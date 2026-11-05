@@ -48,6 +48,20 @@ describe("useResource", () => {
     expect(result.current.data).toBe("B");
   });
 
+  it("keeps the previous answer while the next key loads, only within the same scope", async () => {
+    const pending = deferred<string>();
+    const { result, rerender } = renderHook(
+      ({ k, scope }) => useResource(k, () => (k === "p1" ? Promise.resolve("P1") : pending.promise), { keepPreviousWithin: scope }),
+      { initialProps: { k: "p1", scope: "one" } },
+    );
+    await settle();
+    rerender({ k: "p2", scope: "one" });
+    expect(result.current.data).toBe("P1");
+    expect(result.current.loading).toBe(true);
+    rerender({ k: "p3", scope: "two" });
+    expect(result.current.data).toBeUndefined();
+  });
+
   it("reports a failure and clears it on reload", async () => {
     let fail = true;
     const { result } = renderHook(() => useResource("k", async () => { if (fail) throw new Error("x"); return 1; }));

@@ -26,7 +26,7 @@ import { organizations, workspaces } from "../organizations/organization.schema.
  * "no limit". The alternative reading of an unresolvable agent is unlimited
  * writes, which is the wrong direction for a cap.
  */
-const DEFAULT_KNOWLEDGE_DOC_CAP = 500;
+export const DEFAULT_KNOWLEDGE_DOC_CAP = 500;
 
 export async function resolveKnowledgeDocCap(instanceId: InstanceSlug): Promise<number> {
   const rows = await db

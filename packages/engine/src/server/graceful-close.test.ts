@@ -77,10 +77,9 @@ describe("closeHttpServer", () => {
     const stream = open(port, "/held");
     await stream.headers;
 
-    const started = Date.now();
+    // Waiting on the stream would never return; the grace is what ends it.
     const outcome = await closeHttpServer(app!, 200);
 
-    expect(Date.now() - started).toBeLessThan(2_000);
     expect(outcome.forced).toBe(true);
     await expect(stream.ended).resolves.toMatchObject({ status: 200 });
   });
@@ -99,12 +98,11 @@ describe("closeHttpServer", () => {
 
   it("returns at once when nothing is connected", async () => {
     await start();
-    const started = Date.now();
 
-    const outcome = await closeHttpServer(app!, 5_000);
+    // A grace far longer than the test timeout: waiting it out would fail the test.
+    const outcome = await closeHttpServer(app!, 60_000);
 
     expect(outcome.forced).toBe(false);
-    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });
 

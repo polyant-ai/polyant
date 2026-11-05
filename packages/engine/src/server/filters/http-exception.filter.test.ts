@@ -30,8 +30,8 @@ function createMockResponse() {
   return res;
 }
 
-function createMockRequest(method = "GET", url = "/test") {
-  return { method, url } as any;
+function createMockRequest(method = "GET", url = "/test", body?: unknown) {
+  return { method, url, body } as any;
 }
 
 describe("GlobalExceptionFilter", () => {
@@ -121,7 +121,7 @@ describe("GlobalExceptionFilter", () => {
 
   it("returns 400 (not 500) when a controller throws TypeError (body shape mismatch)", () => {
     const res = createMockResponse();
-    const host = createMockHost(res, createMockRequest("POST", "/api/instances"));
+    const host = createMockHost(res, createMockRequest("POST", "/api/instances", { items: "x" }));
 
     // Simulate `body.items.map(...)` when body.items is undefined. The filter
     // surfaces a generic message to avoid leaking internal property paths.
@@ -137,7 +137,7 @@ describe("GlobalExceptionFilter", () => {
 
   it("returns 400 (not 500) when a controller throws RangeError", () => {
     const res = createMockResponse();
-    const host = createMockHost(res, createMockRequest("POST", "/api/test"));
+    const host = createMockHost(res, createMockRequest("POST", "/api/test", { length: -1 }));
 
     filter.catch(new RangeError("Invalid array length"), host);
 
@@ -145,6 +145,16 @@ describe("GlobalExceptionFilter", () => {
     expect(res.body.statusCode).toBe(400);
     expect(res.body.error).toBe("Bad Request");
     expect(res.body.message).toBe("Invalid request body");
+  });
+
+  it("answers 500 when a TypeError is thrown on a request that carried no body: it is the server's own bug", () => {
+    const res = createMockResponse();
+    const host = createMockHost(res, createMockRequest("GET", "/api/instances/acme"));
+
+    filter.catch(new TypeError("Cannot read properties of undefined (reading 'id')"), host);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ statusCode: 500, message: "Internal server error" });
   });
 
   it("returns 500 for thrown object", () => {
@@ -217,7 +227,7 @@ describe("GlobalExceptionFilter", () => {
     it("redacts the path secret on the TypeError/RangeError -> 400 branch (console.warn)", () => {
       const spies = spyAllConsoleChannels();
       const res = createMockResponse();
-      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+      const host = createMockHost(res, createMockRequest("POST", secretUrl, {}));
 
       filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
 

@@ -129,7 +129,9 @@ const { mockPrepareAttachmentCleanup, mockRunAttachmentCleanup, mockStopAllForIn
   mockStopAllForInstance: vi.fn(async () => undefined),
 }));
 vi.mock("../../attachments/attachment-cleanup.js", () => ({ prepareAttachmentCleanup: mockPrepareAttachmentCleanup }));
-vi.mock("../../channels/channel-manager.js", () => ({ channelManager: { stopAllForInstance: mockStopAllForInstance } }));
+vi.mock("../../channels/channel-manager.js", () => ({
+  channelManager: { stopAllForInstance: mockStopAllForInstance, announceChange: vi.fn() },
+}));
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
@@ -153,7 +155,7 @@ const fullInstance = {
   stateInPromptEnabled: false,
   toolResultsInHistoryEnabled: false,
   toolHistoryReplay: "compact",
-  icon: "data:image/png;base64,AAA=",
+  hasIcon: true,
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
   createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -297,7 +299,7 @@ describe("InstancesController", () => {
     });
 
     it("icon is null when the instance has no icon stored", async () => {
-      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, hasIcon: false });
 
       const { instance } = await controller.getBySlug("test-one");
 
@@ -825,6 +827,58 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Body types — a JSON value of the wrong type is a 400, never a coercion
+  // -------------------------------------------------------------------------
+  describe("update — body types", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+    });
+
+    it("does not take the string \"false\" as the confirmation that deletes memories and knowledge", async () => {
+      mockCountMemories.mockResolvedValue(1);
+      await expect(
+        controller.update("test-one", { embeddingDim: 1536, confirmWipe: "false" } as never),
+      ).rejects.toThrow(/confirmWipe/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("refuses a speech-to-text provider the runtime does not know, instead of running it as OpenAI", async () => {
+      await expect(controller.update("test-one", { sttProvider: "openia" } as never)).rejects.toThrow(/sttProvider/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["memoryEnabled", "false"],
+      ["authEnabled", 0],
+      ["name", null],
+      ["name", ""],
+      ["thinkingLevel", "extreme"],
+      ["temperature", "0.5"],
+      ["optoutStopKeywords", "STOP"],
+      ["embeddingDim", "1024"],
+    ])("rejects %s = %p, naming the field", async (field, value) => {
+      await expect(controller.update("test-one", { [field]: value } as never)).rejects.toThrow(new RegExp(field));
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts every speech-to-text setting the runtime reads", async () => {
+      for (const sttProvider of ["openai", "aws", "deepgram", "disabled"]) {
+        await controller.update("test-one", { sttProvider } as never);
+      }
+      expect(mockUpdateInstance).toHaveBeenCalledTimes(4);
+    });
+
+    it("drops a key the PATCH does not write, such as the icon that has its own validated route", async () => {
+      await controller.update("test-one", { name: "Renamed", icon: "data:image/png;base64,AAA=" } as never);
+      const written = mockUpdateInstance.mock.calls[0][1] as Record<string, unknown>;
+      expect(written.name).toBe("Renamed");
+      expect(written).not.toHaveProperty("icon");
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Models endpoint — capability hints
   // -------------------------------------------------------------------------
   describe("getModels", () => {
@@ -894,6 +948,12 @@ describe("InstancesController", () => {
       expect(order).toEqual(["prepare", "delete", "cleanup"]);
     });
 
+    it("drops the agent's cached configuration, so its slug stops answering at once", async () => {
+      mockDeleteInstance.mockResolvedValue(true);
+      await controller.remove("test-one");
+      expect(mockInvalidateCache).toHaveBeenCalledWith("test-one");
+    });
+
     it("leaves the files alone when there was no agent to delete", async () => {
       mockDeleteInstance.mockResolvedValue(false);
 
@@ -917,6 +977,29 @@ describe("InstancesController", () => {
       await expect(
         controller.update("test-one", { cacheUserTurn: "false" as unknown as boolean }),
       ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("writes the setting it is given", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, cacheUserTurn: true });
+
+      await controller.update("test-one", { cacheUserTurn: true });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ cacheUserTurn: true }));
+    });
+  });
+
+  describe("update — toolHistoryReplay", () => {
+    it("writes a replay mode the runtime knows", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, toolHistoryReplay: "exact" });
+
+      await controller.update("test-one", { toolHistoryReplay: "exact" });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ toolHistoryReplay: "exact" }));
+    });
+
+    it("refuses a mode the runtime does not know, before writing anything", async () => {
+      await expect(controller.update("test-one", { toolHistoryReplay: "verbatim" })).rejects.toThrow(BadRequestException);
       expect(mockUpdateInstance).not.toHaveBeenCalled();
     });
   });

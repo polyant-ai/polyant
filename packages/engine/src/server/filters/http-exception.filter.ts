@@ -60,9 +60,12 @@ function handleExposedClientError(error: { status: number; message: string }, me
 }
 
 /**
- * TypeError / RangeError almost always indicate a malformed request body
- * (wrong shape, missing key, wrong types) hitting a controller that assumed
- * the right shape. Surfaced as 400 with a GENERIC client message — the raw
+ * TypeError / RangeError on a request that carried a body almost always
+ * indicate a malformed body (wrong shape, missing key, wrong types) hitting a
+ * controller that assumed the right shape, where no schema validates it yet.
+ * On a request without a body there is nothing the client got wrong, so the
+ * same error is the server's own bug and answers 500. Surfaced as 400 with a
+ * GENERIC client message — the raw
  * `.message` can include internal property paths (`Cannot read properties
  * of undefined (reading 'sections')`), which is information disclosure that
  * aids endpoint enumeration. The real message is logged server-side only.
@@ -100,12 +103,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     // is ever interpolated into a log line, in EVERY branch below.
     const path = redactWebhookPath(request.url);
 
-    const { status, body } = this.resolve(exception, method, path);
+    const { status, body } = this.resolve(exception, method, path, request.body !== undefined);
     response.status(status).json(body);
   }
 
   /** Dispatch to the branch-specific handler and shape the response body. */
-  private resolve(exception: unknown, method: string, path: string): HandledError {
+  private resolve(exception: unknown, method: string, path: string, carriedBody: boolean): HandledError {
     if (exception instanceof HttpException) {
       return handleHttpException(exception, method, path);
     }
@@ -113,7 +116,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exposed) {
       return handleExposedClientError(exposed, method, path);
     }
-    if (exception instanceof TypeError || exception instanceof RangeError) {
+    if (carriedBody && (exception instanceof TypeError || exception instanceof RangeError)) {
       return handleValidationError(exception, method, path);
     }
     return handleUnknownError(exception, method, path);

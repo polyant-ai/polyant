@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { auditPreview } from "../../audit/audit-logger.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
-import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
+import { parseRelativeDuration, parseSchedule, formatScheduleHuman, MIN_INTERVAL_MS } from "../../scheduled-tasks/schedule-utils.js";
 import type { ScheduleConfig } from "../../scheduled-tasks/schema.js";
 import { errMsg } from "../../utils/error.js";
 
@@ -32,8 +32,9 @@ export function buildScheduleConfig(params: {
       };
     }
     case "interval": {
-      if (!params.everyMs) return { error: "Field 'everyMs' is required for type interval." };
-      return { type: "interval", everyMs: params.everyMs };
+      if (params.everyMs == null) return { error: "Field 'everyMs' is required for type interval." };
+      const parsed = parseSchedule({ type: "interval", everyMs: params.everyMs });
+      return "error" in parsed ? { error: `Field 'everyMs' must be an integer of at least ${MIN_INTERVAL_MS} ms.` } : parsed.schedule;
     }
     case "one-shot": {
       if (!params.runAt) return { error: "Field 'runAt' is required for type one-shot." };
@@ -99,7 +100,7 @@ export default defineTool({
       everyMs: z
         .number()
         .nullable()
-        .describe("Interval in milliseconds (for type 'interval')"),
+        .describe("Interval in milliseconds, at least 60000 (for type 'interval')"),
       runAt: z
         .string()
         .nullable()

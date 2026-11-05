@@ -8,7 +8,7 @@ import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import { DEFAULT_PROVIDER, isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
-import type { STTCredentials, InstanceSttSetting } from "../stt-gateway/types.js";
+import { INSTANCE_STT_SETTINGS, type STTCredentials, type InstanceSttSetting } from "../stt-gateway/types.js";
 import {
   resolveDatetimeSettings,
   resolveDedupSimilarityThreshold,
@@ -130,6 +130,14 @@ function effectiveModelFor(provider: string | undefined, model: string | undefin
   }
 }
 
+/**
+ * The transcription setting a stored value means. A value the runtime does not
+ * know is off: reading it as a provider would turn on paid transcription for a typo.
+ */
+export function readSttSetting(stored: string): InstanceSttSetting {
+  return (INSTANCE_STT_SETTINGS as readonly string[]).includes(stored) ? (stored as InstanceSttSetting) : "disabled";
+}
+
 /** In-memory cache with TTL (30 s, max 200 instances). */
 const cache = new TtlCache<string, InstanceConfig>({ maxSize: 200, ttlMs: 30_000 });
 
@@ -185,17 +193,13 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       debugEnabled: false,
       attachmentStorageEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
-      stt: { provider: "openai", credentials: {} },
+      stt: { provider: "disabled", credentials: {} },
     };
   }
 
   const secrets = await getAllSecretsById(instance.id);
 
-  const sttProviderRaw = instance.sttProvider;
-  const sttProvider: InstanceSttSetting =
-    sttProviderRaw === "aws" || sttProviderRaw === "deepgram" || sttProviderRaw === "disabled"
-      ? sttProviderRaw
-      : "openai";
+  const sttProvider = readSttSetting(instance.sttProvider);
 
   const sttCredentials: STTCredentials = {};
   if (sttProvider === "openai" && secrets[SECRET_KEYS.OPENAI_API_KEY]) {

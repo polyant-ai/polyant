@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { eq, and, sql, type SQL } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { conversationState } from "./schema.js";
 
 /** Only scope in use today. `scope`/`scopeKey` are kept as an abstraction so a
@@ -43,6 +43,8 @@ export async function flushConversationState(
   instanceId: string | null,
   set: Record<string, unknown>,
   remove: string[],
+  /** The transaction to write in, when the state is committed with other rows. */
+  executor: DbExecutor = db,
 ): Promise<void> {
   if (Object.keys(set).length === 0 && remove.length === 0) return;
 
@@ -55,7 +57,7 @@ export async function flushConversationState(
     dataExpr = sql`(${dataExpr} - ${key})`;
   }
 
-  await db
+  await executor
     .insert(conversationState)
     .values({
       scope: CONVERSATION_SCOPE,

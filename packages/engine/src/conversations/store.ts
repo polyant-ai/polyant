@@ -24,13 +24,22 @@ export function rowsToModelMessages(rows: readonly MessageRow[]): ModelMessage[]
   return rows.map((r) => ({ role: r.role as "user" | "assistant" | "system", content: r.content }));
 }
 
+/** What a turn reads from its conversation's row before it starts. */
+export interface ConversationTurnContext {
+  /** True when this call created the conversation. */
+  created: boolean;
+  /** One-shot webhook instructions for this turn, if any. */
+  contextPrompt: string | null;
+  summary: string | null;
+  /** created_at of the last message the summary covers; null before the first summary. */
+  summaryThrough: Date | null;
+}
+
 export interface MessageRow {
   role: string;
   content: string;
   /** Per-step breakdown of a multi-step assistant turn. NULL for user/system rows. */
   steps?: StepDetail[] | null;
-  /** Aggregated reasoning at the message level. NULL when not produced/persisted. */
-  reasoning?: ReasoningDetail[] | null;
   /** The row's messages as sent to the model; NULL unless the agent replays its history exactly. */
   exactReplay?: ExactReplay | null;
   createdAt: Date | null;
@@ -51,6 +60,14 @@ function stripNulString(s: string): string {
 
 /** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
+
+/**
+ * Matching messages the conversation search reads from the full-text index
+ * before falling back to testing each conversation (see `searchConversations`).
+ * The threshold is deployment-wide: revisit it when the message table grows by
+ * an order of magnitude.
+ */
+const SEARCH_PROBE_LIMIT = 5000;
 
 const WRAPPING_QUOTES_RE = /^["'“”‘’«»`]+|["'“”‘’«»`]+$/g;
 const SPEAKER_LABEL_RE = /^(?:user|utente|assistant|assistente)\s*:\s*/i;
@@ -241,7 +258,6 @@ class BoundedMap<K, V> {
 const CACHE_MAX_SIZE = 1000;
 
 export class ConversationStore {
-  private summaryCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
   private titleCache = new BoundedMap<string, string>(CACHE_MAX_SIZE);
 
   /** Get conversation title. Checks in-memory cache first, falls back to DB. */
@@ -281,44 +297,98 @@ export class ConversationStore {
     this.titleCache.set(conversationId, safe);
   }
 
-  /** Get conversation summary. Checks in-memory cache first, falls back to DB. */
-  async getSummary(conversationId: string): Promise<string | null> {
-    const cached = this.summaryCache.get(conversationId);
-    if (cached !== undefined) return cached;
-
-    const rows = await db
-      .select({ summary: conversations.summary })
+  /**
+   * The conversation row a turn starts from, in one read: its one-shot context
+   * prompt, its summary and how far that summary reaches. Creates the row, or
+   * brings its channel and user up to date, only when needed — `options` absent
+   * reads without writing (automated tasks keep no conversation).
+   *
+   * Replaces an upsert that rewrote the row on every turn, followed by two more
+   * reads of the same row, and an in-process summary cache that other replicas
+   * and data deletions never saw.
+   */
+  async openConversationTurn(
+    conversationId: string,
+    instanceId: InstanceSlug,
+    options?: { channel: string; userIdentifier?: string; source: string },
+  ): Promise<ConversationTurnContext> {
+    const [row] = await db
+      .select({
+        channel: conversations.channel,
+        userIdentifier: conversations.userIdentifier,
+        contextPrompt: conversations.contextPrompt,
+        summary: conversations.summary,
+        summaryThrough: conversations.summaryThrough,
+      })
       .from(conversations)
       .where(eq(conversations.conversationId, conversationId))
       .limit(1);
 
-    const summary = rows[0]?.summary ?? null;
-    if (summary) {
-      this.summaryCache.set(conversationId, summary);
+    const userIdentifier = options?.userIdentifier ?? null;
+    if (!options || (row && row.channel === options.channel && row.userIdentifier === userIdentifier)) {
+      return {
+        created: false,
+        contextPrompt: row?.contextPrompt ?? null,
+        summary: row?.summary ?? null,
+        summaryThrough: row?.summaryThrough ?? null,
+      };
     }
-    return summary;
+
+    const [upserted] = await db
+      .insert(conversations)
+      .values({ conversationId, instanceId, channel: options.channel, source: options.source, userIdentifier })
+      .onConflictDoUpdate({
+        target: conversations.conversationId,
+        set: { channel: options.channel, userIdentifier },
+      })
+      .returning({
+        xmax: sql<string>`xmax::text`,
+        contextPrompt: conversations.contextPrompt,
+        summary: conversations.summary,
+        summaryThrough: conversations.summaryThrough,
+      });
+    return {
+      created: upserted?.xmax === "0",
+      contextPrompt: upserted?.contextPrompt ?? null,
+      summary: upserted?.summary ?? null,
+      summaryThrough: upserted?.summaryThrough ?? null,
+    };
   }
 
-  /** Update conversation summary in DB and in-memory cache. */
-  async updateSummary(conversationId: string, summary: string): Promise<void> {
-    const safe = stripNulString(summary);
-    await db
-      .update(conversations)
-      .set({ summary: safe, updatedAt: new Date() })
-      .where(eq(conversations.conversationId, conversationId));
-
-    this.summaryCache.set(conversationId, safe);
-  }
-
-  /** Get context prompt for a webhook-triggered conversation. Returns null if not set. */
-  async getContextPrompt(conversationId: string): Promise<string | null> {
-    const rows = await db
-      .select({ contextPrompt: conversations.contextPrompt })
+  /** How far the conversation's summary reaches now (see {@link advanceSummary}). */
+  async getSummaryThrough(conversationId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ summaryThrough: conversations.summaryThrough })
       .from(conversations)
-      .where(eq(conversations.conversationId, conversationId))
-      .limit(1);
+      .where(eq(conversations.conversationId, conversationId));
+    return row?.summaryThrough ?? null;
+  }
 
-    return rows[0]?.contextPrompt ?? null;
+  /**
+   * Replace the summary and move how far it reaches, only if no other turn moved
+   * it since `previousThrough` was read: two summaries computed from the same
+   * starting point cannot both land, and the loser's work is dropped instead of
+   * overwriting a summary that already covers more. True when it landed.
+   */
+  async advanceSummary(
+    conversationId: string,
+    summary: string,
+    through: Date,
+    previousThrough: Date | null,
+  ): Promise<boolean> {
+    const updated = await db
+      .update(conversations)
+      .set({ summary: stripNulString(summary), summaryThrough: through, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversations.conversationId, conversationId),
+          previousThrough
+            ? eq(conversations.summaryThrough, previousThrough)
+            : sql`${conversations.summaryThrough} IS NULL`,
+        ),
+      )
+      .returning({ id: conversations.id });
+    return updated.length > 0;
   }
 
   /**
@@ -398,6 +468,10 @@ export class ConversationStore {
       /** The row's messages as sent to the model (exact history replay only). NULL otherwise. */
       exactReplay?: ExactReplay;
     }>,
+    options?: {
+      /** Other writes that must commit or roll back with these rows (the turn's state). */
+      inTransaction?: (tx: DbTransaction) => Promise<void>;
+    },
   ): Promise<void> {
     if (messages.length === 0) return;
 
@@ -406,8 +480,30 @@ export class ConversationStore {
     // over it, so a row whose last message is newer than its `updated_at` sorts
     // stale and is missed by incremental pulls. Before this, only title/summary
     // writes moved the column — never the messages themselves.
+    // The conversation row is updated before the rows are inserted: its lock
+    // makes two saves of one conversation take their `seq` in the order they
+    // commit, so a reader that sees a row never misses one with a lower seq.
+    // A row stamped by the column default gets the transaction's `now()`.
+    const userCount = messages.filter((m) => m.role === "user").length;
+    const latestGiven = messages.reduce<Date | null>(
+      (max, m) => (m.createdAt && (!max || m.createdAt > max) ? m.createdAt : max),
+      null,
+    );
+    const anyDefaulted = messages.some((m) => !m.createdAt);
     await db.transaction(async (tx) => {
-      const inserted = await tx.insert(conversationMessages).values(
+      await options?.inTransaction?.(tx);
+      // The counters ride on the update that already runs (migration
+      // conversation_message_counters).
+      await tx
+        .update(conversations)
+        .set({
+          updatedAt: new Date(),
+          messageCount: sql`${conversations.messageCount} + ${messages.length}`,
+          userMessageCount: sql`${conversations.userMessageCount} + ${userCount}`,
+          lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${latestGiven ? sql`${latestGiven.toISOString()}::timestamptz` : null}, ${anyDefaulted ? sql`now()` : null})`,
+        })
+        .where(eq(conversations.conversationId, conversationId));
+      await tx.insert(conversationMessages).values(
         messages.map((m) => ({
           ...(m.id ? { id: m.id } : {}),
           ...(m.createdAt ? { createdAt: m.createdAt } : {}),
@@ -423,37 +519,30 @@ export class ConversationStore {
           debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
           exactReplay: m.exactReplay ? stripNulDeep(m.exactReplay) : null,
         })),
-      ).returning({ createdAt: conversationMessages.createdAt });
-
-      // The counters ride on the update that already runs (migration
-      // conversation_message_counters).
-      // The latest created_at comes back from the insert, so a message that
-      // carries its own timestamp and one stamped by the database count alike.
-      const userCount = messages.filter((m) => m.role === "user").length;
-      const latest = inserted.reduce<Date | null>(
-        (max, r) => (r.createdAt && (!max || r.createdAt > max) ? r.createdAt : max),
-        null,
       );
-      await tx
-        .update(conversations)
-        .set({
-          updatedAt: new Date(),
-          messageCount: sql`${conversations.messageCount} + ${messages.length}`,
-          userMessageCount: sql`${conversations.userMessageCount} + ${userCount}`,
-          ...(latest ? { lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${latest.toISOString()}::timestamptz)` } : {}),
-        })
-        .where(eq(conversations.conversationId, conversationId));
     });
     // After the commit, so a reader woken by the signal sees the rows.
     notifyConversationChanged(conversationId);
   }
 
   /**
+   * Record the stored copies of a saved message's attachments, which are
+   * uploaded after the turn is saved. False when the message is gone (its
+   * conversation was deleted meanwhile).
+   */
+  async setMessageAttachments(conversationId: string, messageId: string, attachments: AttachmentMeta[]): Promise<boolean> {
+    const updated = await db
+      .update(conversationMessages)
+      .set({ attachments: stripNulDeep(attachments) })
+      .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
+      .returning({ id: conversationMessages.id });
+    return updated.length > 0;
+  }
+
+  /**
    * Get the most recent N messages for a conversation, ordered chronologically.
    *
-   * Returns ModelMessage shape for direct use by the AI gateway. Reasoning is
-   * NOT included here — Anthropic signed-block re-injection is handled by a
-   * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
+   * Returns ModelMessage shape for direct use by the AI gateway.
    */
   async getRecentMessages(conversationId: string, limit = 15): Promise<ModelMessage[]> {
     const rows = await db
@@ -474,58 +563,134 @@ export class ConversationStore {
   }
 
   /**
-   * Return the set of distinct `system` message contents already persisted in
-   * a conversation. Used to deduplicate incoming system messages at write time:
-   * any client that replays the conversation history (the admin playground, an
-   * OpenAI-compatible client like open-webui) re-sends the same `system` block
-   * every turn, which would otherwise accumulate one duplicate row per turn and
-   * surface as a repeated context card in the conversation UI. The canonical
-   * copy stays in history (loaded by getRecentMessages), so the model still
-   * sees the context — only the duplicate write is suppressed.
+   * The messages after the millisecond `after` (all of them when null), oldest
+   * first, at most the newest `limit`. `withSteps` adds each assistant turn's steps, for the
+   * agents that replay tool results; `withExactReplay` adds each row's messages as sent, for
+   * the agents that replay them exactly.
    */
-  async getSystemMessageContents(conversationId: string): Promise<Set<string>> {
-    const rows = await db
-      .select({ content: conversationMessages.content })
-      .from(conversationMessages)
-      .where(
-        and(
-          eq(conversationMessages.conversationId, conversationId),
-          eq(conversationMessages.role, "system"),
-        ),
-      );
-    return new Set(rows.map((r) => r.content));
-  }
-
-  /**
-   * Get the most recent N messages with full reasoning + steps detail.
-   *
-   * Used by the AI gateway's reasoning-injector to rebuild Anthropic
-   * multi-turn payloads that include the previous turn's signed thinking
-   * blocks. Returns chronologically ordered rows.
-   */
-  async getRecentMessageRows(conversationId: string, limit = 15): Promise<MessageRow[]> {
+  async getHistoryWindow(
+    conversationId: string,
+    options: { after: Date | null; limit: number; withSteps: boolean; withExactReplay?: boolean },
+  ): Promise<MessageRow[]> {
     const rows = await db
       .select({
         role: conversationMessages.role,
         content: conversationMessages.content,
-        steps: conversationMessages.steps,
-        reasoning: conversationMessages.reasoning,
-        exactReplay: conversationMessages.exactReplay,
         createdAt: conversationMessages.createdAt,
+        ...(options.withSteps ? { steps: conversationMessages.steps } : {}),
+        ...(options.withExactReplay ? { exactReplay: conversationMessages.exactReplay } : {}),
       })
       .from(conversationMessages)
-      .where(eq(conversationMessages.conversationId, conversationId))
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          // `after` comes back from a read at millisecond precision, the column
+          // keeps microseconds: compare by millisecond, as the fold does.
+          options.after
+            ? sql`${conversationMessages.createdAt} >= ${options.after.toISOString()}::timestamptz + interval '1 millisecond'`
+            : undefined,
+        ),
+      )
       .orderBy(desc(conversationMessages.createdAt))
-      .limit(limit);
+      .limit(options.limit);
 
     return rows.reverse().map((r) => ({
       role: r.role,
       content: r.content,
-      steps: (r.steps as StepDetail[] | null) ?? null,
-      reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
-      exactReplay: r.exactReplay ?? null,
+      ...("steps" in r ? { steps: (r.steps as StepDetail[] | null) ?? null } : {}),
+      ...("exactReplay" in r ? { exactReplay: r.exactReplay ?? null } : {}),
       createdAt: r.createdAt ?? null,
     }));
+  }
+
+  /**
+   * The oldest messages after `after` and up to `through` (both by
+   * millisecond, as the history window compares), in time order, at most
+   * `limit`: what a summary fold covers when the history read stopped short.
+   */
+  async getMessagesAfter(
+    conversationId: string,
+    options: { after: Date | null; through: Date; limit: number },
+  ): Promise<MessageRow[]> {
+    const rows = await db
+      .select({ role: conversationMessages.role, content: conversationMessages.content, createdAt: conversationMessages.createdAt })
+      .from(conversationMessages)
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          options.after
+            ? sql`${conversationMessages.createdAt} >= ${options.after.toISOString()}::timestamptz + interval '1 millisecond'`
+            : undefined,
+          sql`${conversationMessages.createdAt} < ${options.through.toISOString()}::timestamptz + interval '1 millisecond'`,
+        ),
+      )
+      .orderBy(asc(conversationMessages.createdAt))
+      .limit(options.limit);
+    return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
+  }
+
+  /**
+   * What memory extraction has not read yet: the newest messages saved after
+   * where it reached (at most `limit`), with up to `context` messages before
+   * them so a reply can be understood. One read. Read by `seq`, the order the
+   * rows were saved in: a turn saved after a later one has older rows, which a
+   * mark by created_at would skip. `through` is the seq to mark as read once
+   * they are processed (null when no fresh row has one), `memoryThrough` the
+   * mark the read started from.
+   */
+  async getMessagesToExtract(
+    conversationId: string,
+    options: { limit: number; context: number },
+  ): Promise<{ context: MessageRow[]; fresh: MessageRow[]; through: number | null; memoryThrough: number | null }> {
+    const rows = await db
+      .select({
+        role: conversationMessages.role,
+        content: conversationMessages.content,
+        createdAt: conversationMessages.createdAt,
+        seq: conversationMessages.seq,
+        mark: sql<{ seq: string | number | null; at: string | null } | null>`(
+          SELECT json_build_object('seq', ${conversations.memoryThroughSeq}, 'at', ${conversations.memoryThrough})
+          FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
+      })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId))
+      .orderBy(desc(conversationMessages.createdAt))
+      .limit(options.limit + options.context);
+
+    const mark = rows[0]?.mark ?? null;
+    const memoryThrough = mark?.seq == null ? null : Number(mark.seq);
+    // Before its first mark by seq, the extraction reached the created_at it kept
+    // then, read by millisecond, the precision it was taken at.
+    const legacyThrough = memoryThrough === null && mark?.at ? new Date(mark.at).getTime() : null;
+    const isFresh = (r: (typeof rows)[number]) =>
+      memoryThrough !== null
+        ? r.seq !== null && r.seq > memoryThrough
+        : legacyThrough === null || (r.createdAt !== null && r.createdAt.getTime() > legacyThrough);
+    const chronological = rows.reverse();
+    const firstFresh = chronological.findIndex(isFresh);
+    const freshRows = firstFresh === -1 ? [] : chronological.slice(firstFresh).filter(isFresh).slice(-options.limit);
+    const contextRows = chronological.slice(0, Math.max(0, firstFresh)).filter((r) => !isFresh(r)).slice(-options.context);
+    const through = freshRows.reduce<number | null>((max, r) => (r.seq !== null && (max === null || r.seq > max) ? r.seq : max), null);
+    const toRow = (r: (typeof rows)[number]): MessageRow => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null });
+    return { context: contextRows.map(toRow), fresh: freshRows.map(toRow), through, memoryThrough };
+  }
+
+  /**
+   * Record that memory extraction has read up to `through` (a message seq),
+   * only if no other extraction moved the mark since `previousThrough` was read.
+   */
+  async advanceMemoryThrough(conversationId: string, through: number, previousThrough: number | null): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ memoryThroughSeq: through })
+      .where(
+        and(
+          eq(conversations.conversationId, conversationId),
+          previousThrough !== null
+            ? eq(conversations.memoryThroughSeq, previousThrough)
+            : sql`${conversations.memoryThroughSeq} IS NULL`,
+        ),
+      );
   }
 
   /**
@@ -582,10 +747,17 @@ export class ConversationStore {
    *
    * `updatedSince`/`updatedUntil` bound the half-open window `[since, until)`
    * on `updated_at` — the field this list already sorts by and that the
-   * `idx_conversations_instance_updated` index covers, so windowed polling
+   * `idx_conversations_instance_updated_id` index covers, so windowed polling
    * (e.g. an external analytics pull) stays index-supported. Note `updated_at`
    * tracks last *activity* (bumped when the post-turn summary/title regenerates),
    * not every message insert, so incremental pullers should overlap windows.
+   *
+   * The page is chosen first, agent by agent: each agent's newest
+   * `limit + offset` conversations come from a descent of that index, and only
+   * the page's rows are joined with their agent and their AI usage. Walking one
+   * index over the whole table instead made an organization pay for the rows of
+   * every other organization ahead of its own. `id` breaks ties, so pages
+   * neither repeat nor skip a conversation.
    */
   async listConversations(options: {
     instanceId?: InstanceSlug;
@@ -601,22 +773,22 @@ export class ConversationStore {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
 
-    const conditions: ReturnType<typeof sql>[] = [];
-    if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
-    if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    // Filters on the conversation row, applied inside each agent's descent.
+    const rowConditions: ReturnType<typeof sql>[] = [];
+    if (options.source) rowConditions.push(sql`c.source = ${options.source}`);
     if (options.userIdentifier) {
-      conditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
+      rowConditions.push(sql`c.user_identifier ILIKE ${`%${escapeLikePattern(options.userIdentifier)}%`}`);
     }
-    if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
-    if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    if (options.updatedSince) rowConditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
+    if (options.updatedUntil) rowConditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
+    const rowFilter = rowConditions.length > 0 ? sql`AND ${sql.join(rowConditions, sql` AND `)}` : sql``;
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
     // Applied UNCONDITIONALLY, and the scope is required: there is no absent
     // branch left to fall through to an unfiltered cross-org listing.
-    conditions.push(tenantScopedAgentCondition(options.scope, "c.instance_id"));
-    const instanceFilter = conditions.length > 0
-      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-      : sql``;
+    const agentConditions = [tenantScopedAgentCondition(options.scope, "instances.slug")];
+    if (options.instanceId) agentConditions.push(sql`instances.slug = ${options.instanceId}`);
+    const agents = sql`SELECT instances.slug FROM instances WHERE ${sql.join(agentConditions, sql` AND `)}`;
 
     const [rows, countResult] = await Promise.all([
       // message_count is the conversation's own counter (migration
@@ -624,6 +796,18 @@ export class ConversationStore {
       // fan-out join over conversation_messages would force Postgres to
       // aggregate the whole messages table before ORDER BY/LIMIT.
       db.execute(sql`
+        WITH page AS (
+          SELECT c.id, c.updated_at
+          FROM (${agents}) a
+          CROSS JOIN LATERAL (
+            SELECT c.id, c.updated_at FROM conversations c
+            WHERE c.instance_id = a.slug ${rowFilter}
+            ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+            LIMIT ${limit + offset}
+          ) c
+          ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -644,7 +828,8 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
@@ -658,12 +843,11 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        ${instanceFilter}
-        ORDER BY c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
-        SELECT COUNT(*)::int AS total FROM conversations c ${instanceFilter}
+        SELECT COUNT(*)::int AS total FROM conversations c
+        WHERE c.instance_id IN (${agents}) ${rowFilter}
       `),
     ]);
 
@@ -922,6 +1106,16 @@ export class ConversationStore {
   /**
    * Search conversations by message content (FTS), by conversation id or by
    * contact substring (case-insensitive). Returns conversation-level results.
+   *
+   * The message match starts from the full-text index: one probe reads up to
+   * `SEARCH_PROBE_LIMIT + 1` matching messages of the whole deployment. When it
+   * gets them all, the search runs on that short list of conversations. Testing
+   * every conversation of the organization against its messages instead cost
+   * seconds on a large organization, and most for the rarest terms (names,
+   * numbers). A term with more matches keeps the per-conversation test.
+   *
+   * Either way the page is ranked and cut before the snippet and the AI usage
+   * are read for its rows; `id` breaks ties so pages neither repeat nor skip.
    */
   async searchConversations(
     query: string,
@@ -942,18 +1136,40 @@ export class ConversationStore {
       ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter} ${contactFilter}`
       : sql`${orgFilter} ${contactFilter}`;
 
+    const probe = (await db.execute(sql`
+      SELECT cm.conversation_id FROM conversation_messages cm
+      WHERE cm.search_vector @@ ${tsQuery}
+      LIMIT ${SEARCH_PROBE_LIMIT + 1}
+    `)) as unknown as Array<{ conversation_id: string }>;
+    const messageMatch = probe.length <= SEARCH_PROBE_LIMIT
+      ? sql`c.conversation_id = ANY(${sql.param([...new Set(probe.map((r) => r.conversation_id))])}::text[])`
+      : sql`EXISTS (
+          SELECT 1 FROM conversation_messages cmx
+          WHERE cmx.conversation_id = c.conversation_id
+            AND cmx.search_vector @@ ${tsQuery}
+        )`;
     const matchFilter = sql`(
       c.conversation_id ILIKE ${idPattern}
       OR c.user_identifier ILIKE ${idPattern}
-      OR EXISTS (
-        SELECT 1 FROM conversation_messages cmx
-        WHERE cmx.conversation_id = c.conversation_id
-          AND cmx.search_vector @@ ${tsQuery}
-      )
+      OR ${messageMatch}
     )`;
 
     const [rows, countResult] = await Promise.all([
       db.execute(sql`
+        WITH page AS (
+          SELECT
+            c.id,
+            c.updated_at,
+            COUNT(cm.id)::int AS match_count,
+            MAX(ts_rank(cm.search_vector, ${tsQuery})) AS rank
+          FROM conversations c
+          LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
+            AND cm.search_vector @@ ${tsQuery}
+          WHERE ${matchFilter} ${instanceFilter}
+          GROUP BY c.id
+          ORDER BY rank DESC NULLS LAST, c.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT ${limit} OFFSET ${offset}
+        )
         SELECT
           c.id,
           c.conversation_id,
@@ -963,7 +1179,7 @@ export class ConversationStore {
           c.user_identifier,
           c.instance_id,
           i.name AS instance_name,
-          COUNT(cm.id)::int AS match_count,
+          p.match_count,
           (SELECT cm2.content FROM conversation_messages cm2
            WHERE cm2.conversation_id = c.conversation_id
              AND cm2.search_vector @@ ${tsQuery}
@@ -981,10 +1197,9 @@ export class ConversationStore {
           COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
-        FROM conversations c
+        FROM page p
+        JOIN conversations c ON c.id = p.id
         LEFT JOIN instances i ON i.slug = c.instance_id
-        LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
-          AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
                  SUM(al.estimated_cost_usd::float8) AS total_cost,
@@ -997,10 +1212,7 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        WHERE ${matchFilter} ${instanceFilter}
-        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
-        ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC NULLS LAST, c.updated_at DESC NULLS LAST
-        LIMIT ${limit} OFFSET ${offset}
+        ORDER BY p.rank DESC NULLS LAST, p.updated_at DESC NULLS LAST, p.id DESC
       `),
       db.execute(sql`
         SELECT COUNT(*)::int AS total
@@ -1279,9 +1491,7 @@ export class ConversationStore {
         .returning();
 
       // Caches are keyed by the id — drop stale entries for both old and new.
-      this.summaryCache.delete(conversationId);
       this.titleCache.delete(conversationId);
-      this.summaryCache.delete(newConversationId);
       this.titleCache.delete(newConversationId);
 
       return result.length > 0;
@@ -1342,7 +1552,6 @@ export class ConversationStore {
         .where(eq(conversations.conversationId, conversationId))
         .returning();
 
-      this.summaryCache.delete(conversationId);
       this.titleCache.delete(conversationId);
       return result.length > 0;
     });

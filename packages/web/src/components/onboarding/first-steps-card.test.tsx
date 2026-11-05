@@ -25,6 +25,7 @@ vi.mock("@/lib/onboarding/setup-state", async () => {
 });
 
 import { I18nProvider } from "@/lib/i18n/context";
+import { loadSetupFacts } from "@/lib/onboarding/setup-state";
 import { FirstStepsCard } from "./first-steps-card";
 
 const NOTHING = { provider: false, agent: false, model: false, channel: false, knowledge: false, conversation: false };
@@ -40,6 +41,7 @@ const mount = () =>
   );
 
 beforeEach(() => {
+  vi.mocked(loadSetupFacts).mockClear();
   h.onboarding.value = { wizard: "skipped", interfaceTour: "done", agentTour: "done", steps: { provider: "skip", agent: "skip" } };
   h.facts.value = NOTHING;
 });
@@ -83,6 +85,8 @@ describe("First steps card", () => {
       const { container, unmount } = mount();
       await settle();
       expect(container).toBeEmptyDOMElement();
+      // Hidden without asking: reading the setup facts costs a dozen requests.
+      expect(loadSetupFacts).not.toHaveBeenCalled();
       unmount();
     }
   });

@@ -25,7 +25,7 @@ import { useI18n } from "@/lib/i18n/context";
 import { useDetailedView } from "@/hooks/use-detailed-view";
 import { useFollowBottom } from "@/hooks/use-follow-bottom";
 import { JumpToLatest } from "@/components/messages/jump-to-latest";
-import type { ChatMessage } from "../_hooks/use-chat";
+import type { ChatMessage } from "./use-chat";
 import type { ConversationListItem, HookExecution } from "@/lib/api";
 
 interface ChatAreaProps {

@@ -114,3 +114,12 @@ export async function lockTestResource(key: string, mode: "shared" | "exclusive"
 export function lockToolsTable(mode: "shared" | "exclusive"): Promise<() => Promise<void>> {
   return lockTestResource("itest:tools-table-namespaced", mode);
 }
+
+/**
+ * Room events in processing: the Room tick requeues every such row whose claim no
+ * live lease backs, across the whole database. A suite that runs Room ticks holds
+ * it `exclusive`; a suite that keeps processing rows of its own holds it `shared`.
+ */
+export function lockRoomEventBacklog(mode: "shared" | "exclusive"): Promise<() => Promise<void>> {
+  return lockTestResource("itest:event-backlog-processing", mode);
+}

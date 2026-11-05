@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import { chunkText, splitSentences, MAX_CHUNKER_INPUT_LENGTH } from "./chunker.js";
 
 // ---------------------------------------------------------------------------
@@ -269,5 +270,77 @@ describe("splitSentences characterization", () => {
     const sentences = splitSentences(input);
     expect(performance.now() - started).toBeLessThan(1_000);
     expect(sentences.join("")).toBe(input);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Upper bound on chunk size
+// ---------------------------------------------------------------------------
+describe("chunkText size bound", () => {
+  // Every chunk goes to the embedder as one input, and every search result goes
+  // to the model whole: a chunk far past the target size can exceed the
+  // embedder's input limit and floods the prompt when it does not.
+  const words = (text: string) => text.split(/\s+/).filter(Boolean);
+
+  it("keeps text extracted from a PDF (long lines, no blank lines, no sentence ends) under the size", () => {
+    // Text extractors emit one line per layout line, with single newlines and
+    // rarely a blank line; table rows and headings carry no sentence punctuation.
+    const lines = Array.from(
+      { length: 600 },
+      (_, i) => `Row ${i} column value ${i * 7} reference code ${i % 13} description of the item number ${i} and its unit`,
+    );
+    const text = lines.join("\n");
+
+    const chunks = chunkText(text);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.content.length).toBeLessThanOrEqual(2000);
+    const kept = new Set(chunks.flatMap((c) => words(c.content)));
+    for (const w of words(text)) expect(kept).toContain(w);
+  });
+
+  it("splits a long paragraph that follows a short one", () => {
+    const text = "Short heading\n\n" + "word ".repeat(5000).trim();
+
+    const chunks = chunkText(text, { chunkSize: 500, overlap: 50 });
+
+    expect(chunks.length).toBeGreaterThan(40);
+    for (const c of chunks) expect(c.content.length).toBeLessThanOrEqual(500);
+  });
+
+  it("cuts a run with no whitespace at the size instead of keeping it whole", () => {
+    const chunks = chunkText("intro\n\n" + "x".repeat(10_000), { chunkSize: 1000, overlap: 100 });
+
+    for (const c of chunks) expect(c.content.length).toBeLessThanOrEqual(1000);
+    expect(chunks.map((c) => c.content).join("").replace(/[^x]/g, "").length).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it("never returns a chunk larger than chunkSize, and keeps every word, for any text", () => {
+    const token = fc.oneof(
+      fc.stringMatching(/^[a-zà-ü]{1,12}$/),
+      fc.stringMatching(/^[A-Z][a-z]{0,8}[.!?]$/),
+      fc.stringMatching(/^[a-z0-9;,|]{20,400}$/),
+      fc.constantFrom("Dr.", "Sig.ra", "...", "3.5", "e.g."),
+    );
+    const separator = fc.constantFrom(" ", " ", " ", "\n", "\n\n", "\n \n");
+    const text = fc
+      .array(fc.tuple(token, separator), { minLength: 1, maxLength: 800 })
+      .map((parts) => parts.map(([t, s]) => t + s).join(""));
+    const sizes = fc
+      .integer({ min: 60, max: 2500 })
+      .chain((chunkSize) => fc.tuple(fc.constant(chunkSize), fc.integer({ min: 0, max: Math.floor(chunkSize / 4) })));
+
+    fc.assert(
+      fc.property(text, sizes, (input, [chunkSize, overlap]) => {
+        const chunks = chunkText(input, { chunkSize, overlap });
+        for (const c of chunks) expect(c.content.length).toBeLessThanOrEqual(chunkSize);
+        // A word longer than the room left after the overlap is cut in pieces;
+        // every shorter word survives whole.
+        const room = chunkSize - overlap - 2;
+        const kept = new Set(chunks.flatMap((c) => words(c.content)));
+        for (const w of words(input)) if (w.length < room / 2) expect(kept).toContain(w);
+      }),
+      { numRuns: 300 },
+    );
   });
 });

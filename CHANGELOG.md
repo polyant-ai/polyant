@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Every model call is bounded. A streamed answer fails after
+  `LLM_STREAM_FIRST_CHUNK_TIMEOUT_MS` (default 300000) without its first chunk
+  and after `LLM_STREAM_CHUNK_TIMEOUT_MS` (default 120000) without a further
+  one, a background job that makes one model call after
+  `LLM_SERVICE_CALL_TIMEOUT_MS` (default 300000). A call that runs tools over
+  several steps keeps no total bound; each of its model requests fails after
+  `LLM_MODEL_REQUEST_TIMEOUT_MS` (default 300000) without the provider starting
+  to answer, its tools not counted. Failed requests are retried
+  `LLM_MAX_RETRIES` times (default 2, the AI SDK's own default) and each retry
+  is logged.
+- The work after a saved turn runs in two queues per process: title and
+  summary (`BACKGROUND_TURN_JOB_CONCURRENCY`, default 4) and memory extraction
+  (`BACKGROUND_MEMORY_JOB_CONCURRENCY`, default 2). A conversation has at most
+  one summary in progress, and a summary whose starting point has already
+  moved is dropped before its model call.
+- `ai_logs.purpose` records what a background call was for (`title`,
+  `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
+  `sub_task`, `tool`, `hook`), so service spend can be grouped by it
+  (migration `0104`).
 - Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
   the current message on the first model step of a turn, so the next step reads
   it from cache instead of paying it at full input price and then writing it
@@ -24,9 +43,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The next request then starts with the prefix the provider already cached, so
   the history is read from the prompt cache instead of written to it every turn.
   The context grows with every tool result kept whole, which is why it is opt-in.
+- `GET /api/instances/:slug/knowledge` returns `total` and `failed`, counted
+  over all of the agent's documents whatever the page. The agent's status
+  checks and the first-steps card read them, so an agent with more documents
+  than one page is no longer under-reported.
+
+### Changed
+
+- The Anthropic `standard` tier resolves to `claude-sonnet-5` instead of
+  `claude-sonnet-4-6`, at two thirds of the price. Agents with no model of
+  their own, their `spawnTask` sub-agents and standard-tier background calls
+  change model; `claude-sonnet-5` takes no custom temperature.
+- A hook's `ctx.ai` request on the `fast` or `heavy` tier runs on that tier's
+  model of the agent's provider; only `standard` uses the agent's own model.
+- A model that cannot stop reasoning runs at the lowest effort its catalog row
+  lists when thinking is off, instead of its default effort.
+- Background calls write their Anthropic prompt cache at the five-minute
+  lifetime unless they ask for another.
+- `{{toolCatalog}}` lists the equipped tools by name; their descriptions are
+  already in the tool definitions the model receives.
+- A scheduled task's schedule follows one rule wherever it is written through
+  the API or the `scheduleTask` tool: an interval is an integer of at least
+  60000 ms, an anchor is a date, and fields the type does not have are dropped;
+  anything else answers 400 naming the field (`schedule.everyMs`). A bundle
+  import keeps the tasks an earlier export carried and refuses only an interval
+  that never advances (zero, negative or not finite). A task saved earlier with
+  an interval of zero or less is disabled on its next run instead of stopping
+  the engine.
+- The scheduler claims due tasks in one statement, the longest overdue first, so
+  replicas ticking together share them. The boot no longer runs or reschedules
+  overdue tasks: the tick serves them. A running task holds a lease that its
+  process renews; when the process dies, any replica's tick clears the run within
+  the installation's orphan grace (never less than a minute), closes it in the run
+  log as interrupted and counts no failure (migration `0107`).
+- Shutdown waits for Room cycles and scheduled-task runs already started, within
+  the same grace period as acknowledged channel turns.
+- A Room cycle titles its conversation from what it handled instead of asking the
+  model for a title.
+- A conversational turn reads its agent's MCP servers and starts opening their
+  shared connections when it starts, while the context is read and the
+  pre-model hooks run, instead of after them. A server that answered only the
+  older `initialize` handshake is no longer probed with `server/discover` on
+  every reconnect.
+
+### Removed
+
+- A Room's `evalIntervalMinutes`, which nothing read: the Room cycles on every
+  tick that finds pending work. The API, the bundle and the Room form drop it;
+  older bundles that carry it still import. The column stays until a later
+  release.
 
 ### Fixed
 
+- The Monitor search box no longer drops what was typed while the previous
+  search was still reaching the address bar.
+- On Anthropic and Bedrock, system text that belongs to one conversation (a
+  hook's injected context, a persisted trigger message, a webhook context
+  prompt) is sent after the cached agent prompt instead of inside it, so a new
+  conversation reads the agent's cached tools and system prompt instead of
+  writing its own copy. Providers without cache markers receive the same text
+  as before.
+- A model call aborted while in flight is recorded in `ai_logs` as `aborted`
+  with `error_kind = 'in_flight'` and an estimate of the prompt the provider
+  had received and billed; it used to leave no row.
+- `spawnTask` no longer repeats the task in its sub-agent's system prompt, so
+  delegations share a cached prefix.
+- Bedrock calls without explicit credentials build the AWS default credential
+  chain once instead of on every call.
+- The engine never downloads a URL found in a message part. A URL the
+  provider fetches itself is passed on; any other fails the call. The AI SDK
+  used to download such URLs on the engine, with no time limit and up to 2 GiB
+  each.
+- A model call its caller cancels (a follow-up message preempting a turn) is
+  logged as one debug line instead of two error lines.
+- Room cycles across replicas. A cycle holds a lease on its Room (migration
+  `0105`), so two engine processes no longer run cycles of the same Room side by
+  side or leave empty conversations behind. Events claimed by a cycle that ended
+  without completing them, or whose process died, go back to pending on the next
+  tick once its lease has expired; the boot no longer puts back the events of a
+  cycle another process is running. The daily housekeeping runs once per
+  installation instead of once per process start.
+- A message from a Room's contact that arrives while a cycle runs is queued for
+  the next cycle instead of being dropped (migration `0106`), and a burst of
+  fragments on WhatsApp or Telegram reaches the Room once.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
 
 ## [1.3.5] - 2026-11-02

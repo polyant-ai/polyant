@@ -55,5 +55,7 @@ export const pipelineTraces = pgTable(
   (table) => [
     index("idx_traces_instance_created").on(table.instanceId, table.createdAt),
     index("idx_traces_created").on(table.createdAt),
+    // A conversation's traces: its detail view and its deletion.
+    index("idx_traces_conversation").on(table.conversationId),
   ],
 );

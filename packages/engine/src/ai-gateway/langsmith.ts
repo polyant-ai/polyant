@@ -19,6 +19,8 @@ export interface TraceContext {
   instanceId?: string;
   /** When "service", thread_id gets a "-service" suffix to separate from conversation traces. */
   callType?: "conversation" | "service";
+  /** What a service call is for (title, summary, memory…). */
+  purpose?: string;
   /** Provider name (e.g. "openai") — used for ls_provider metadata and cost. */
   providerName?: string;
   /** Resolved model ID (e.g. "gpt-5-mini") — used for ls_model_name metadata and cost. */
@@ -123,6 +125,9 @@ export function buildLangSmithProviderOptions(
   }
   if (context?.instanceId) {
     metadata.instance_id = context.instanceId;
+  }
+  if (context?.purpose) {
+    metadata.purpose = context.purpose;
   }
   if (context?.agentCall) {
     metadata.caller_slug = context.agentCall.callerSlug;

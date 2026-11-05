@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { eventKind, type FeedEvent } from "@/lib/activity-stream/types";
+import { watchConnection } from "@/lib/activity-stream/connection";
 import { mergeEvent } from "@/lib/activity-stream/merge";
 
 /** Events kept per page; a turn emits a handful, so this spans many turns. */
@@ -75,8 +76,7 @@ export function useLiveConversation({ conversationId, instanceId, enabled, onPer
     const source = new EventSource(api.conversations.liveUrl(conversationId, instanceId));
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    source.onopen = () => setConnected(true);
-    source.onerror = () => setConnected(false);
+    const stopWatching = watchConnection(source, setConnected);
     source.onmessage = (msg) => {
       try {
         const evt = JSON.parse(msg.data) as FeedEvent;
@@ -93,6 +93,7 @@ export function useLiveConversation({ conversationId, instanceId, enabled, onPer
 
     return () => {
       clearTimeout(timer);
+      stopWatching();
       source.close();
       setConnected(false);
       setEvents([]);

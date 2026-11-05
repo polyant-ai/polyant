@@ -11,17 +11,17 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockUploadAttachment, mockAppendMessages } = vi.hoisted(() => ({
+const { mockUploadAttachment, mockAppendMessages, mockSetMessageAttachments } = vi.hoisted(() => ({
   mockUploadAttachment: vi.fn(),
   mockAppendMessages: vi.fn(async (_conversationId: string, _rows: unknown[]) => undefined),
+  mockSetMessageAttachments: vi.fn(async (_conversationId: string, _messageId: string, _metas: unknown[]) => true),
 }));
 
 vi.mock("./attachments/agent-storage.js", () => ({ uploadAttachment: mockUploadAttachment }));
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
     appendMessages: mockAppendMessages,
-    getSystemMessageContents: vi.fn(async () => new Set<string>()),
-    updateSummary: vi.fn(async () => undefined),
+    setMessageAttachments: mockSetMessageAttachments,
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
@@ -43,11 +43,12 @@ vi.mock("./hooks/hook-runner.js", () => ({
   hookProvenance: vi.fn(() => undefined),
 }));
 
-import { afterResponse, runPipelinePost, type PipelineContext } from "./pipeline.js";
+import { persistTurn, runPipelinePost, type PipelineContext } from "./pipeline.js";
+import { drainBackgroundTurns } from "./channels/background-turns.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
 
-function respond(attachments: { data: Buffer; mimeType: string }[]) {
-  afterResponse({
+function respond(attachments: { data: Buffer; mimeType: string }[]): Promise<void> {
+  return persistTurn({
     conversationId: "shop:whatsapp:+39",
     instanceId: asInstanceSlug("shop"),
     userMessage: "ecco la foto",
@@ -56,9 +57,17 @@ function respond(attachments: { data: Buffer; mimeType: string }[]) {
   });
 }
 
+/** The attachments recorded on the user row once their uploads settled, or undefined when none was. */
+async function storedAttachments(): Promise<unknown[] | undefined> {
+  await drainBackgroundTurns(1_000);
+  const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { id?: string }[]];
+  const call = mockSetMessageAttachments.mock.calls.find(([, id]) => id === userRow.id);
+  return call?.[2];
+}
+
 const rolesWritten = () => mockAppendMessages.mock.calls.flatMap(([, rows]) => (rows as { role: string }[]).map((r) => r.role));
 
-describe("afterResponse — attachment storage", () => {
+describe("persistTurn — attachment storage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -67,11 +76,10 @@ describe("afterResponse — attachment storage", () => {
   it("persists the turn without the attachment when its upload fails", async () => {
     mockUploadAttachment.mockRejectedValue(Object.assign(new Error("denied on attachments/shop/shop:whatsapp:+39/a.jpg"), { name: "AccessDenied" }));
 
-    respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
+    await respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
-    const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { attachments?: unknown }[]];
-    expect(userRow.attachments).toBeUndefined();
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
+    expect(await storedAttachments()).toBeUndefined();
   });
 
   it("keeps the attachments that did upload when another one fails", async () => {
@@ -80,22 +88,42 @@ describe("afterResponse — attachment storage", () => {
       .mockRejectedValueOnce(new Error("timeout"))
       .mockResolvedValueOnce(stored);
 
-    respond([
+    await respond([
       { data: Buffer.from("jpeg"), mimeType: "image/jpeg" },
       { data: Buffer.from("png"), mimeType: "image/png" },
     ]);
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
-    const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { attachments?: unknown }[]];
-    expect(userRow.attachments).toEqual([stored]);
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
+    expect(await storedAttachments()).toEqual([stored]);
+  });
+
+  // The reply waits on the save, and past the point of no return nothing can
+  // cancel the turn: an upload on that path held the reply and the contact's
+  // next messages for as long as S3 took, up to minutes with its retries.
+  it("saves the turn without waiting for the upload, then records what it stored", async () => {
+    const stored = { type: "image", mimeType: "image/jpeg", s3Key: "attachments/shop/c/a.jpg", sizeBytes: 4 };
+    let finishUpload!: () => void;
+    mockUploadAttachment.mockImplementation(() => new Promise((resolve) => (finishUpload = () => resolve(stored))));
+
+    const saved = await Promise.race([
+      respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]).then(() => "saved"),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting on the upload"), 200)),
+    ]);
+
+    expect(saved).toBe("saved");
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
+    const [, [userRow]] = mockAppendMessages.mock.calls[0] as [string, { id?: string; attachments?: unknown }[]];
+    expect(userRow.attachments).toBeUndefined();
+    finishUpload();
+    expect(await storedAttachments()).toEqual([stored]);
   });
 
   it("does not log the S3 message, which carries the conversation id", async () => {
     mockUploadAttachment.mockRejectedValue(Object.assign(new Error("denied on attachments/shop/shop:whatsapp:+39/a.jpg"), { name: "AccessDenied" }));
 
-    respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
+    await respond([{ data: Buffer.from("jpeg"), mimeType: "image/jpeg" }]);
 
-    await vi.waitFor(() => expect(process.stderr.write).toHaveBeenCalled());
+    expect(process.stderr.write).toHaveBeenCalled();
     expect(JSON.stringify(vi.mocked(process.stderr.write).mock.calls)).not.toContain("+39");
   });
 });
@@ -122,12 +150,9 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
       stateBuffer: undefined,
       history: undefined,
       isFirstTurn: true,
-      hasOverflow: false,
-      droppedMessages: undefined,
-      instanceConfig: { attachmentStorageEnabled } as PipelineContext["instanceConfig"],
+      instanceConfig: { attachmentStorageEnabled, langsmith: { enabled: false } } as PipelineContext["instanceConfig"],
       langsmith: undefined,
       userAttachments: [{ type: "image", data: Buffer.from("jpeg"), mimeType: "image/jpeg" }],
-      incomingSystemMessages: undefined,
       isAutoTaskTurn: false,
       inboundMetadata: undefined,
     };
@@ -149,14 +174,14 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
   it("does not upload an inbound attachment for an agent that has not opted in", async () => {
     await post(ctx(false));
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     expect(mockUploadAttachment).not.toHaveBeenCalled();
   });
 
   it("uploads it once the agent has opted in", async () => {
     await post(ctx(true));
 
-    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(rolesWritten()).toEqual(["user", "assistant"]);
     expect(mockUploadAttachment).toHaveBeenCalledOnce();
   });
 });

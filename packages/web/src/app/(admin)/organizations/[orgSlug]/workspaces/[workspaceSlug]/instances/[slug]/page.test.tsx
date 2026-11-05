@@ -323,6 +323,45 @@ describe("InstanceDetailPage — sections", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  // Tools, skills and prompts, and the status checks, serve a few sections. A
+  // link straight to another section must not pay for them.
+  it("reads only the agent for a section that needs nothing else", async () => {
+    resetSearch("tab=conversations");
+    render(<InstanceDetailPage />);
+
+    await screen.findByText("tab-body:conversations");
+    expect(api.tools.list).not.toHaveBeenCalled();
+    expect(api.skills.list).not.toHaveBeenCalled();
+    expect(api.prompts.list).not.toHaveBeenCalled();
+    expect(mockUseStatusChecks.mock.calls.at(-1)?.[0]).toMatchObject({ instance: null });
+  });
+
+  it("reads tools and skills for the Tools section, and not the prompts", async () => {
+    resetSearch("tab=tools");
+    render(<InstanceDetailPage />);
+
+    await screen.findByText("tab-body:tools");
+    expect(api.tools.list).toHaveBeenCalledWith("test-instance");
+    expect(api.skills.list).toHaveBeenCalledWith("test-instance");
+    expect(api.prompts.list).not.toHaveBeenCalled();
+  });
+
+  it("keeps what a section read when the person comes back to it", async () => {
+    resetSearch("tab=tools");
+    const { rerender } = render(<InstanceDetailPage />);
+    await screen.findByText("tab-body:tools");
+
+    resetSearch("tab=logs");
+    rerender(<InstanceDetailPage />);
+    await screen.findByText("tab-body:logs");
+    resetSearch("tab=skills");
+    rerender(<InstanceDetailPage />);
+    await screen.findByText("tab-body:skills");
+
+    expect(api.tools.list).toHaveBeenCalledTimes(1);
+    expect(api.skills.list).toHaveBeenCalledTimes(1);
+  });
+
   // Every section is introduced the same way, by the page: the line under the
   // title is never a section's own paragraph, so no two sections word or place
   // their intro differently.
