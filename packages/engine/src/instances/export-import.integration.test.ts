@@ -40,6 +40,18 @@ async function createAgent(suffix: string) {
   });
 }
 
+let copies = 0;
+
+/**
+ * Import a bundle as a new agent beside its source. The source's slug is taken,
+ * so the copy gets its own, as the panel asks the person to choose one.
+ */
+async function importCopy(bundle: Parameters<typeof importNewInstance>[0]) {
+  const { instance, ...rest } = bundle as { instance: Record<string, unknown> };
+  copies += 1;
+  return importNewInstance({ ...rest, instance: { ...instance, slug: `${MARKER}-copy-${copies}` } }, orgId);
+}
+
 describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () => {
   // Agents are created with their default tools: keep a prune of the catalog
   // (`database/test-db.ts`) from running while they are.
@@ -91,7 +103,7 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     expect(bundle.instance.thinkingLevel).toBe("high");
     expect(JSON.stringify(bundle)).not.toContain("source-credential");
 
-    const result = await importNewInstance(bundle, orgId);
+    const result = await importCopy(bundle);
 
     const [row] = await queryClient<{ id: string; thinking_level: string }[]>`
       SELECT id, thinking_level FROM instances WHERE slug = ${result.slug}`;
@@ -114,18 +126,18 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     expect(await webOf(off.slug)).toBeUndefined();
     const offBundle = await exportInstance(off.slug);
     expect(offBundle.instance.channels).toContainEqual({ channelType: "web", enabled: false, config: {} });
-    expect(await webOf((await importNewInstance(offBundle, orgId)).slug)).toBe(false);
+    expect(await webOf((await importCopy(offBundle)).slug)).toBe(false);
 
     // Switched on, it stays on.
     const on = await createAgent("web-on");
     await queryClient`INSERT INTO instance_channels (instance_id, channel_type, enabled, config)
       VALUES (${on.id}, 'web', true, '')`;
     const onBundle = await exportInstance(on.slug);
-    expect(await webOf((await importNewInstance(onBundle, orgId)).slug)).toBe(true);
+    expect(await webOf((await importCopy(onBundle)).slug)).toBe(true);
 
     // A bundle from before Web was a channel has no row: its endpoint was online.
     const legacy = { ...offBundle, version: "1.2" as const, instance: { ...offBundle.instance, channels: [] } };
-    expect(await webOf((await importNewInstance(legacy, orgId)).slug)).toBe(true);
+    expect(await webOf((await importCopy(legacy)).slug)).toBe(true);
   });
 
   it("should_replace_a_parameter_on_overwrite_and_leave_the_target_credential_alone", async () => {
@@ -165,8 +177,8 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     await importOverwriteInstance(target.slug, legacy);
     expect(await stored(target.slug)).toBe(true);
 
-    expect(await stored((await importNewInstance(legacy, orgId)).slug)).toBe(false);
-    expect(await stored((await importNewInstance(bundle, orgId)).slug)).toBe(true);
+    expect(await stored((await importCopy(legacy)).slug)).toBe(false);
+    expect(await stored((await importCopy(bundle)).slug)).toBe(true);
   });
 
   it("should_normalise_the_context_field_mapping_and_refuse_one_the_panel_would_refuse", async () => {
@@ -180,13 +192,13 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     // Whitespace and an editor's blank row, as the PATCH normalises them.
     const messy = structuredClone(bundle);
     messy.instance.webContextFieldMapping = { "  phone ": " customer.phone ", "": "ignored" };
-    expect(await mapping((await importNewInstance(messy, orgId)).slug)).toEqual({ phone: "customer.phone" });
+    expect(await mapping((await importCopy(messy)).slug)).toEqual({ phone: "customer.phone" });
 
     // An empty path segment: the PATCH answers 400, so the import fails and writes nothing.
     const invalid = structuredClone(bundle);
     invalid.instance.webContextFieldMapping = { phone: "customer..phone" };
     await expect(importOverwriteInstance(target.slug, invalid)).rejects.toThrow(/webContextFieldMapping/);
     expect(await mapping(target.slug)).toEqual({ phone: "caller.phone" });
-    await expect(importNewInstance(invalid, orgId)).rejects.toThrow(/webContextFieldMapping/);
+    await expect(importCopy(invalid)).rejects.toThrow(/webContextFieldMapping/);
   });
 });
