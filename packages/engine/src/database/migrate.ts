@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -26,14 +25,13 @@ const sql = postgres(config.postgres.databaseUrl, {
     /* swallow NOTICE during migration */
   },
 });
-const db = drizzle(sql);
 
 const migrationsFolder = resolve(__dirname, "migrations");
 
 // CLI entry-point: console output is intentional (no structured logger here).
 console.log(`Running migrations from ${migrationsFolder}...`);
 
-await runMigrationsLocked(sql, db, migrationsFolder);
+await runMigrationsLocked(sql, migrationsFolder, { lockTimeoutMs: config.postgres.migrationLockTimeoutMs });
 
 console.log("Migrations applied successfully.");
 await sql.end();
