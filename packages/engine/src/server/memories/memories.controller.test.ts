@@ -94,6 +94,30 @@ describe("MemoriesController.create", () => {
     expect(result).toEqual({ memory: { id: "mem-1", content: "hello", event: "ADD" } });
   });
 
+  it("embeds the same trimmed text it stores", async () => {
+    // The panel form trims before posting; an API caller may not. The vector has to
+    // describe the stored text, and surrounding whitespace moves it.
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "my-assistant",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "sk-test" },
+    });
+    mockEmbedMany.mockResolvedValue([[0.1, 0.2, 0.3]]);
+    vi.mocked(upsertMemory).mockResolvedValue({ id: "mem-1", content: "hello", event: "ADD" });
+
+    const controller = new MemoriesController();
+    await controller.create(
+      { instanceId: "my-assistant", content: "  hello\n" },
+      callerOfOrgA,
+    );
+
+    expect(mockEmbedMany).toHaveBeenCalledWith(
+      ["hello"],
+      expect.objectContaining({ dimensions: 1024 }),
+    );
+    expect(upsertMemory).toHaveBeenCalledWith(expect.objectContaining({ content: "hello" }));
+  });
+
   it("returns 400 when the embedding provider is not configured", async () => {
     mockResolveEmbeddingContext.mockRejectedValue(new Error("Embedding provider not configured."));
 
