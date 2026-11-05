@@ -38,6 +38,14 @@ function renderWithProvider(ui: ReactElement) {
   );
 }
 
+/**
+ * The tab has rendered past its loading state. It shows a skeleton until the
+ * document list settles, so waiting for the list call alone let a test look for
+ * the content while the skeleton was still on screen whenever the answer came a
+ * moment later.
+ */
+const tabReady = () => screen.findByLabelText("knowledge.tab.enableTitle");
+
 const { mockSetEnabled, mockGet, mockList, mockDelete, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockSetEnabled: vi.fn(),
   mockDelete: vi.fn(),
@@ -163,7 +171,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
       />,
     );
 
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
     expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
@@ -179,7 +187,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
       />,
     );
 
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
     expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
@@ -209,7 +217,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
 
   it("writes only on save, never on mount", async () => {
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     expect(mockUpdate).not.toHaveBeenCalled();
     // Nothing is dirty, so there is no Save to press either.
@@ -228,7 +236,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={vi.fn()}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
 
@@ -245,7 +253,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={onUpdate}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
     await userEvent.click(screen.getByText("common.save"));
@@ -263,7 +271,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
    */
   it("does not carry the memory switch", async () => {
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     expect(screen.queryByLabelText("settings.tab.memory")).not.toBeInTheDocument();
   });
@@ -277,7 +285,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={vi.fn()}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
     await userEvent.click(screen.getByText("common.save"));
