@@ -8,6 +8,7 @@ import { ListDrawer } from "@/components/list-drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { api, ApiError, getUserErrorMessage } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -31,33 +32,120 @@ export function asAgentBundle(value: unknown): AgentBundle | null {
   return value as AgentBundle;
 }
 
-function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
+type Row = Record<string, unknown>;
+
+function rows(value: unknown): Row[] {
+  return Array.isArray(value) ? value.filter((item): item is Row => !!item && typeof item === "object") : [];
 }
 
-function names(value: unknown, field: string): string[] {
-  return list(value)
-    .map((item) => (typeof item === "string" ? item : (item as Record<string, unknown> | null)?.[field]))
-    .filter((name): name is string => typeof name === "string" && name.length > 0);
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** One element of a kind: what it is called, a short qualifier, and its text when it has one. */
+interface Entry {
+  title: string;
+  /** Rendered in monospace: the title is an identifier, not a label. */
+  code?: boolean;
+  meta?: string;
+  body?: string;
+}
+
+function scheduleText(schedule: unknown): string {
+  const s = (schedule ?? {}) as Row;
+  if (s.type === "cron") return text(s.expression);
+  if (s.type === "interval" && typeof s.everyMs === "number") return `${Math.round(s.everyMs / 60_000)} min`;
+  if (s.type === "one-shot") return text(s.runAt);
+  return "";
 }
 
 /**
- * What the file brings, one row per agent section that has something, labelled
+ * What the file brings, one group per agent section that has something, labelled
  * as the agent's sidebar labels it so the person finds it there afterwards.
  */
-function contentRows(instance: AgentBundle["instance"]): { labelKey: TranslationKey; items: string[] }[] {
-  const rows: { labelKey: TranslationKey; items: string[] }[] = [
-    { labelKey: "instances.detail.tabPrompts", items: names(instance.prompts, "title") },
-    { labelKey: "instances.detail.tabChannels", items: names(instance.channels, "channelType") },
-    { labelKey: "instances.detail.tabSkills", items: names(instance.skills, "skillSlug") },
-    { labelKey: "instances.detail.tabTools", items: names(instance.manualTools, "") },
-    { labelKey: "instances.detail.tabMcp", items: names(instance.mcpServers, "name") },
-    { labelKey: "instances.detail.tabHooks", items: names(instance.hooks, "event") },
-    { labelKey: "triggers.webhooks", items: names(instance.eventSources, "name") },
-    { labelKey: "triggers.scheduled", items: names(instance.scheduledTasks, "name") },
-    { labelKey: "exportImport.importNew.secrets", items: names(instance.secrets, "key") },
+function contentGroups(
+  instance: AgentBundle["instance"],
+  t: (key: TranslationKey) => string,
+): { key: string; labelKey: TranslationKey; entries: Entry[] }[] {
+  const off = (enabled: unknown) => (enabled === false ? t("common.disabled") : undefined);
+  const room = instance.room as Row | null | undefined;
+  const groups: { key: string; labelKey: TranslationKey; entries: Entry[] }[] = [
+    {
+      key: "prompts",
+      labelKey: "instances.detail.tabPrompts",
+      entries: rows(instance.prompts).map((p) => ({
+        title: text(p.title) || text(p.sectionKey),
+        body: text(p.content).trim() || t("exportImport.importNew.emptyPrompt"),
+      })),
+    },
+    {
+      key: "tools",
+      labelKey: "instances.detail.tabTools",
+      entries: (Array.isArray(instance.manualTools) ? instance.manualTools : [])
+        .filter((name): name is string => typeof name === "string")
+        .map((name) => ({ title: name, code: true })),
+    },
+    {
+      key: "skills",
+      labelKey: "instances.detail.tabSkills",
+      entries: rows(instance.skills).map((s) => ({
+        title: text(s.skillSlug),
+        code: true,
+        meta: [text(s.pinnedVersion), off(s.enabled)].filter(Boolean).join(" · ") || undefined,
+      })),
+    },
+    {
+      key: "mcp",
+      labelKey: "instances.detail.tabMcp",
+      entries: rows(instance.mcpServers).map((m) => ({ title: text(m.name), meta: off(m.enabled), body: text(m.url) })),
+    },
+    {
+      key: "hooks",
+      labelKey: "instances.detail.tabHooks",
+      entries: rows(instance.hooks).map((h) => ({
+        title: text(h.event),
+        code: true,
+        meta: off(h.enabled),
+        body: text((h.actionConfig as Row | undefined)?.functionName) || text(h.actionType),
+      })),
+    },
+    {
+      key: "webhooks",
+      labelKey: "triggers.webhooks",
+      entries: rows(instance.eventSources).map((e) => ({
+        title: text(e.name),
+        meta: [text(e.sourceType), off(e.enabled)].filter(Boolean).join(" · ") || undefined,
+        body: rows(e.definitions).map((d) => text(d.name)).filter(Boolean).join(", ") || undefined,
+      })),
+    },
+    {
+      key: "scheduled",
+      labelKey: "triggers.scheduled",
+      entries: rows(instance.scheduledTasks).map((task) => ({
+        title: text(task.name),
+        meta: [scheduleText(task.schedule), off(task.enabled)].filter(Boolean).join(" · ") || undefined,
+        body: text(task.prompt) || undefined,
+      })),
+    },
+    {
+      key: "room",
+      labelKey: "instances.detail.tabRoom",
+      entries:
+        room && room.enabled === true
+          ? [{ title: t("instances.detail.tabRoom"), body: text(room.prompt) || undefined }]
+          : [],
+    },
+    {
+      key: "secrets",
+      labelKey: "exportImport.importNew.secrets",
+      entries: rows(instance.secrets).map((secret) => ({
+        title: text(secret.key),
+        code: true,
+        meta: typeof secret.value === "string" ? secret.value : t("exportImport.importNew.secretToEnter"),
+      })),
+    },
   ];
-  return rows.filter((row) => row.items.length > 0);
+  return groups.filter((group) => group.entries.length > 0);
 }
 
 interface Props {
@@ -108,11 +196,14 @@ export function ImportAgentSheet({ bundle, open, onClose, onImported }: Props) {
   };
 
   const { instance } = bundle;
-  const provider = typeof instance.provider === "string" ? instance.provider : null;
-  const model = typeof instance.model === "string" ? instance.model : null;
-  const description = typeof instance.description === "string" ? instance.description : null;
-  const room = instance.room as { enabled?: unknown } | null | undefined;
-  const rows = contentRows(instance);
+  const provider = text(instance.provider);
+  const model = text(instance.model);
+  const description = text(instance.description);
+  const embedder = text(instance.embeddingProvider);
+  const channels = rows(instance.channels)
+    .map((c) => text(c.channelType) + (c.enabled === false ? ` (${t("common.disabled").toLowerCase()})` : ""))
+    .filter(Boolean);
+  const groups = contentGroups(instance, t);
 
   return (
     <ListDrawer
@@ -134,6 +225,7 @@ export function ImportAgentSheet({ bundle, open, onClose, onImported }: Props) {
         }}
         className="space-y-4"
       >
+        <h3 className="text-sm font-medium">{t("exportImport.importNew.sectionAgent")}</h3>
         <div className="space-y-2">
           <Label htmlFor="import-name">{t("instances.table.name")}</Label>
           <Input id="import-name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -163,41 +255,67 @@ export function ImportAgentSheet({ bundle, open, onClose, onImported }: Props) {
         </div>
       </form>
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">{t("exportImport.importNew.contentTitle")}</h3>
-        <dl className="space-y-2 rounded-lg border bg-muted/50 p-4 text-sm">
+      <section className="space-y-3 border-t pt-6">
+        <h3 className="text-sm font-medium">{t("exportImport.importNew.sectionConfiguration")}</h3>
+        <dl className="grid grid-cols-[8rem_1fr] gap-x-6 gap-y-3 text-sm">
           {description && (
-            <div className="flex justify-between gap-4">
-              <dt className="shrink-0 text-muted-foreground">{t("instances.table.description")}</dt>
-              <dd className="text-right">{description}</dd>
-            </div>
+            <>
+              <dt className="text-muted-foreground">{t("instances.table.description")}</dt>
+              <dd>{description}</dd>
+            </>
           )}
-          {(provider || model) && (
-            <div className="flex justify-between gap-4">
-              <dt className="shrink-0 text-muted-foreground">{t("instances.detail.tabSettings")}</dt>
-              <dd className="text-right">{[provider, model].filter(Boolean).join(" · ")}</dd>
-            </div>
+          <dt className="text-muted-foreground">{t("instances.detail.tabSettings")}</dt>
+          <dd>{provider || model ? [provider, model].filter(Boolean).join(" · ") : t("exportImport.importNew.modelDefault")}</dd>
+          {embedder && (
+            <>
+              <dt className="text-muted-foreground">{t("settings.tab.embedder")}</dt>
+              <dd>{embedder}</dd>
+            </>
           )}
-          {rows.map((row) => (
-            <div key={row.labelKey} className="flex justify-between gap-4">
-              <dt className="shrink-0 text-muted-foreground">{t(row.labelKey)}</dt>
-              <dd className="min-w-0 text-right">
-                <span className="font-medium">{row.items.length}</span>
-                <span className="block truncate text-xs text-muted-foreground" title={row.items.join(", ")}>
-                  {row.items.join(", ")}
-                </span>
-              </dd>
-            </div>
-          ))}
-          {room?.enabled === true && (
-            <div className="flex justify-between gap-4">
-              <dt className="shrink-0 text-muted-foreground">{t("instances.detail.tabRoom")}</dt>
-              <dd className="text-right">{t("exportImport.importNew.roomEnabled")}</dd>
-            </div>
+          {channels.length > 0 && (
+            <>
+              <dt className="text-muted-foreground">{t("instances.detail.tabChannels")}</dt>
+              <dd>{channels.join(", ")}</dd>
+            </>
           )}
         </dl>
-        <p className="text-xs text-muted-foreground">{t("exportImport.importNew.reviewInfo")}</p>
       </section>
+
+      {groups.length > 0 && (
+        <section className="space-y-1 border-t pt-6">
+          <h3 className="text-sm font-medium">{t("exportImport.importNew.sectionContent")}</h3>
+          <Accordion type="multiple">
+            {groups.map((group) => (
+              <AccordionItem key={group.key} value={group.key}>
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <span className="flex flex-1 items-baseline justify-between gap-4">
+                    <span>{t(group.labelKey)}</span>
+                    <span className="font-normal tabular-nums text-muted-foreground">{group.entries.length}</span>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ul className="space-y-3">
+                    {group.entries.map((entry, index) => (
+                      <li key={`${entry.title}-${index}`} className="space-y-1">
+                        <div className="flex items-baseline justify-between gap-4">
+                          <span className={entry.code ? "font-mono text-xs" : "font-medium"}>{entry.title}</span>
+                          {entry.meta && (
+                            <span className="shrink-0 font-mono text-xs text-muted-foreground">{entry.meta}</span>
+                          )}
+                        </div>
+                        {entry.body && (
+                          <p className="line-clamp-3 whitespace-pre-wrap text-muted-foreground">{entry.body}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+          <p className="pt-2 text-xs text-muted-foreground">{t("exportImport.importNew.reviewInfo")}</p>
+        </section>
+      )}
     </ListDrawer>
   );
 }

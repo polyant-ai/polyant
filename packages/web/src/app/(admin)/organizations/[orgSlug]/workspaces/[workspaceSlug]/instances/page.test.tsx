@@ -203,9 +203,13 @@ describe("InstancesPage", () => {
 
     const drawer = await screen.findByRole("dialog");
     expect(mockImportNew).not.toHaveBeenCalled();
-    expect(within(drawer).getByText("search_kb, send_email")).toBeInTheDocument();
-    expect(within(drawer).getByText("CRM_TOKEN")).toBeInTheDocument();
     expect(within(drawer).getByText("openai · gpt-5")).toBeInTheDocument();
+    // Each kind is collapsed under its count; opening it shows the elements themselves.
+    await user.click(within(drawer).getByRole("button", { name: /instances\.detail\.tabTools/ }));
+    expect(within(drawer).getByText("search_kb")).toBeInTheDocument();
+    expect(within(drawer).getByText("send_email")).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: /exportImport\.importNew\.secrets/ }));
+    expect(within(drawer).getByText("CRM_TOKEN")).toBeInTheDocument();
 
     const name = within(drawer).getByLabelText("instances.table.name");
     const slug = within(drawer).getByLabelText("instances.table.slug");
