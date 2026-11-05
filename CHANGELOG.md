@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
-  (migration `0104`).
+  (migration `0118`).
 - Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
   the current message on the first model step of a turn, so the next step reads
   it from cache instead of paying it at full input price and then writing it
@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Migrations apply one transaction per migration instead of one for the whole
+  upgrade, so a table lock lasts as long as the migration that takes it and
+  processes still serving the previous release keep reading and writing
+  meanwhile. A migration that waits more than
+  `POSTGRES_MIGRATION_LOCK_TIMEOUT_MS` (default 5000) for a table lock gives up
+  and is tried again up to four times. Index migrations build and drop indexes
+  concurrently. A failed migration leaves the ones before it applied and the
+  error names it; the next start continues from there.
 - The Anthropic `standard` tier resolves to `claude-sonnet-5` instead of
   `claude-sonnet-4-6`, at two thirds of the price. Agents with no model of
   their own, their `spawnTask` sub-agents and standard-tier background calls

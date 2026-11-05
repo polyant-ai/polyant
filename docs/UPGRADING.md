@@ -48,7 +48,9 @@ and run the statement again.
 The counter backfill itself always runs in the migration.
 
 The engine runs pending migrations when its container starts, before it answers
-its health check, and a container replaced in the meantime rolls them back. The
+its health check. Each migration commits on its own: a container replaced in the
+meantime leaves the migrations it finished applied, and the next one continues
+from there. The
 container health check's start period is one limit on how long they may take;
 behind a load balancer the target group's health check, which starts counting
 once the service's health check grace period ends, is usually the shorter one.
