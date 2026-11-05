@@ -102,7 +102,7 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      * tried again (`database/run-migrations.ts`). Short, so an `ALTER TABLE`
      * queued behind a long query does not hold up every query after it.
      */
-    migrationLockTimeoutMs: z.coerce.number().int().min(100).default(5_000),
+    migrationLockTimeoutMs: z.coerce.number().int().min(100).default(3_000),
   }),
 
   // HTTP Server (NestJS)

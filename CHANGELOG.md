@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade, so a table lock lasts as long as the migration that takes it and
   processes still serving the previous release keep reading and writing
   meanwhile. A migration that waits more than
-  `POSTGRES_MIGRATION_LOCK_TIMEOUT_MS` (default 5000) for a table lock gives up
+  `POSTGRES_MIGRATION_LOCK_TIMEOUT_MS` (default 3000) for a table lock gives up
   and is tried again up to four times. Index migrations build and drop indexes
   concurrently. A failed migration leaves the ones before it applied and the
   error names it; the next start continues from there.

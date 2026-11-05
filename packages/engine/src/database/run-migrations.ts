@@ -31,10 +31,10 @@ const MIGRATION_LOCK_POLL_MS = 1_000;
  * retries: a query that holds a table for longer than that is better met by an
  * operator than by a deploy that keeps queueing behind it.
  */
-export const LOCK_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
+const LOCK_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
 
-/** Default `lock_timeout` of a transactional migration. */
-export const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 5_000;
+/** Default `lock_timeout` of a transactional migration; the engine passes `POSTGRES_MIGRATION_LOCK_TIMEOUT_MS`. */
+const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 3_000;
 
 const NOT_READY_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "CONNECT_TIMEOUT"]);
 
