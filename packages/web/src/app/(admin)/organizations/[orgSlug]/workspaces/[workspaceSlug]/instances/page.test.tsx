@@ -3,7 +3,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InstancesPage from "./page";
-import type { Instance } from "@/lib/api";
+import { ApiError, type Instance } from "@/lib/api";
 
 const { mockList, mockImportNew, mockPush, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockList: vi.fn(),
@@ -168,29 +168,98 @@ describe("InstancesPage", () => {
     expect(screen.queryByText("instances.empty.title")).not.toBeInTheDocument();
   });
 
-  it("imports a bundle as a new agent, shows its warnings and opens it", async () => {
+  const BUNDLE = {
+    version: "1.3",
+    type: "instance",
+    instance: {
+      slug: "support-bot",
+      name: "Support Bot",
+      provider: "openai",
+      model: "gpt-5",
+      prompts: [{ sectionKey: "identity", title: "Identity", content: "" }],
+      manualTools: ["search_kb", "send_email"],
+      secrets: [{ key: "CRM_TOKEN", configured: true }],
+      channels: [],
+    },
+  };
+
+  async function chooseFile(container: HTMLElement, contents: string) {
+    const file = new File([contents], "bundle.json", { type: "application/json" });
+    await userEvent.upload(container.querySelector('input[type="file"]') as HTMLInputElement, file);
+  }
+
+  it("shows what the file brings before importing, under the name and slug confirmed", async () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ instances: AGENTS });
     mockImportNew.mockResolvedValue({
-      slug: "imported-bot",
+      slug: "support-bot-copy",
       instanceId: "9",
       warnings: [{ type: "secret", message: "Secret OPENAI_KEY was not exported" }],
     });
     const { container } = render(<InstancesPage />);
     await screen.findByRole("link", { name: /Support Bot/ });
 
-    const bundle = { version: 1, instance: { slug: "imported-bot" } };
-    const file = new File([JSON.stringify(bundle)], "bundle.json", { type: "application/json" });
-    await user.upload(container.querySelector('input[type="file"]') as HTMLInputElement, file);
+    await chooseFile(container, JSON.stringify(BUNDLE));
+
+    const drawer = await screen.findByRole("dialog");
+    expect(mockImportNew).not.toHaveBeenCalled();
+    expect(within(drawer).getByText("openai · gpt-5")).toBeInTheDocument();
+    // Each kind is collapsed under its count; opening it shows the elements themselves.
+    await user.click(within(drawer).getByRole("button", { name: /instances\.detail\.tabTools/ }));
+    expect(within(drawer).getByText("search_kb")).toBeInTheDocument();
+    expect(within(drawer).getByText("send_email")).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: /exportImport\.importNew\.secrets/ }));
+    expect(within(drawer).getByText("CRM_TOKEN")).toBeInTheDocument();
+
+    const name = within(drawer).getByLabelText("instances.table.name");
+    const slug = within(drawer).getByLabelText("instances.table.slug");
+    expect(name).toHaveValue("Support Bot");
+    expect(slug).toHaveValue("support-bot");
+    await user.clear(name);
+    await user.type(name, "Support Bot Copy");
+    await user.clear(slug);
+    await user.type(slug, "Support Bot Copy");
+    await user.click(within(drawer).getByRole("button", { name: "exportImport.import.button" }));
 
     await waitFor(() =>
-      expect(mockPush).toHaveBeenCalledWith("/organizations/acme/workspaces/sales/instances/imported-bot"),
+      expect(mockPush).toHaveBeenCalledWith("/organizations/acme/workspaces/sales/instances/support-bot-copy"),
     );
-    expect(mockImportNew).toHaveBeenCalledWith(bundle);
+    expect(mockImportNew).toHaveBeenCalledWith({
+      ...BUNDLE,
+      instance: { ...BUNDLE.instance, name: "Support Bot Copy", slug: "support-bot-copy" },
+    });
     // The list page unmounts on navigation, so importing does not re-read the list first.
     expect(mockList).toHaveBeenCalledTimes(1);
-    const warnings = await screen.findByRole("dialog");
-    expect(within(warnings).getByText("Secret OPENAI_KEY was not exported")).toBeInTheDocument();
+    expect(await screen.findByText("Secret OPENAI_KEY was not exported")).toBeInTheDocument();
+  });
+
+  it("keeps the drawer open on a taken slug and says so under the field", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValue({ instances: AGENTS });
+    mockImportNew.mockRejectedValue(new ApiError(409, 'Slug "support-bot" already exists'));
+    const { container } = render(<InstancesPage />);
+    await screen.findByRole("link", { name: /Support Bot/ });
+
+    await chooseFile(container, JSON.stringify(BUNDLE));
+    const drawer = await screen.findByRole("dialog");
+    await user.click(within(drawer).getByRole("button", { name: "exportImport.import.button" }));
+
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent("exportImport.importNew.slugTaken");
+    expect(within(drawer).getByLabelText("instances.table.slug")).toHaveAttribute("aria-invalid", "true");
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it("refuses a JSON file that is not an exported agent without opening the drawer", async () => {
+    mockList.mockResolvedValue({ instances: AGENTS });
+    const { container } = render(<InstancesPage />);
+    await screen.findByRole("link", { name: /Support Bot/ });
+
+    await chooseFile(container, JSON.stringify({ type: "skills", skills: [] }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("exportImport.importNew.notAgentFile"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockImportNew).not.toHaveBeenCalled();
   });
 
   it("rejects a file that is not JSON without calling the engine", async () => {

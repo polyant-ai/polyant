@@ -30,8 +30,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api, getUserErrorMessage, type Instance } from "@/lib/api";
+import { api, type Instance } from "@/lib/api";
 import { CreateInstanceSheet } from "./create-instance-sheet";
+import { asAgentBundle, ImportAgentSheet, type AgentBundle, type ImportResult } from "./import-agent-sheet";
 import { useFormat } from "@/lib/use-format";
 import { isSafeImageSrc } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -154,34 +155,44 @@ export default function InstancesPage() {
   const [viewMode, setViewMode] = usePersistedState<ViewMode>(STORAGE_KEY, "list", parseViewMode);
   // Hide inactive instances by default.
   const [showInactive, setShowInactive] = usePersistedState(SHOW_INACTIVE_STORAGE_KEY, false, parseBool);
-  const [importing, setImporting] = useState(false);
   const [importWarnings, setImportWarnings] = useState<{ type: string; message: string }[] | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+  // The file being confirmed. `id` remounts the drawer for each file chosen, so
+  // its name and slug start from that file; `open` lets it close before it goes.
+  const [pendingImport, setPendingImport] = useState<{ id: number; bundle: AgentBundle; open: boolean } | null>(null);
 
+  // Choosing a file only reads it: the agent is created from the drawer, once
+  // its name and slug are confirmed.
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (importFileRef.current) importFileRef.current.value = "";
     if (!file) return;
 
-    setImporting(true);
+    let parsed: unknown;
     try {
-      const text = await file.text();
-      const bundle = JSON.parse(text);
-      const result = await api.exportImport.importNew(bundle);
-
-      if (result.warnings.length > 0) {
-        setImportWarnings(result.warnings);
-      }
-
-      toast.success(t("exportImport.import.success"));
-
-      // The list page reloads itself when it is opened again.
-      router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("exportImport.import.failed")));
-    } finally {
-      setImporting(false);
-      if (importFileRef.current) importFileRef.current.value = "";
+      parsed = JSON.parse(await file.text());
+    } catch {
+      toast.error(t("exportImport.import.failed"));
+      return;
     }
+    const bundle = asAgentBundle(parsed);
+    if (!bundle) {
+      toast.error(t("exportImport.importNew.notAgentFile"));
+      return;
+    }
+    setPendingImport((prev) => ({ id: (prev?.id ?? 0) + 1, bundle, open: true }));
+  };
+
+  const handleImported = (result: ImportResult) => {
+    setPendingImport((prev) => prev && { ...prev, open: false });
+    if (result.warnings.length > 0) {
+      setImportWarnings(result.warnings);
+    }
+
+    toast.success(t("exportImport.import.success"));
+
+    // The list page reloads itself when it is opened again.
+    router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
   };
 
   // The active/all toggle and the search are purely client-side: the API
@@ -205,11 +216,10 @@ export default function InstancesPage() {
               <Button
                 variant="outline"
                 onClick={() => importFileRef.current?.click()}
-                disabled={importing}
                 className="gap-2"
               >
                 <Upload className="h-4 w-4" />
-                {importing ? t("exportImport.import.uploading") : t("exportImport.importNew.button")}
+                {t("exportImport.importNew.button")}
               </Button>
               <input
                 ref={importFileRef}
@@ -304,6 +314,16 @@ export default function InstancesPage() {
           reload();
         }}
       />
+
+      {pendingImport && (
+        <ImportAgentSheet
+          key={pendingImport.id}
+          bundle={pendingImport.bundle}
+          open={pendingImport.open}
+          onClose={() => setPendingImport((prev) => prev && { ...prev, open: false })}
+          onImported={handleImported}
+        />
+      )}
 
       {/* Import Warnings Dialog */}
       <Dialog open={importWarnings !== null} onOpenChange={() => setImportWarnings(null)}>
