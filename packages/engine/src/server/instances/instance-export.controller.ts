@@ -8,11 +8,16 @@ import {
   Body,
   Res,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { exportInstance } from "../../instances/export.service.js";
-import { importNewInstance, importOverwriteInstance } from "../../instances/import.service.js";
+import {
+  ImportSlugTakenError,
+  importNewInstance,
+  importOverwriteInstance,
+} from "../../instances/import.service.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { errMsg } from "../../utils/error.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -51,6 +56,7 @@ export class InstanceExportController {
       const result = await importNewInstance(body, user?.orgId);
       return result;
     } catch (err) {
+      if (err instanceof ImportSlugTakenError) throw new ConflictException(err.message);
       const message = errMsg(err);
       if (message.includes("not found")) throw new NotFoundException(message);
       throw new BadRequestException(message);

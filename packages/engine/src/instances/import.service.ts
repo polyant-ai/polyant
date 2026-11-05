@@ -26,7 +26,7 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
-import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "./identifiers.js";
+import { asInstanceSlug, asInstanceUuid, isValidInstanceSlug, type InstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
 import { instanceBundleSchema, type ExportInstanceData } from "./export.schema.js";
@@ -45,6 +45,7 @@ import { importMcpServers } from "./mcp-servers.import.js";
 import { importSecrets } from "./secrets.import.js";
 import type { ImportWarning, ImportResult } from "./import.types.js";
 import { createLogger } from "../utils/create-logger.js";
+import { isUniqueViolation } from "../utils/db-errors.js";
 
 const log = createLogger();
 
@@ -110,6 +111,14 @@ const IMPORTED_SCALAR_KEYS = UPDATABLE_INSTANCE_KEYS.filter(
     key !== "embeddingProvider",
 );
 
+/** A new agent's slug is already used by another agent of this deployment. */
+export class ImportSlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`Slug "${slug}" already exists`);
+    this.name = "ImportSlugTakenError";
+  }
+}
+
 /**
  * Create a brand-new agent from an exported bundle.
  *
@@ -139,17 +148,28 @@ export async function importNewInstance(
     );
   }
 
-  // Resolve unique slug
-  const slug = await resolveUniqueSlug(data.slug);
+  // The slug and name are the ones the person confirmed before importing, which
+  // may differ from the exported agent's. A taken slug is refused: renaming it
+  // behind their back would leave them looking for an agent they did not name.
+  const slug = data.slug;
+  if (!isValidInstanceSlug(slug)) {
+    throw new Error(
+      `Invalid slug "${slug}". Use 1-100 lowercase letters, digits, hyphens or underscores (e.g. "my-assistant").`,
+    );
+  }
+  if (!data.name.trim()) throw new Error("The agent name cannot be empty.");
 
   // Run everything in a transaction
   const instanceId = await db.transaction(async (tx) => {
     // 1. Create instance in the CALLER's workspace (see store.ts rationale).
     const workspaceId = await resolveWorkspaceIdForPrincipal(orgId, tx);
+    // The unique constraint is the duplicate check: a probe before the insert
+    // would leave a window for a concurrent create of the same slug.
     const [inst] = await tx
       .insert(instances)
       .values({
         ...instanceScalarFields(data),
+        name: data.name.trim(),
         slug,
         // Embedding provider/dim only set here (fresh instance — no vectors to
         // lose). Overwrite import intentionally never touches them.
@@ -157,7 +177,10 @@ export async function importNewInstance(
         embeddingDim: data.embeddingDim,
         workspaceId,
       })
-      .returning({ id: instances.id });
+      .returning({ id: instances.id })
+      .catch((err: unknown) => {
+        throw isUniqueViolation(err) ? new ImportSlugTakenError(slug) : err;
+      });
 
     const id = asInstanceUuid(inst.id);
 
@@ -344,31 +367,4 @@ async function finishCommittedImport(instanceId: InstanceUuid, slug: string, war
     invalidateInstanceConfigCache(asInstanceSlug(slug));
     invalidateHooksCache(asInstanceSlug(slug));
   }
-}
-
-// ---------------------------------------------------------------------------
-// Import helpers
-// ---------------------------------------------------------------------------
-
-async function resolveUniqueSlug(desired: string): Promise<string> {
-  const [existing] = await db
-    .select({ slug: instances.slug })
-    .from(instances)
-    .where(eq(instances.slug, desired))
-    .limit(1);
-
-  if (!existing) return desired;
-
-  // Append -imported, then -imported-2, etc.
-  for (let i = 1; i <= 100; i++) {
-    const candidate = i === 1 ? `${desired}-imported` : `${desired}-imported-${i}`;
-    const [conflict] = await db
-      .select({ slug: instances.slug })
-      .from(instances)
-      .where(eq(instances.slug, candidate))
-      .limit(1);
-    if (!conflict) return candidate;
-  }
-
-  throw new Error(`Could not resolve unique slug for "${desired}"`);
 }
