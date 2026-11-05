@@ -6,11 +6,9 @@
 -- It replaces `idx_conversations_instance_updated` (instance_id, updated_at): every
 -- query that used that one (an agent's conversations by update time, or in an
 -- update-time window) is served by this one, and keeping both would cost a second
--- B-tree on every turn's `updated_at` bump. The old index is dropped by the last
--- migration of the release (0118), so the lock its drop takes is held only briefly.
+-- B-tree on every turn's `updated_at` bump. 0119 drops the old index.
 --
--- CONCURRENTLY is not used: the migration runner wraps each file in a transaction.
--- On a large table an operator can build the index by hand first; IF NOT EXISTS then
--- makes the CREATE a no-op.
-CREATE INDEX IF NOT EXISTS "idx_conversations_instance_updated_id"
+-- Built concurrently, outside a transaction, so the table stays readable and
+-- writable while it builds.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversations_instance_updated_id"
   ON "conversations" ("instance_id", "updated_at" DESC NULLS LAST, "id" DESC);

@@ -13,6 +13,4 @@ CREATE TABLE IF NOT EXISTS "work_leases" (
 -- event whose owner no longer holds a live lease goes back to pending.
 ALTER TABLE "event_backlog" ADD COLUMN IF NOT EXISTS "claimed_by" text;
 
--- The per-tick requeue reads only the rows in processing.
-CREATE INDEX IF NOT EXISTS "idx_event_backlog_processing"
-  ON "event_backlog" ("instance_id") WHERE "status" = 'processing';
+-- The index the per-tick requeue reads is built concurrently by 0120.

@@ -1,21 +1,10 @@
--- The statements of the release that lock a table every turn reads, together and
--- last: the columns 0102 and 0104 add, and the indexes 0110 and 0111 replaced
--- with wider ones.
+-- Columns of the release on tables every turn reads, kept here from 0102 and 0104
+-- so their order in the table does not depend on the database's history.
 --
--- The migration runner applies every pending migration in one transaction, so a
--- lock is held from the statement that takes it until the whole batch commits.
--- ADD COLUMN and DROP INDEX take an ACCESS EXCLUSIVE lock, which stops reads too:
--- run early, they held `conversations`, `ai_logs` and `conversation_messages`
--- while the release's index builds read the large tables, and every turn of a
--- process still serving the previous release waited. As the last statements of
--- the release, the lock lasts from them to the commit right after; each of them
--- changes only the catalog, so that is milliseconds once the lock is granted.
--- 0117 runs right before this one and also changes only the catalog: the locks
--- its ADD COLUMN statements take on `conversation_messages` and `conversations`
--- last just as briefly.
--- CONCURRENTLY cannot run inside a transaction. A deployment that wants no lock
--- on the indexes can run `DROP INDEX CONCURRENTLY` on the three by hand first;
--- IF EXISTS then makes those statements no-ops.
+-- ADD COLUMN takes an ACCESS EXCLUSIVE lock, which stops reads too. Each
+-- migration commits on its own and none of these rewrites the table, so the lock
+-- lasts milliseconds once granted; the runner's lock_timeout keeps it from
+-- queueing for long behind a running query.
 
 -- How far the conversation's summary and its memory extraction have read: the
 -- created_at of the last message each covers. NULL means nothing yet: the
@@ -28,9 +17,3 @@ ALTER TABLE "conversations"
 -- be grouped by it. Nullable without a default: every existing row and every
 -- conversation call keeps NULL.
 ALTER TABLE "ai_logs" ADD COLUMN IF NOT EXISTS "purpose" text;
---> statement-breakpoint
-DROP INDEX IF EXISTS "idx_conversations_instance_updated";
---> statement-breakpoint
-DROP INDEX IF EXISTS "idx_ai_logs_instance_id";
---> statement-breakpoint
-DROP INDEX IF EXISTS "idx_conversation_messages_conversation_id";
