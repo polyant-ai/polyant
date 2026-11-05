@@ -4,7 +4,7 @@ import { embed, embedMany } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import type { EmbeddingDim, EmbeddingResult } from "../types.js";
-import { EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
+import { EMBEDDING_MAX_PARALLEL_CALLS, EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
 
 interface BedrockCallOptions {
   readonly apiKey?: string;
@@ -21,6 +21,10 @@ interface BedrockCallOptions {
  * the AWS SDK default provider chain (ECS task role, EC2 IMDS, SSO, shared
  * credentials) — @ai-sdk/amazon-bedrock only reads env vars by default.
  */
+/** The AWS default credential chain, built once so it can memoize what it resolves (see the chat provider). */
+let defaultCredentialChain: ReturnType<typeof fromNodeProviderChain> | undefined;
+const defaultCredentials = () => (defaultCredentialChain ??= fromNodeProviderChain());
+
 function buildProvider(opts: BedrockCallOptions) {
   const { region } = opts;
   const apiKey = opts.apiKey?.trim();
@@ -34,7 +38,7 @@ function buildProvider(opts: BedrockCallOptions) {
     return createAmazonBedrock({ apiKey: "", accessKeyId, secretAccessKey, region });
   }
 
-  return createAmazonBedrock({ region, credentialProvider: fromNodeProviderChain() });
+  return createAmazonBedrock({ region, credentialProvider: defaultCredentials() });
 }
 
 function buildModel(opts: BedrockCallOptions) {
@@ -63,6 +67,7 @@ export async function embedManyBedrock(texts: string[], opts: BedrockCallOptions
   const { embeddings, usage } = await embedMany({
     model,
     values: texts,
+    maxParallelCalls: EMBEDDING_MAX_PARALLEL_CALLS,
     providerOptions: { bedrock: { dimensions: opts.dimensions } },
   });
   return { embeddings, tokens: usage?.tokens ?? 0 };

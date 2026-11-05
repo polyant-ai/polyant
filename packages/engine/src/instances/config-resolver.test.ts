@@ -165,7 +165,7 @@ describe("instances/config-resolver", () => {
           resumeMessage: null,
           injectPromptHint: true,
         },
-        stt: { provider: "openai", credentials: {} },
+        stt: { provider: "disabled", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
       expect(mockGetAllSecretsById).not.toHaveBeenCalled();
@@ -247,6 +247,18 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue({
         ...fakeInstance,
         sttProvider: "disabled",
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(config.stt).toEqual({ provider: "disabled", credentials: {} });
+    });
+
+    it("reads an unknown sttProvider as disabled, so a typo never turns on paid transcription", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        sttProvider: "openia",
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 

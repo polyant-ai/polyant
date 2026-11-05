@@ -1,26 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The turn reads the conversation's recent messages once. An agent with
- * tool-result replay on used to run the same ordered query twice: text first,
- * then the raw rows.
+ * The turn reads the conversation's history once, starting where the summary
+ * reaches. An agent with tool-result replay on used to run the same ordered
+ * query twice: text first, then the raw rows.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockGetRecentMessages, mockGetRecentMessageRows, mockResolveConfig } = vi.hoisted(() => ({
-  mockGetRecentMessages: vi.fn(),
-  mockGetRecentMessageRows: vi.fn(),
+const { mockGetHistoryWindow, mockOpenTurn, mockResolveConfig } = vi.hoisted(() => ({
+  mockGetHistoryWindow: vi.fn(),
+  mockOpenTurn: vi.fn(),
   mockResolveConfig: vi.fn(),
 }));
 
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
-    ensureConversation: vi.fn(async () => ({ created: false })),
-    getRecentMessages: mockGetRecentMessages,
-    getRecentMessageRows: mockGetRecentMessageRows,
-    getContextPrompt: vi.fn(async () => null),
-    getSummary: vi.fn(async () => null),
+    openConversationTurn: mockOpenTurn,
+    getHistoryWindow: mockGetHistoryWindow,
   },
 }));
 vi.mock("./conversations/state.buffer.js", () => ({
@@ -51,44 +48,39 @@ const config = (replay: boolean) => ({
   langsmith: { enabled: false },
 });
 
-describe("preparePipeline — recent messages are read once", () => {
+const summaryThrough = new Date("2026-11-01T10:00:00.000Z");
+
+describe("preparePipeline — the history is read once, after the summary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetRecentMessages.mockResolvedValue([{ role: "user", content: "hi" }]);
+    mockOpenTurn.mockResolvedValue({ created: false, contextPrompt: null, summary: "earlier", summaryThrough });
+    mockGetHistoryWindow.mockResolvedValue([
+      { role: "user", content: "hi", createdAt: new Date("2026-11-01T10:01:00.000Z") },
+      { role: "assistant", content: "hello", createdAt: new Date("2026-11-01T10:01:01.000Z") },
+    ]);
   });
 
-  it("reads only the rows when tool-result replay is on", async () => {
+  it("reads the rows with their steps when tool-result replay is on", async () => {
     mockResolveConfig.mockResolvedValue(config(true));
-    mockGetRecentMessageRows.mockResolvedValue([
-      { role: "user", content: "hi", steps: null, reasoning: null, createdAt: null },
-      { role: "assistant", content: "hello", steps: null, reasoning: null, createdAt: null },
-    ]);
 
     const ctx = await preparePipeline(msg);
 
-    expect(mockGetRecentMessageRows).toHaveBeenCalledTimes(1);
-    expect(mockGetRecentMessages).not.toHaveBeenCalled();
+    expect(mockGetHistoryWindow).toHaveBeenCalledOnce();
+    expect(mockGetHistoryWindow).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ after: summaryThrough, withSteps: true }));
     expect(ctx.isFirstTurn).toBe(false);
     expect(ctx.history).toHaveLength(2);
   });
 
-  it("reads only the text history when replay is off", async () => {
+  it("reads the text only when replay is off, and sends the summary with it", async () => {
     mockResolveConfig.mockResolvedValue(config(false));
 
     const ctx = await preparePipeline(msg);
 
-    expect(mockGetRecentMessages).toHaveBeenCalledTimes(1);
-    expect(mockGetRecentMessageRows).not.toHaveBeenCalled();
-    expect(ctx.history).toEqual([{ role: "user", content: "hi" }]);
-  });
-
-  it("falls back to the text history when the row read fails", async () => {
-    mockResolveConfig.mockResolvedValue(config(true));
-    mockGetRecentMessageRows.mockRejectedValue(new Error("db"));
-
-    const ctx = await preparePipeline(msg);
-
-    expect(ctx.isFirstTurn).toBe(false);
-    expect(ctx.history).toEqual([{ role: "user", content: "hi" }]);
+    expect(mockGetHistoryWindow).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ withSteps: false }));
+    expect(ctx.history).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ]);
+    expect(ctx.conversationSummary).toBe("earlier");
   });
 });

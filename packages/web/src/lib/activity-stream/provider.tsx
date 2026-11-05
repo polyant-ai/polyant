@@ -12,6 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { watchConnection } from "./connection";
 import { mergeEvent } from "./merge";
 import { isNoiseEvent } from "./noise-filter";
 import type { FeedEvent } from "./types";
@@ -46,10 +47,10 @@ export function ActivityStreamProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const source = new EventSource(STREAM_URL);
 
-    source.onopen = () => {
-      setRealLive(true);
-      setError(null);
-    };
+    const stopWatching = watchConnection(source, (connected) => {
+      setRealLive(connected);
+      setError(connected ? null : "connection lost");
+    });
 
     source.onmessage = (msg) => {
       try {
@@ -68,12 +69,8 @@ export function ActivityStreamProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    source.onerror = () => {
-      setRealLive(false);
-      setError("connection lost");
-    };
-
     return () => {
+      stopWatching();
       source.close();
     };
   }, []);

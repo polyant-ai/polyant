@@ -23,7 +23,7 @@ describe("resolveModel", () => {
   });
 
   it("resolves anthropic standard tier", () => {
-    expect(resolveModel("anthropic", "standard")).toBe("claude-sonnet-4-6");
+    expect(resolveModel("anthropic", "standard")).toBe("claude-sonnet-5");
   });
 
   it("resolves anthropic heavy tier", () => {

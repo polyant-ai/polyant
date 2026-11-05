@@ -13,6 +13,7 @@ import {
   STTProviderError,
   STTUnsupportedFormatError,
 } from "../errors.js";
+import { withSttDeadline } from "../stt-fetch.js";
 
 const CHUNK_SIZE = 16 * 1024;
 const SAMPLE_RATE_HZ = 16_000;
@@ -121,31 +122,36 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
   });
 
   const start = Date.now();
-  let response;
-  try {
-    response = await client.send(command);
-  } catch (err) {
-    throw new STTProviderError("aws", `send failed: ${(err as Error).message}`, { cause: err });
-  }
-
   let finalText = "";
   let detectedLanguage: string | undefined;
   let lastEndTimeSec = 0;
 
-  try {
-    for await (const event of response.TranscriptResultStream ?? []) {
-      const results = event.TranscriptEvent?.Transcript?.Results ?? [];
-      for (const r of results) {
-        if (typeof r.EndTime === "number") lastEndTimeSec = Math.max(lastEndTimeSec, r.EndTime);
-        if (r.IsPartial) continue;
-        const alt = r.Alternatives?.[0]?.Transcript;
-        if (alt) finalText += (finalText ? " " : "") + alt;
-        if (r.LanguageCode) detectedLanguage = r.LanguageCode;
-      }
+  // The deadline covers the result stream too: a session that opens and then
+  // stalls would otherwise hold the message, and a cancelled turn keep paying.
+  await withSttDeadline("aws", req, async (signal) => {
+    let response;
+    try {
+      response = await client.send(command, { abortSignal: signal });
+    } catch (err) {
+      if (signal.aborted) throw err;
+      throw new STTProviderError("aws", `send failed: ${(err as Error).message}`, { cause: err });
     }
-  } catch (err) {
-    throw new STTProviderError("aws", `stream error: ${(err as Error).message}`, { cause: err });
-  }
+    try {
+      for await (const event of response.TranscriptResultStream ?? []) {
+        const results = event.TranscriptEvent?.Transcript?.Results ?? [];
+        for (const r of results) {
+          if (typeof r.EndTime === "number") lastEndTimeSec = Math.max(lastEndTimeSec, r.EndTime);
+          if (r.IsPartial) continue;
+          const alt = r.Alternatives?.[0]?.Transcript;
+          if (alt) finalText += (finalText ? " " : "") + alt;
+          if (r.LanguageCode) detectedLanguage = r.LanguageCode;
+        }
+      }
+    } catch (err) {
+      if (signal.aborted) throw err;
+      throw new STTProviderError("aws", `stream error: ${(err as Error).message}`, { cause: err });
+    }
+  });
 
   return {
     text: finalText.trim(),

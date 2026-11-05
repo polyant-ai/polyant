@@ -2,7 +2,8 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import { useDebouncedField } from "./use-debounced-field";
 
 interface UsePaginationOptions {
   pageSize?: number;
@@ -24,21 +25,19 @@ interface UsePaginationReturn {
 export function usePagination(opts: UsePaginationOptions = {}): UsePaginationReturn {
   const { pageSize = 20, debounceMs = 400 } = opts;
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [total, setTotal] = useState(0);
 
-  // Debounce search input and reset to page 1. Only when the search actually
-  // changed: on mount it has not, and a reset then would undo a page the reader
-  // chose within the first debounce interval.
-  useEffect(() => {
-    if (search === debouncedSearch) return;
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
+  // A new search starts again from page 1. Only a search that changed commits:
+  // a page the reader chose before typing anything stays.
+  const [search, setSearch] = useDebouncedField(
+    debouncedSearch,
+    (next) => {
+      setDebouncedSearch(next);
       setPage(1);
-    }, debounceMs);
-    return () => clearTimeout(timer);
-  }, [search, debouncedSearch, debounceMs]);
+    },
+    debounceMs,
+  );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const offset = (page - 1) * pageSize;

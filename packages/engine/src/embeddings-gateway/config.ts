@@ -15,6 +15,14 @@ const BUILT_IN_DIMS: Record<"openai" | "bedrock", readonly EmbeddingDim[]> = {
   bedrock: [1024],
 };
 
+/**
+ * Provider calls one batch may run at once. The SDK splits a batch into as many
+ * calls as the model takes texts per call (Titan takes one, so 100 chunks are
+ * 100 requests) and sends them all together unless capped, which a provider's
+ * rate limit answers with throttling.
+ */
+export const EMBEDDING_MAX_PARALLEL_CALLS = 8;
+
 /** Default dimension for brand-new instances. */
 export const DEFAULT_EMBEDDING_DIM: EmbeddingDim = 1024;
 

@@ -31,6 +31,8 @@ export const memories = pgTable(
     index("idx_memories_instance_id").on(table.instanceId),
     index("idx_memories_category").on(table.category),
     index("idx_memories_created_at").on(table.createdAt),
+    // Deleting a conversation deletes the memories extracted from it.
+    index("idx_memories_source_conv").on(table.sourceConversationId),
     check(
       "memories_embedding_xor",
       sql`(${table.embedding} IS NULL) <> (${table.embedding1024} IS NULL)`,

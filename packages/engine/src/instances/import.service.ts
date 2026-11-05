@@ -35,7 +35,7 @@ import { importPrompts } from "./prompts.import.js";
 import { importSkillAssignments } from "./skill-assignments.import.js";
 import { importManualTools } from "./manual-tools.import.js";
 import { importChannels } from "./channels.import.js";
-import { WEB_CHANNEL_TYPE } from "./channels.store.js";
+import { WEB_CHANNEL_TYPE, invalidateWebChannelState } from "./channels.store.js";
 import { importSkillEnv, importSkillEnvOverwrite } from "./skill-env.import.js";
 import { importHooks } from "./hooks.import.js";
 import { importRoom } from "./room.import.js";
@@ -365,6 +365,7 @@ async function finishCommittedImport(instanceId: InstanceUuid, slug: string, war
   } finally {
     invalidatePromptsCache(instanceId);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateWebChannelState(instanceId);
     invalidateHooksCache(asInstanceSlug(slug));
   }
 }

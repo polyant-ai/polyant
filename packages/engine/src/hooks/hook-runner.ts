@@ -2,7 +2,6 @@
 
 import type { ConversationStateApi } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../utils/error.js";
-import { createAuditLogger } from "../audit/audit-logger.js";
 import { getEnabledHooks } from "./hooks.store.js";
 import { recordHookExecution } from "./hook-executions.store.js";
 import { functionActionExecutor } from "./actions/function-action.js";
@@ -156,8 +155,8 @@ function fenceState(state: ConversationStateApi, signal: AbortSignal, label: str
 /**
  * Run all enabled hooks for (instance, event), sequentially in position order.
  * Observe-only contract: every failure (load, executor, timeout) is logged and
- * swallowed — hooks never block the pipeline. Audit records the outcome but
- * never the rendered args (PII). Returns one summary per executed hook so
+ * swallowed — hooks never block the pipeline. Each execution is recorded in
+ * `hook_executions`. Returns one summary per executed hook so
  * first-party consumers (typed SSE stream) can surface the outcomes live.
  */
 export async function runHooks(
@@ -185,7 +184,6 @@ export async function runHooks(
     // The summary/telemetry field stays NAMED `toolName` (renaming would ripple
     // to the web + SSE, out of scope) but post-cutover it holds the function name.
     const toolName = hook.actionConfig.functionName ?? "";
-    const audit = createAuditLogger(`hook:${toolName}`, ctx.instanceId, ctx.conversationId);
     const started = Date.now();
     let success = true;
     let error: string | undefined;
@@ -226,15 +224,9 @@ export async function runHooks(
       regenerate: captured.regenerate,
       injectContext: captured.injectContext,
     });
-    audit.log({
-      action: `hook:${event}`,
-      success,
-      error,
-      durationMs,
-      details: { actionType: hook.actionType },
-    });
-    // Per-conversation telemetry for the conversation detail UI — fire-and-forget,
-    // a failed insert never affects the run.
+    // The execution's one record (outcome, error, duration) — fire-and-forget,
+    // a failed insert never affects the run. It used to be written to the tool
+    // audit log as well, where hook rows outnumbered the tool calls.
     recordHookExecution({
       instanceId: ctx.instanceId,
       conversationId: ctx.conversationId,
@@ -250,7 +242,7 @@ export async function runHooks(
     }).catch((err) =>
       log.error("hooks", `failed to record execution for hook ${hook.id}`, err),
     );
-    // First halt wins: stop remaining hooks for this event. Telemetry/audit for
+    // First halt wins: stop remaining hooks for this event. Telemetry for
     // the halting hook is already recorded above. Post-LLM callers ignore the
     // halt (runPipelinePost never reads it) — the break only keeps behaviour
     // predictable across events.

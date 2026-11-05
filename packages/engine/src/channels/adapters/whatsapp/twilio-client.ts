@@ -1,12 +1,51 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import Twilio from "twilio";
 import { splitMessage } from "../../split-message.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
+import { isNotSentErrorCode, isNotTakenStatus, parseRetryAfterMs, retryNotTakenSend } from "../../twilio-send-retry.js";
 import type { TemplateDefinition } from "./render-template.js";
 
 const TYPING_INDICATOR_ENDPOINT = "https://messaging.twilio.com/v2/Indicators/Typing.json";
 const CONTENT_API_ENDPOINT = "https://content.twilio.com/v1/Content";
+
+/**
+ * A send Twilio certainly did not take. The SDK throws every refusal, with the
+ * HTTP status on the error, and a network failure with its code.
+ */
+function isNotTakenSendError(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return isNotTakenStatus(status);
+  return isNotSentErrorCode((err as { code?: unknown } | null)?.code);
+}
+
+/**
+ * The SDK's error carries no headers, so the `Retry-After` of the attempt
+ * running in this async context is noted by the HTTP client as it answers.
+ */
+const attemptRetryAfter = new AsyncLocalStorage<{ ms?: number }>();
+
+/** The SDK's HTTP client, noting each answer's `Retry-After` for the attempt that made it. */
+function retryAfterNotingHttpClient(): InstanceType<typeof Twilio.RequestClient> {
+  const client = new Twilio.RequestClient();
+  const request = client.request.bind(client);
+  client.request = async (opts) => {
+    const response = await request(opts);
+    const noted = attemptRetryAfter.getStore();
+    if (noted) noted.ms = parseRetryAfterMs(response.headers?.["retry-after"]);
+    return response;
+  };
+  return client;
+}
+
+function withSendRetry<T>(send: () => Promise<T>): Promise<T> {
+  let noted: { ms?: number } = {};
+  return retryNotTakenSend(
+    () => attemptRetryAfter.run((noted = {}), send),
+    (outcome) => (!outcome.ok && isNotTakenSendError(outcome.error) ? { retryAfterMs: noted.ms } : undefined),
+  );
+}
 
 /**
  * The two credential shapes Twilio accepts for one account. `apiKey` is a
@@ -35,8 +74,11 @@ export class TwilioWhatsAppClient {
         ? // An API Key SID goes in the username slot; the SDK needs the account
           // separately because it builds `/Accounts/{AC…}/…` REST paths and
           // rejects any username-derived SID that does not start with `AC`.
-          Twilio(credentials.apiKeySid, credentials.apiKeySecret, { accountSid: credentials.accountSid })
-        : Twilio(credentials.accountSid, credentials.authToken);
+          Twilio(credentials.apiKeySid, credentials.apiKeySecret, {
+            accountSid: credentials.accountSid,
+            httpClient: retryAfterNotingHttpClient(),
+          })
+        : Twilio(credentials.accountSid, credentials.authToken, { httpClient: retryAfterNotingHttpClient() });
     this.credentials = credentials;
     this.fromNumber = whatsappNumber;
   }
@@ -78,15 +120,19 @@ export class TwilioWhatsAppClient {
     const chunks = body.length > 0 ? splitMessage(body, CHANNEL_MAX_LENGTH.whatsapp) : [""];
     const mediaUrl = opts?.mediaUrl?.length ? opts.mediaUrl : undefined;
 
+    // Each chunk is retried on its own, so a transient failure in the middle
+    // neither loses the rest nor resends the chunks already delivered.
     for (let i = 0; i < chunks.length; i++) {
       const isFirst = i === 0;
-      await this.client.messages.create({
-        from: `whatsapp:${this.fromNumber}`,
-        to: `whatsapp:${cleanTo}`,
-        body: chunks[i],
-        // Media goes with the first chunk only to avoid duplicate deliveries.
-        ...(isFirst && mediaUrl ? { mediaUrl } : {}),
-      });
+      await withSendRetry(() =>
+        this.client.messages.create({
+          from: `whatsapp:${this.fromNumber}`,
+          to: `whatsapp:${cleanTo}`,
+          body: chunks[i],
+          // Media goes with the first chunk only to avoid duplicate deliveries.
+          ...(isFirst && mediaUrl ? { mediaUrl } : {}),
+        }),
+      );
     }
   }
 
@@ -96,12 +142,14 @@ export class TwilioWhatsAppClient {
     variables: Record<string, string>,
   ): Promise<string> {
     const cleanTo = to.replace(/^whatsapp:/, "");
-    const res = await this.client.messages.create({
-      from: `whatsapp:${this.fromNumber}`,
-      to: `whatsapp:${cleanTo}`,
-      contentSid,
-      contentVariables: JSON.stringify(variables),
-    });
+    const res = await withSendRetry(() =>
+      this.client.messages.create({
+        from: `whatsapp:${this.fromNumber}`,
+        to: `whatsapp:${cleanTo}`,
+        contentSid,
+        contentVariables: JSON.stringify(variables),
+      }),
+    );
     return res.sid;
   }
 

@@ -67,6 +67,27 @@ describe("buildHookContext", () => {
     expect(request.system).toBe("be terse");
   });
 
+  it.each(["fast", "heavy"] as const)("runs a %s request on that tier's model of the agent's provider, not on the agent's model", async (tier) => {
+    mockChat.mockResolvedValue({ text: "ok" });
+    const ctx = buildHookContext("message_received", payload, baseCtx(), conversation, audit);
+
+    await ctx.ai.chat({ messages: [{ role: "user", content: "q" }], tier });
+
+    const [request] = mockChat.mock.calls[0];
+    expect(request.tier).toBe(tier);
+    expect(request.provider).toBe("anthropic");
+    expect(request.model).toBeUndefined();
+  });
+
+  it("keeps the agent's model for an explicit standard request", async () => {
+    mockChat.mockResolvedValue({ text: "ok" });
+    const ctx = buildHookContext("message_received", payload, baseCtx(), conversation, audit);
+
+    await ctx.ai.chat({ messages: [{ role: "user", content: "q" }], tier: "standard" });
+
+    expect(mockChat.mock.calls[0][0].model).toBe("claude-x");
+  });
+
   it("should_expose_no_op_state_when_run_context_state_is_undefined", () => {
     const ctx = buildHookContext("message_received", payload, baseCtx({ state: undefined }), conversation, audit);
 

@@ -77,8 +77,10 @@ describe("runHooks", () => {
     });
     await runHooks("message_received", payload, baseCtx);
     expect(order).toEqual(["a", "b"]);
-    expect(auditLogMock).toHaveBeenCalledTimes(2);
-    expect(auditLogMock.mock.calls[0][0]).toMatchObject({ success: true });
+    // One row per execution, in hook_executions only: no twin in the tool audit log.
+    expect(recordExecutionMock).toHaveBeenCalledTimes(2);
+    expect(recordExecutionMock.mock.calls[0][0]).toMatchObject({ success: true });
+    expect(auditLogMock).not.toHaveBeenCalled();
   });
 
   it("should_continue_after_a_failing_hook", async () => {
@@ -88,8 +90,8 @@ describe("runHooks", () => {
       .mockResolvedValueOnce(undefined);
     await runHooks("message_received", payload, baseCtx);
     expect(executeMock).toHaveBeenCalledTimes(2);
-    expect(auditLogMock.mock.calls[0][0]).toMatchObject({ success: false, error: "boom" });
-    expect(auditLogMock.mock.calls[1][0]).toMatchObject({ success: true });
+    expect(recordExecutionMock.mock.calls[0][0]).toMatchObject({ success: false, error: "boom" });
+    expect(recordExecutionMock.mock.calls[1][0]).toMatchObject({ success: true });
   });
 
   it("should_timeout_a_slow_hook_and_continue", async () => {
@@ -103,8 +105,8 @@ describe("runHooks", () => {
     await run;
     vi.useRealTimers();
     expect(executeMock).toHaveBeenCalledTimes(2);
-    expect(auditLogMock.mock.calls[0][0].success).toBe(false);
-    expect(auditLogMock.mock.calls[0][0].error).toMatch(/timed out/);
+    expect(recordExecutionMock.mock.calls[0][0].success).toBe(false);
+    expect(recordExecutionMock.mock.calls[0][0].error).toMatch(/timed out/);
   });
 
   it("should_abort_the_signal_handed_to_a_timed_out_hook", async () => {

@@ -101,12 +101,20 @@ export class BufferedInsertQueue<T> {
     if (this.buffer.length >= this.batchAt) void this.flush();
   }
 
-  /** The newest buffered row matching `predicate`, for patching it before it is written. */
-  findLast(predicate: (row: T) => boolean): T | undefined {
-    for (let i = this.buffer.length - 1; i >= 0; i--) {
-      if (predicate(this.buffer[i]!)) return this.buffer[i];
+  /**
+   * Change a row already pushed. While it waits in the buffer the change rides
+   * on its insert; once its insert has started, the change waits for it and is
+   * written by `writeChange`, which receives the queue's database. Without a
+   * database the change stays on the buffered row.
+   */
+  async amend(row: T, change: Partial<T>, writeChange: (db: InsertableDb) => Promise<unknown>): Promise<void> {
+    if (!this.buffer.includes(row)) await this.inFlight;
+    // Back in the buffer when its insert failed for a reason other than its data.
+    if (this.buffer.includes(row) || !this.db) {
+      Object.assign(row as object, change);
+      return;
     }
-    return undefined;
+    await writeChange(this.db);
   }
 
   /** Write the buffer. While another flush is running, returns that one instead of starting a second. */

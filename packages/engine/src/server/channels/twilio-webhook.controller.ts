@@ -12,7 +12,7 @@ import {
   WHATSAPP_AUTH_MODE_API_KEY,
 } from "../../instances/channels.store.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
-import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
+import { channelWebhookLimit, channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { firstDelivery } from "../../channels/inbound-dedupe.js";
 import { redactWebhookPath } from "../filters/redact-webhook-path.js";
@@ -36,6 +36,19 @@ interface TwilioWebhookBody {
 
 // Twilio caps a single inbound MMS at 10 media attachments.
 const MAX_TWILIO_MEDIA = 10;
+
+/**
+ * Webhook throttle for an agent with a live WhatsApp channel. A reminder
+ * campaign brings hundreds of replies a minute to one agent from a handful of
+ * Twilio addresses, and Twilio does not redeliver a messaging webhook answered
+ * 429, so a tight per-agent limit drops real messages. A slug with no running
+ * adapter keeps the tight limit.
+ */
+const WHATSAPP_WEBHOOK_THROTTLE = {
+  limit: channelWebhookLimit(WHATSAPP_CHANNEL_TYPE, 300, 60),
+  ttl: 60_000,
+  getTracker: channelWebhookTracker(WHATSAPP_CHANNEL_TYPE),
+};
 
 /**
  * Single client-facing message for EVERY pre-auth failure on either webhook
@@ -89,7 +102,7 @@ function logWebhookUnavailable(reason: string, instanceSlug: string): void {
 
 @Controller("webhooks/twilio")
 export class TwilioWebhookController {
-  @Throttle({ default: { limit: 60, ttl: 60_000, getTracker: channelWebhookTracker(WHATSAPP_CHANNEL_TYPE) } })
+  @Throttle({ default: WHATSAPP_WEBHOOK_THROTTLE })
   @Public()
   @Post(":instanceSlug/whatsapp")
   @HttpCode(200)
@@ -135,7 +148,7 @@ export class TwilioWebhookController {
    * messaging webhooks cannot carry custom headers, so a path segment is the
    * only channel available; rotation is the mitigation.
    */
-  @Throttle({ default: { limit: 60, ttl: 60_000, getTracker: channelWebhookTracker(WHATSAPP_CHANNEL_TYPE) } })
+  @Throttle({ default: WHATSAPP_WEBHOOK_THROTTLE })
   @Public()
   @Post(":instanceSlug/whatsapp/:webhookSecret")
   @HttpCode(200)

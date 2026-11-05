@@ -22,17 +22,6 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
   const url = `https://api.deepgram.com/v1/listen?${params.toString()}`;
 
   const start = Date.now();
-  const res = await sttFetch(
-    "deepgram",
-    url,
-    {
-      method: "POST",
-      headers: { Authorization: `Token ${cred.apiKey}`, "Content-Type": req.mimeType },
-      body: req.audio,
-    },
-    req,
-  );
-
   type DeepgramResponse = {
     results?: {
       channels?: Array<{
@@ -42,7 +31,18 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
     };
     metadata?: { duration?: number };
   };
-  const json = (await res.json()) as DeepgramResponse;
+  const json = await sttFetch(
+    "deepgram",
+    url,
+    {
+      method: "POST",
+      headers: { Authorization: `Token ${cred.apiKey}`, "Content-Type": req.mimeType },
+      body: req.audio,
+    },
+    req,
+    (res) => res.json() as Promise<DeepgramResponse>,
+  );
+
 
   const channel = json.results?.channels?.[0];
   const alt = channel?.alternatives?.[0];

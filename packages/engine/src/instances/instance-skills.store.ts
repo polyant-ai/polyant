@@ -114,6 +114,22 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
   }));
 }
 
+/**
+ * The metadata of the skill version this agent is pinned to, the one its turns
+ * run (and whose `requiredEnv` they read), or null when the agent has no
+ * assignment of that skill.
+ */
+export async function getPinnedSkillMetadata(instanceId: InstanceUuid, skillSlug: string): Promise<unknown | null> {
+  const [row] = await db
+    .select({ metadata: skillVersions.metadata })
+    .from(instanceSkills)
+    .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
+    .innerJoin(skillVersions, eq(instanceSkills.skillVersionId, skillVersions.id))
+    .where(and(eq(instanceSkills.instanceId, instanceId), eq(skills.slug, skillSlug)))
+    .limit(1);
+  return row?.metadata ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------

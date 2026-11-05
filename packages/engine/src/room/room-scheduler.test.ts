@@ -12,17 +12,32 @@ const {
   mockExecuteRoomCycle,
   mockResolveInstanceSlug,
   mockRoomLog,
+  mockWithLease,
+  mockRequeue,
+  mockQueueHumanMessage,
 } = vi.hoisted(() => ({
   mockListEnabledRooms: vi.fn(),
   mockCountPendingEvents: vi.fn(),
   mockCompactActivityLog: vi.fn(),
   mockExecuteRoomCycle: vi.fn(),
   mockResolveInstanceSlug: vi.fn(),
-  mockRoomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  mockRoomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  mockWithLease: vi.fn(),
+  mockRequeue: vi.fn(),
+  mockQueueHumanMessage: vi.fn(),
 }));
 
 vi.mock("./room.store.js", () => ({ listEnabledRooms: mockListEnabledRooms }));
-vi.mock("../webhooks/webhook-backlog.store.js", () => ({ countPendingByInstance: mockCountPendingEvents }));
+vi.mock("../webhooks/webhook-backlog.store.js", () => ({
+  countPendingByInstance: mockCountPendingEvents,
+  requeueEventsWithoutLiveLease: mockRequeue,
+  queueHumanMessage: mockQueueHumanMessage,
+  roomLeaseKey: (instanceId: string) => `room:${instanceId}`,
+}));
+// The lease itself is covered against a real database in room-lease.integration.test.ts.
+vi.mock("../background/work-lease.js", () => ({ withLease: mockWithLease }));
+vi.mock("../analytics/cleanup.js", () => ({ runAnalyticsCleanup: vi.fn() }));
+vi.mock("../platform/platform-settings.store.js", () => ({ resolvePlatformSettings: vi.fn(() => new Promise(() => {})) }));
 vi.mock("./activity-log.store.js", () => ({ compactActivityLog: mockCompactActivityLog }));
 vi.mock("./room-engine.js", () => ({ executeRoomCycle: mockExecuteRoomCycle }));
 vi.mock("../instances/resolve-instance-id.js", () => ({
@@ -36,9 +51,13 @@ vi.mock("../utils/create-logger.js", async (importOriginal) => ({
 /* ── import under test ─────────────────────────────────────────── */
 
 import { roomScheduler } from "./room-scheduler.js";
+import { drainBackgroundTurns, pendingBackgroundTurns } from "../channels/background-turns.js";
 import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
+
+/** The scheduler's private tick and in-process set, as the tests below drive them. */
+const internals = roomScheduler as unknown as { tick(): Promise<void>; running: Set<string> };
 
 const ROOM_A = {
   id: "room-a",
@@ -47,7 +66,6 @@ const ROOM_A = {
   prompt: "Agent A",
   outboundChannel: "slack" as const,
   outboundTarget: "#a",
-  evalIntervalMinutes: 5,
   conversationId: "room:inst-a",
 };
 
@@ -60,6 +78,13 @@ beforeEach(() => {
   mockCompactActivityLog.mockResolvedValue(undefined);
   mockExecuteRoomCycle.mockResolvedValue(undefined);
   mockResolveInstanceSlug.mockResolvedValue("inst-a-slug");
+  mockRequeue.mockResolvedValue(0);
+  mockQueueHumanMessage.mockResolvedValue("msg-1");
+  // No other process holds the lease: the body runs under a fixed owner.
+  mockWithLease.mockImplementation(async (_key: string, _opts: unknown, body: (owner: string) => Promise<void>) => {
+    await body("owner-1");
+    return true;
+  });
 });
 
 afterEach(() => {
@@ -87,32 +112,66 @@ describe("RoomScheduler", () => {
     });
   });
 
+  describe("shutdown", () => {
+    it("a cycle in flight at shutdown is counted by the shutdown drain until it ends", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map([["inst-a", 1]]));
+      let finish!: () => void;
+      mockExecuteRoomCycle.mockImplementation(() => new Promise<void>((r) => { finish = r; }));
+
+      await internals.tick();
+      await vi.waitFor(() => expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1));
+      roomScheduler.shutdown();
+      expect(pendingBackgroundTurns()).toBeGreaterThan(0);
+
+      const drained = drainBackgroundTurns(10_000);
+      finish();
+      await expect(drained).resolves.toEqual({ pending: 0 });
+    });
+  });
+
   describe("triggerImmediate", () => {
-    it("should execute room cycle with human message", async () => {
+    it("queues the human message and runs a cycle for it", async () => {
       await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Help me please");
 
-      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "Help me please");
+      expect(mockQueueHumanMessage).toHaveBeenCalledWith("inst-a", "Help me please");
+      expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "owner-1");
     });
 
-    it("should drop human message if room is already running", async () => {
-      // Simulate a long-running cycle that never resolves
+    it("queues a message that arrives during a cycle for the next one instead of dropping it", async () => {
       let resolveFirst!: () => void;
       mockExecuteRoomCycle.mockImplementationOnce(
         () => new Promise<void>((r) => { resolveFirst = r; }),
       );
 
-      // Start first cycle (will hang)
       const firstCycle = roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "First message");
-
-      // Try to trigger again while first is still running — should be dropped
+      await vi.waitFor(() => expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1));
       await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Second message");
 
-      expect(mockRoomLog.warn).toHaveBeenCalledWith("Scheduler", expect.stringContaining("already running"));
+      expect(mockQueueHumanMessage.mock.calls.map((c) => c[1])).toEqual(["First message", "Second message"]);
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
 
-      // Cleanup: resolve the hanging promise
       resolveFirst();
       await firstCycle;
+    });
+
+    it("queues nothing and starts no cycle when the channel has already cancelled the run", async () => {
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "a", () => false);
+
+      expect(mockQueueHumanMessage).not.toHaveBeenCalled();
+      expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
+    });
+
+    it("asks the channel's gate before queuing, so the run is no longer cancelled once it has", async () => {
+      const order: string[] = [];
+      mockQueueHumanMessage.mockImplementation(async () => { order.push("queue"); return "msg-1"; });
+
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "a", () => {
+        order.push("gate");
+        return true;
+      });
+
+      expect(order).toEqual(["gate", "queue"]);
     });
 
     it("should swallow errors, log them, and release room lock (#94)", async () => {
@@ -160,7 +219,7 @@ describe("RoomScheduler", () => {
       mockExecuteRoomCycle.mockResolvedValue(undefined);
 
       // Access private tick() method
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
     });
@@ -169,7 +228,7 @@ describe("RoomScheduler", () => {
       mockListEnabledRooms.mockResolvedValue([ROOM_A]);
       mockCountPendingEvents.mockResolvedValue(new Map());
 
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
     });
@@ -189,13 +248,46 @@ describe("RoomScheduler", () => {
       await tick1;
 
       // Second tick — room A still running, should be skipped
-      await (roomScheduler as any).tick();
+      await internals.tick();
 
       // Only 1 call: the second tick skipped room A
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
 
       // Cleanup
       resolveProcess();
+    });
+
+    it("skips a room whose lease another process holds", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map([["inst-a", 2]]));
+      mockWithLease.mockImplementation(async (key: string) => !key.startsWith("room:"));
+
+      await internals.tick();
+      await vi.waitFor(() => expect(internals.running.has("inst-a")).toBe(false));
+
+      expect(mockExecuteRoomCycle).not.toHaveBeenCalled();
+    });
+
+    it("requeues events without a live lease on every tick, before reading the rooms", async () => {
+      const order: string[] = [];
+      mockRequeue.mockImplementation(async () => { order.push("requeue"); return 2; });
+      mockListEnabledRooms.mockImplementation(async () => { order.push("rooms"); return []; });
+
+      await (roomScheduler as any).tick();
+      await (roomScheduler as any).tick();
+
+      expect(order).toEqual(["requeue", "rooms", "requeue", "rooms"]);
+    });
+
+    it("runs the daily housekeeping only under its once-a-day lease", async () => {
+      mockListEnabledRooms.mockResolvedValue([ROOM_A]);
+      mockCountPendingEvents.mockResolvedValue(new Map());
+      mockWithLease.mockImplementation(async () => false);
+
+      await (roomScheduler as any).tick();
+
+      expect(mockWithLease).toHaveBeenCalledWith("housekeeping:daily", { everyMs: 86_400_000 }, expect.any(Function));
+      expect(mockCompactActivityLog).not.toHaveBeenCalled();
     });
 
     it("should process different rooms in parallel", async () => {

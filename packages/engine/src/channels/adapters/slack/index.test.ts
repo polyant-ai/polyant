@@ -165,7 +165,7 @@ describe("SlackAdapter — DM handling (.message)", () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 
-  it("forwards DMs to the pipeline with userName and conversationIdOverride", async () => {
+  it("forwards DMs to the pipeline with userName, in the channel's own conversation", async () => {
     const onMessage = vi.fn().mockResolvedValue(reply);
     const { init } = makeAdapter(onMessage);
     await init();
@@ -192,7 +192,7 @@ describe("SlackAdapter — DM handling (.message)", () => {
       userName: "mario",
       text: "ciao",
     });
-    expect(incoming.metadata.conversationIdOverride).toBe("inst-test:slack:D1");
+    expect(incoming.conversationId).toBeUndefined();
     expect(incoming.metadata.ts).toBe("1.5");
     expect(say).toHaveBeenCalledWith({ text: "pong", thread_ts: undefined });
   });
@@ -247,7 +247,7 @@ describe("SlackAdapter — channel mentions (app_mention)", () => {
     expect(onMessage).toHaveBeenCalledOnce();
     const incoming = onMessage.mock.calls[0][0];
     expect(incoming.text).toBe("qual è lo stato?");
-    expect(incoming.metadata.conversationIdOverride).toBe("inst-test:slack:C42:100.0");
+    expect(incoming.conversationId).toBe("inst-test:slack:C42:100.0");
     expect(incoming.metadata.threadTs).toBe("100.0");
     expect(say).toHaveBeenCalledWith({ text: "pong" });
   });
@@ -271,7 +271,7 @@ describe("SlackAdapter — channel mentions (app_mention)", () => {
     });
 
     const incoming = onMessage.mock.calls[0][0];
-    expect(incoming.metadata.conversationIdOverride).toBe("inst-test:slack:C42:150.0");
+    expect(incoming.conversationId).toBe("inst-test:slack:C42:150.0");
     expect(incoming.metadata.threadTs).toBe("150.0");
   });
 

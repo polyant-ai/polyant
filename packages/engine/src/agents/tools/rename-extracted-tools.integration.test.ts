@@ -10,7 +10,7 @@
  * Self-skips when no migrated database is reachable.
  */
 
-import { describe, it, expect, afterAll, vi } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -160,15 +160,18 @@ describe("migrations rename_extracted_tools (integration)", () => {
       _registerToolForTests(
         defineTool({ name: CORE, description: "core", parameters: z.object({}), execute: async () => ({}) }),
       );
-      const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       await syncToolsToDb();
-      const warnings = warn.mock.calls.map((c) => String(c[0]));
-      warn.mockRestore();
 
-      // The renamed rows survive, enabled, until the plugin is installed; the
-      // tool with no successor is dropped, and the boot says which one it was.
-      expect(await enabledNames(instanceId!)).toEqual(["extra:fileUpload", "hubspot:contact", "hubspot:note"]);
-      expect(warnings.some((w) => w.includes("verifyDocument"))).toBe(true);
+      // The renamed rows survive, enabled, until the plugin is installed. So
+      // does the tool with no successor: the boot cannot tell a removed tool
+      // from one a newer release added, and dropping it would cascade the
+      // enablement away. The runtime offers it to nobody while it is missing.
+      expect(await enabledNames(instanceId!)).toEqual([
+        "extra:fileUpload",
+        "hubspot:contact",
+        "hubspot:note",
+        "verifyDocument",
+      ]);
     },
   );
 });

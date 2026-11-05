@@ -3,13 +3,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const embedMock = vi.fn();
-vi.mock("ai", () => ({ embed: (...a: unknown[]) => embedMock(...a), embedMany: vi.fn() }));
+const embedManyMock = vi.fn();
+vi.mock("ai", () => ({ embed: (...a: unknown[]) => embedMock(...a), embedMany: (...a: unknown[]) => embedManyMock(...a) }));
 const embeddingFactory = vi.fn(() => "MODEL");
 const createBedrock = vi.fn(() => ({ embedding: embeddingFactory }));
 vi.mock("@ai-sdk/amazon-bedrock", () => ({ createAmazonBedrock: (...a: Parameters<typeof createBedrock>) => createBedrock(...a) }));
 vi.mock("@aws-sdk/credential-providers", () => ({ fromNodeProviderChain: () => "CHAIN" }));
 
-import { embedBedrock } from "./bedrock.js";
+import { embedBedrock, embedManyBedrock } from "./bedrock.js";
 
 beforeEach(() => {
   embedMock.mockReset().mockResolvedValue({ embedding: [0.1] });
@@ -57,5 +58,15 @@ describe("embedBedrock", () => {
   });
   it("rejects 1536 dims", async () => {
     await expect(embedBedrock("hi", { region: "eu-west-1", dimensions: 1536 })).rejects.toThrow(/does not support 1536/);
+  });
+});
+
+describe("embedManyBedrock", () => {
+  // Titan embeds one text per call, so the SDK turns a batch of 100 chunks into
+  // 100 requests and, by default, sends them all at once.
+  it("caps the provider calls a batch runs at once", async () => {
+    embedManyMock.mockResolvedValueOnce({ embeddings: [[0.1], [0.2]], usage: { tokens: 2 } });
+    await embedManyBedrock(["a", "b"], { region: "eu-west-1", dimensions: 1024 });
+    expect(embedManyMock).toHaveBeenCalledWith(expect.objectContaining({ maxParallelCalls: 8 }));
   });
 });

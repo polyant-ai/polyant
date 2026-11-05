@@ -9,7 +9,7 @@ import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { SystemActivity } from "@/components/messages/system-activity";
 import { useI18n } from "@/lib/i18n/context";
 import { formatActivityTimestamp } from "@/lib/format";
-import type { ChatMessage } from "../_hooks/use-chat";
+import type { ChatMessage } from "./use-chat";
 
 interface MessageBubbleProps {
   message: ChatMessage;

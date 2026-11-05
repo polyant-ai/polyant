@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { useEffect, useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TenantProvider, useTenant, resetTenantCache } from "./tenant-context";
@@ -116,6 +117,79 @@ describe("TenantProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
     expect(mockMeGet).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * A page that renamed the organization asks for the tenancy again. The panel
+   * renders pages only while the tenancy is ready, so passing through `loading`
+   * would unmount the page, lose its local state and reload all its data.
+   */
+  it("refreshes a ready tenancy in the background, keeping the page mounted", async () => {
+    let mounts = 0;
+    const seen: string[] = [];
+    function Page() {
+      const tenant = useTenant();
+      const [typed] = useState("draft");
+      useEffect(() => {
+        mounts += 1;
+      }, []);
+      seen.push(tenant.status);
+      return (
+        <div>
+          <span data-testid="org-name">{tenant.status === "ready" ? tenant.organization.name : ""}</span>
+          <span>{typed}</span>
+          <button onClick={tenant.retry}>refresh</button>
+        </div>
+      );
+    }
+    function Guard() {
+      const tenant = useTenant();
+      return tenant.status === "ready" ? <Page /> : <span>skeleton</span>;
+    }
+    let answer: (payload: typeof PAYLOAD) => void = () => {};
+    mockMeGet.mockResolvedValueOnce(PAYLOAD);
+    mockMeGet.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+
+    render(
+      <TenantProvider>
+        <Guard />
+      </TenantProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("org-name")).toHaveTextContent("Default"));
+
+    await userEvent.click(screen.getByRole("button", { name: "refresh" }));
+    expect(screen.queryByText("skeleton")).toBeNull();
+    expect(screen.getByTestId("org-name")).toHaveTextContent("Default");
+
+    answer({ ...PAYLOAD, organization: { slug: "default", name: "Renamed" } });
+    await waitFor(() => expect(screen.getByTestId("org-name")).toHaveTextContent("Renamed"));
+    expect(mounts).toBe(1);
+    expect(seen).not.toContain("loading");
+    expect(mockMeGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a ready tenancy when a background refresh fails to reach the server", async () => {
+    mockMeGet.mockResolvedValueOnce(PAYLOAD);
+    mockMeGet.mockRejectedValueOnce(new Error("network down"));
+
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
+    await userEvent.click(screen.getByRole("button", { name: "retry" }));
+
+    await waitFor(() => expect(mockMeGet).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("status")).toHaveTextContent("ready");
+  });
+
+  it("signs out from a ready tenancy when the refresh finds the session expired", async () => {
+    const { ApiError } = await import("@/lib/api");
+    mockMeGet.mockResolvedValueOnce(PAYLOAD);
+    mockMeGet.mockRejectedValueOnce(new ApiError(401, "Unauthorized"));
+
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
+    await userEvent.click(screen.getByRole("button", { name: "retry" }));
+
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed-out"));
   });
 
   // retry() calls resetTenantCache() itself, so the test above never exercises

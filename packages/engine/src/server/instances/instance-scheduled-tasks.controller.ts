@@ -16,7 +16,7 @@ import { findInstanceOrFail } from "./instance-helpers.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import * as runLogStore from "../../scheduled-tasks/run-log.store.js";
-import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
+import { parseRelativeDuration, parseSchedule, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -43,6 +43,21 @@ function assertMaxRunMs(value: number | null | undefined): number | null | undef
     );
   }
   return value;
+}
+
+/**
+ * Validate an API-provided schedule with the rule every writer shares, and resolve a
+ * relative one-shot ("+20m") to its timestamp. An interval below the minimum, or zero,
+ * would otherwise be stored and computed on every tick.
+ */
+function assertSchedule(raw: unknown): ScheduleConfig {
+  const parsed = parseSchedule(raw);
+  if ("error" in parsed) throw new BadRequestException(parsed.error);
+  const { schedule } = parsed;
+  if (schedule.type === "one-shot" && schedule.runAt.startsWith("+")) {
+    return { ...schedule, runAt: parseRelativeDuration(schedule.runAt).toISOString() };
+  }
+  return schedule;
 }
 
 @Controller("api/instances")
@@ -200,16 +215,7 @@ export class InstanceScheduledTasksController {
       throw new BadRequestException("Fields 'name', 'prompt', and 'schedule' are required");
     }
 
-    // Validate schedule
-    const schedule = body.schedule;
-    if (!["cron", "interval", "one-shot"].includes(schedule.type)) {
-      throw new BadRequestException(`Invalid schedule type: "${schedule.type}"`);
-    }
-
-    // Resolve relative durations for one-shot
-    if (schedule.type === "one-shot" && schedule.runAt.startsWith("+")) {
-      schedule.runAt = parseRelativeDuration(schedule.runAt).toISOString();
-    }
+    const schedule = assertSchedule(body.schedule);
 
     const task = await scheduledTaskStore.create({
       instanceId: instance.slug,
@@ -271,13 +277,9 @@ export class InstanceScheduledTasksController {
       throw new NotFoundException(`Scheduled task "${id}" not found`);
     }
 
-    // Resolve relative durations for one-shot
-    if (body.schedule?.type === "one-shot" && body.schedule.runAt.startsWith("+")) {
-      body.schedule.runAt = parseRelativeDuration(body.schedule.runAt).toISOString();
-    }
-
     const updated = await scheduledTaskStore.update(id, {
       ...body,
+      schedule: body.schedule === undefined ? undefined : assertSchedule(body.schedule),
       maxRunMs: assertMaxRunMs(body.maxRunMs),
     });
     if (!updated) throw new NotFoundException(`Scheduled task "${id}" not found`);

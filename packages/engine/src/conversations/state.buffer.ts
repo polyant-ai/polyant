@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { loadConversationState, flushConversationState } from "./state.store.js";
+import type { DbExecutor } from "../database/client.js";
 
 /** Reserved key holding the server-seeded, trusted channel identity. Tools read
  *  it via `ctx.state.channel`; it is never written by the LLM. */
@@ -64,6 +65,12 @@ export interface ConversationStateApi {
   delete(key: string): void;
   /** Trusted channel identity (server-seeded), or undefined for channels without one. */
   readonly channel: ChannelStateIdentity | undefined;
+}
+
+/** Buffered writes not flushed yet: the keys set (with their values) and the keys removed. */
+export interface StateChanges {
+  set: Record<string, unknown>;
+  removed: string[];
 }
 
 /** Strip non-JSON values and surface a tool bug early rather than at flush time. */
@@ -175,18 +182,40 @@ export class ConversationStateBuffer {
     };
   }
 
+  /** The writes buffered so far, as a copy another run's buffer can apply. */
+  pendingChanges(): StateChanges {
+    const set: Record<string, unknown> = {};
+    for (const key of this.dirty) set[key] = structuredClone(this.data[key]);
+    return { set, removed: [...this.removed] };
+  }
+
+  /** Apply writes captured from another run of the same turn ({@link pendingChanges}). */
+  applyChanges(changes: StateChanges): void {
+    for (const [key, value] of Object.entries(changes.set)) {
+      this.data[key] = structuredClone(value);
+      this.dirty.add(key);
+      this.removed.delete(key);
+    }
+    for (const key of changes.removed) {
+      delete this.data[key];
+      this.dirty.delete(key);
+      this.removed.add(key);
+    }
+  }
+
   /** Snapshot for read-only prompt injection (defensive copy). */
   snapshot(): Record<string, unknown> {
     return this.getAll();
   }
 
   /** Persist dirty/removed keys. Caller (runPipelinePost) only calls this on a
-   *  successful, non-aborted run. No-op when nothing changed. */
-  async flush(): Promise<void> {
+   *  successful, non-aborted run — inside the turn's transaction when given one.
+   *  No-op when nothing changed. */
+  async flush(executor?: DbExecutor): Promise<void> {
     if (this.dirty.size === 0 && this.removed.size === 0) return;
     const set: Record<string, unknown> = {};
     for (const key of this.dirty) set[key] = this.data[key];
-    await flushConversationState(this.conversationId, this.instanceId, set, [...this.removed]);
+    await flushConversationState(this.conversationId, this.instanceId, set, [...this.removed], executor);
     this.dirty.clear();
     this.removed.clear();
   }

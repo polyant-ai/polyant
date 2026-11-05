@@ -563,8 +563,14 @@ export const api = {
       ),
   },
   knowledge: {
-    list: (slug: string) =>
-      request<{ documents: KnowledgeDocument[] }>(urlPath`/api/instances/${slug}/knowledge`),
+    /**
+     * One page of the agent's documents; `nextOffset` names the next page, null
+     * after the last. `total` and `failed` count all of the agent's documents.
+     */
+    list: (slug: string, page?: { limit?: number; offset?: number }) =>
+      request<{ documents: KnowledgeDocument[]; nextOffset?: number | null; total: number; failed: number }>(
+        withQuery(urlPath`/api/instances/${slug}/knowledge`, page ?? {}),
+      ),
     get: (slug: string, docId: string) =>
       request<{ document: KnowledgeDocumentDetail }>(
         urlPath`/api/instances/${slug}/knowledge/${docId}`,
@@ -881,7 +887,6 @@ export const api = {
       prompt?: string;
       outboundChannel?: string | null;
       outboundTarget?: string | null;
-      evalIntervalMinutes?: number;
     }) =>
       request(urlPath`/api/instances/${slug}/room`, json("PUT", data)),
     delete: (slug: string) =>

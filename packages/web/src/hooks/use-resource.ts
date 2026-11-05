@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface Resource<T> {
-  /** The last answer for the CURRENT key; undefined until it arrives. Kept while a reload runs. */
+  /** The last answer for the CURRENT key (or, with `keepPreviousWithin`, the previous one until it arrives); undefined until it arrives. Kept while a reload runs. */
   data: T | undefined;
   /** The failure of the current key's last attempt, cleared when a new one starts. */
   error: unknown;
@@ -23,6 +23,8 @@ export interface Resource<T> {
 
 interface Settled<T> {
   key: string;
+  /** The `keepPreviousWithin` value in force when it settled. */
+  within?: string;
   attempt: number;
   data?: T;
   error?: unknown;
@@ -42,11 +44,19 @@ interface Settled<T> {
  * `loading` and the matching of an answer to its key are derived from what has
  * settled, not kept as flags the effect lowers, so they cannot disagree with
  * the data they describe.
+ *
+ * `keepPreviousWithin` keeps the last answer on screen while the next key loads,
+ * for a list that moves between pages or filters without emptying itself. The
+ * previous answer is kept only while that value stays the same: pass what the
+ * held data must never cross (the workspace), so rows of one never show under
+ * another.
  */
 export function useResource<T>(
   key: string | readonly unknown[] | null,
   fetcher: () => Promise<T>,
+  options?: { keepPreviousWithin?: string },
 ): Resource<T> {
+  const within = options?.keepPreviousWithin;
   const keyString = key === null ? null : typeof key === "string" ? key : JSON.stringify(key);
   const [attempt, setAttempt] = useState(0);
   const [settled, setSettled] = useState<Settled<T> | null>(null);
@@ -61,15 +71,15 @@ export function useResource<T>(
     fetcherRef
       .current()
       .then((data) => {
-        if (!stale) setSettled({ key: keyString, attempt, data, failed: false });
+        if (!stale) setSettled({ key: keyString, within, attempt, data, failed: false });
       })
       .catch((error: unknown) => {
-        if (!stale) setSettled((prev) => ({ key: keyString, attempt, data: prev?.key === keyString ? prev.data : undefined, error, failed: true }));
+        if (!stale) setSettled((prev) => ({ key: keyString, within, attempt, data: prev?.key === keyString ? prev.data : undefined, error, failed: true }));
       });
     return () => {
       stale = true;
     };
-  }, [keyString, attempt]);
+  }, [keyString, attempt, within]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   const mutate = useCallback(
@@ -79,8 +89,9 @@ export function useResource<T>(
   );
   const forKey = settled !== null && settled.key === keyString;
   const current = forKey && settled.attempt === attempt;
+  const kept = !forKey && keyString !== null && within !== undefined && settled?.within === within;
   return {
-    data: forKey ? settled.data : undefined,
+    data: forKey || kept ? settled?.data : undefined,
     error: current && settled.failed ? settled.error : undefined,
     loading: keyString !== null && !current,
     reload,

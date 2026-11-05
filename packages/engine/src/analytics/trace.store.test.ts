@@ -42,6 +42,19 @@ describe("TraceStore", () => {
   });
 
   describe("record", () => {
+    it("stamps each trace with the moment it was recorded, not the moment the buffer is written", async () => {
+      const valuesFn = vi.fn().mockResolvedValue(undefined);
+      const mockDb = { insert: vi.fn().mockReturnValue({ values: valuesFn }) };
+      store.initialize(mockDb);
+      vi.setSystemTime(new Date("2026-01-01T12:00:00Z"));
+
+      store.record(makeEntry());
+      vi.setSystemTime(new Date("2026-01-01T12:00:04Z"));
+      await store.flush();
+
+      expect(valuesFn).toHaveBeenCalledWith([expect.objectContaining({ createdAt: new Date("2026-01-01T12:00:00Z") })]);
+    });
+
     it("does not flush before 10 entries", () => {
       const valuesFn = vi.fn().mockResolvedValue(undefined);
       const mockDb = { insert: vi.fn().mockReturnValue({ values: valuesFn }) };

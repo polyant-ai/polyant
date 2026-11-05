@@ -237,87 +237,9 @@ describe("instance-tools.store", () => {
   });
 
   // -----------------------------------------------------------------------
-  // recomputeInstanceTools (idempotency)
+  // recomputeInstanceTools (idempotency and the empty set: see the integration test)
   // -----------------------------------------------------------------------
   describe("recomputeInstanceTools", () => {
-    /** Wire 4 successive select calls: enabledSkills, skillToolIds, globalToolRows, manualRows. */
-    function wireSelectChains(): void {
-      const enabledSkillsChain = createChainMock([
-        // One skill with requiredTools metadata
-        { skillVersionId: "sv-1", metadata: { requiredTools: ["spawnTask"] } },
-      ]);
-      const skillToolIdsChain = createChainMock([
-        { id: "tool-spawn", name: "spawnTask" },
-      ]);
-      const globalToolRowsChain = createChainMock([{ id: "tool-global-1" }]);
-      const manualRowsChain = createChainMock([{ toolId: "tool-manual-1" }]);
-
-      mockDb.select
-        .mockReturnValueOnce(enabledSkillsChain as never)
-        .mockReturnValueOnce(skillToolIdsChain as never)
-        .mockReturnValueOnce(globalToolRowsChain as never)
-        .mockReturnValueOnce(manualRowsChain as never);
-    }
-
-    // TODO: real recomputeInstanceTools uses a richer tx.select chain (joins,
-    // multiple queries) than this mock simulates — these 3 tests assume a
-    // simpler shape and fail with the current source. Skipped during the merge
-    // stabilization; fix by reading source line-by-line and replicating the
-    // exact tx.select sequence in the mock.
-    it.skip("performs delete+insert inside a single transaction", async () => {
-      wireSelectChains();
-      const deleteChain = createChainMock(undefined);
-      const insertChain = createChainMock(undefined);
-      mockTx.delete.mockReturnValue(deleteChain as never);
-      mockTx.insert.mockReturnValue(insertChain as never);
-
-      await recomputeInstanceTools(INSTANCE_UUID);
-
-      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
-      expect(mockTx.delete).toHaveBeenCalledTimes(1);
-      expect(mockTx.insert).toHaveBeenCalledTimes(1);
-      // Inserted rows should be 3: 1 global + 1 skill + 1 manual
-      expect(insertChain.values).toHaveBeenCalledWith([
-        { instanceId: INSTANCE_UUID, toolId: "tool-global-1", source: "global" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-spawn", source: "skill" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-manual-1", source: "manual" },
-      ]);
-    });
-
-    it.skip("is idempotent: a second call performs the same delete+insert and does NOT duplicate rows", async () => {
-      // First call
-      wireSelectChains();
-      const deleteChain1 = createChainMock(undefined);
-      const insertChain1 = createChainMock(undefined);
-      mockTx.delete.mockReturnValueOnce(deleteChain1 as never);
-      mockTx.insert.mockReturnValueOnce(insertChain1 as never);
-
-      await recomputeInstanceTools(INSTANCE_UUID);
-
-      // Second call — identical input → identical desired set
-      wireSelectChains();
-      const deleteChain2 = createChainMock(undefined);
-      const insertChain2 = createChainMock(undefined);
-      mockTx.delete.mockReturnValueOnce(deleteChain2 as never);
-      mockTx.insert.mockReturnValueOnce(insertChain2 as never);
-
-      await recomputeInstanceTools(INSTANCE_UUID);
-
-      // Each call: one delete, one insert with exactly 3 rows
-      expect(mockTx.delete).toHaveBeenCalledTimes(2);
-      expect(mockTx.insert).toHaveBeenCalledTimes(2);
-      expect(insertChain1.values).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({ toolId: "tool-global-1", source: "global" }),
-      ]));
-      expect(insertChain2.values).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({ toolId: "tool-global-1", source: "global" }),
-      ]));
-      const firstRows = insertChain1.values.mock.calls[0][0] as unknown[];
-      const secondRows = insertChain2.values.mock.calls[0][0] as unknown[];
-      expect(firstRows).toHaveLength(3);
-      expect(secondRows).toHaveLength(3);
-    });
-
     it("dedupes when a global tool also appears as a skill-required tool (global wins, no duplicate insert)", async () => {
       // Same tool id appears in skill-required AND global rows
       const enabledSkillsChain = createChainMock([
@@ -346,23 +268,6 @@ describe("instance-tools.store", () => {
       expect(insertChain.values).toHaveBeenCalledWith([
         { instanceId: INSTANCE_UUID, toolId: "tool-shared", source: "global" },
       ]);
-    });
-
-    it.skip("skips insert when desired set is empty (no globals, skills, or manuals)", async () => {
-      mockDb.select
-        .mockReturnValueOnce(createChainMock([]) as never) // enabledSkills
-        .mockReturnValueOnce(createChainMock([]) as never) // skillToolIds (not queried since size=0, but harmless)
-        .mockReturnValueOnce(createChainMock([]) as never) // globalToolRows
-        .mockReturnValueOnce(createChainMock([]) as never); // manualRows
-
-      const deleteChain = createChainMock(undefined);
-      mockTx.delete.mockReturnValue(deleteChain as never);
-
-      await recomputeInstanceTools(INSTANCE_UUID);
-
-      expect(mockTx.delete).toHaveBeenCalledTimes(1);
-      // No insert call when desiredRows is empty
-      expect(mockTx.insert).not.toHaveBeenCalled();
     });
   });
 

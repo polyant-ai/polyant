@@ -32,7 +32,6 @@ function room(overrides: Partial<NonNullable<ExportInstanceData["room"]>> = {}):
     prompt: "Watch the inbox and react to urgent messages.",
     outboundChannel: "telegram",
     outboundTarget: "@ops-channel",
-    evalIntervalMinutes: 15,
     ...overrides,
   };
 }
@@ -50,7 +49,6 @@ describe("importRoom", () => {
         prompt: "Watch the inbox and react to urgent messages.",
         outboundChannel: "telegram",
         outboundTarget: "@ops-channel",
-        evalIntervalMinutes: 15,
       },
     ]);
   });
@@ -66,7 +64,6 @@ describe("importRoom", () => {
       prompt: "Watch the inbox and react to urgent messages.",
       outboundChannel: null,
       outboundTarget: null,
-      evalIntervalMinutes: 15,
     });
     expect(conflictSets[0].updatedAt).toBeInstanceOf(Date);
   });

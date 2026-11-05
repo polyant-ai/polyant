@@ -3,9 +3,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { ChatArea } from "./_components/chat-area";
-import { useChat } from "./_hooks/use-chat";
-import { useConversations } from "./_hooks/use-conversations";
+import { ChatArea } from "@/components/playground/chat-area";
+import { useChat } from "@/components/playground/use-chat";
+import { useConversations } from "@/components/playground/use-conversations";
 
 export default function PlaygroundPage() {
   const { conversations, loading, refresh } = useConversations();

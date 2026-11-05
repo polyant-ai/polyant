@@ -11,21 +11,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ModelMessage } from "ai";
 
-const { mockGetRecentMessageRows, mockResolveConfig, mockAppendMessages } = vi.hoisted(() => ({
-  mockGetRecentMessageRows: vi.fn(),
+const { mockOpenConversationTurn, mockGetHistoryWindow, mockResolveConfig, mockAppendMessages } = vi.hoisted(() => ({
+  mockOpenConversationTurn: vi.fn(),
+  mockGetHistoryWindow: vi.fn(),
   mockResolveConfig: vi.fn(),
   mockAppendMessages: vi.fn(async (_conversationId: string, _rows: unknown[]) => undefined),
 }));
 
 vi.mock("./conversations/index.js", () => ({
   conversationStore: {
-    ensureConversation: vi.fn(async () => ({ created: false })),
-    getRecentMessages: vi.fn(async () => []),
-    getRecentMessageRows: mockGetRecentMessageRows,
-    getContextPrompt: vi.fn(async () => null),
-    getSummary: vi.fn(async () => null),
+    openConversationTurn: mockOpenConversationTurn,
+    getHistoryWindow: mockGetHistoryWindow,
     appendMessages: mockAppendMessages,
-    getSystemMessageContents: vi.fn(async () => new Set<string>()),
     clearContextPrompt: vi.fn(async () => undefined),
   },
 }));
@@ -56,6 +53,7 @@ vi.mock("./hooks/hook-runner.js", () => ({
 import { preparePipeline, runPipelinePost, type PipelineContext } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
 import type { MessageRow } from "./conversations/store.js";
+import { HISTORY_HARD_CAP } from "./conversations/history-window.js";
 
 const msg = {
   instanceId: asInstanceSlug("sky"),
@@ -93,7 +91,7 @@ const sentResponse = [
 
 function storedTurn(): MessageRow[] {
   return [
-    { role: "user", content: "Quanto pago?", steps: null, reasoning: null, exactReplay: { messages: [sentUser] }, createdAt: null },
+    { role: "user", content: "Quanto pago?", steps: null, exactReplay: { messages: [sentUser] }, createdAt: null },
     {
       role: "assistant",
       content: "Paghi 29,90 euro.",
@@ -108,7 +106,6 @@ function storedTurn(): MessageRow[] {
           durationMs: 1,
         },
       ],
-      reasoning: null,
       exactReplay: { messages: sentResponse, prefixKey: "key-A" },
       createdAt: null,
     },
@@ -121,24 +118,43 @@ const config = (toolHistoryReplay: "compact" | "exact") => ({
   langsmith: { enabled: false },
 });
 
+/** The conversation row as a turn opens it; `summaryThrough` set means earlier messages were folded into a summary. */
+const openedTurn = (summaryThrough: Date | null = null) => ({
+  created: false,
+  contextPrompt: null,
+  summary: summaryThrough ? "Earlier: the user asked about prices." : null,
+  summaryThrough,
+});
+
 describe("preparePipeline — the history an agent replays", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOpenConversationTurn.mockResolvedValue(openedTurn());
+  });
 
   it("replays an exact agent's earlier turn as it was sent", async () => {
     mockResolveConfig.mockResolvedValue(config("exact"));
-    mockGetRecentMessageRows.mockResolvedValue(storedTurn());
+    mockGetHistoryWindow.mockResolvedValue(storedTurn());
 
     const ctx = await preparePipeline(msg);
 
     expect(ctx.history).toEqual([sentUser, ...sentResponse]);
+    expect(mockGetHistoryWindow).toHaveBeenCalledWith(
+      "sky:web:c1",
+      expect.objectContaining({ withSteps: true, withExactReplay: true }),
+    );
   });
 
   it("keeps the compact rebuild for a compact agent, whatever the rows carry", async () => {
     mockResolveConfig.mockResolvedValue(config("compact"));
-    mockGetRecentMessageRows.mockResolvedValue(storedTurn());
+    mockGetHistoryWindow.mockResolvedValue(storedTurn());
 
     const ctx = await preparePipeline(msg);
 
+    expect(mockGetHistoryWindow).toHaveBeenCalledWith(
+      "sky:web:c1",
+      expect.objectContaining({ withSteps: true, withExactReplay: false }),
+    );
     expect(ctx.history).toEqual([
       { role: "user", content: "Quanto pago?" },
       {
@@ -164,19 +180,31 @@ describe("preparePipeline — the history an agent replays", () => {
 
   it("stops replaying reasoning once the window no longer starts at the conversation's start", async () => {
     mockResolveConfig.mockResolvedValue(config("exact"));
-    const filler: MessageRow[] = Array.from({ length: 14 }, (_, i) => ({
+    mockOpenConversationTurn.mockResolvedValue(openedTurn(new Date("2026-11-03T09:00:00Z")));
+    mockGetHistoryWindow.mockResolvedValue(storedTurn());
+
+    const ctx = await preparePipeline(msg);
+
+    expect(ctx.history).toEqual([
+      sentUser,
+      { role: "assistant", content: [(sentResponse[0].content as unknown[])[1]] },
+      ...sentResponse.slice(1),
+    ]);
+  });
+
+  it("stops replaying reasoning when the history read was cut at its cap", async () => {
+    mockResolveConfig.mockResolvedValue(config("exact"));
+    const filler: MessageRow[] = Array.from({ length: HISTORY_HARD_CAP - 2 }, (_, i) => ({
       role: i % 2 === 0 ? "user" : "assistant",
       content: `m${i}`,
       steps: null,
-      reasoning: null,
       createdAt: null,
     }));
-    mockGetRecentMessageRows.mockResolvedValue([...filler, ...storedTurn()]);
+    mockGetHistoryWindow.mockResolvedValue([...filler, ...storedTurn()]);
 
     const ctx = await preparePipeline(msg);
 
     const replayed = ctx.history!.slice(-4);
-    expect(ctx.history).toHaveLength(8 + 4);
     expect(replayed[0]).toEqual(sentUser);
     expect(replayed[1]).toEqual({ role: "assistant", content: [(sentResponse[0].content as unknown[])[1]] });
   });
@@ -198,12 +226,9 @@ describe("runPipelinePost — what a turn keeps for exact replay", () => {
       stateBuffer: undefined,
       history: undefined,
       isFirstTurn: false,
-      hasOverflow: false,
-      droppedMessages: undefined,
       instanceConfig: config(toolHistoryReplay) as unknown as PipelineContext["instanceConfig"],
       langsmith: undefined,
       userAttachments: undefined,
-      incomingSystemMessages: undefined,
       isAutoTaskTurn: false,
       inboundMetadata: undefined,
     };

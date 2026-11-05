@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { timingSafeEqual } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instanceSecrets } from "./secrets.schema.js";
 import { instances } from "./schema.js";
-import { encrypt, decrypt } from "../crypto/index.js";
+import { encrypt, decrypt, lookupDigest } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
 import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
@@ -31,15 +30,27 @@ export const SECRET_KEYS = {
   DEEPGRAM_API_KEY: "deepgram_api_key",
 } as const;
 
+/**
+ * The stored columns for a secret: the value encrypted, and the lookup digest
+ * when the key authenticates requests. Every writer of `instance_secrets` uses
+ * it, so a replaced key never keeps the digest of the value it replaced.
+ */
+export function secretColumns(key: string, value: string): { value: string; lookupDigest: string | null } {
+  return {
+    value: encrypt(value),
+    lookupDigest: key === SECRET_KEYS.AUTH_API_KEY ? lookupDigest(value) : null,
+  };
+}
+
 /** Encrypt and upsert a secret for an instance (by UUID). */
 export async function setSecret(instanceId: InstanceUuid, key: string, value: string): Promise<void> {
-  const encrypted = encrypt(value);
+  const columns = secretColumns(key, value);
   await db
     .insert(instanceSecrets)
-    .values({ instanceId, key, value: encrypted })
+    .values({ instanceId, key, ...columns })
     .onConflictDoUpdate({
       target: [instanceSecrets.instanceId, instanceSecrets.key],
-      set: { value: encrypted, updatedAt: new Date() },
+      set: { ...columns, updatedAt: new Date() },
     });
 }
 
@@ -114,51 +125,57 @@ export async function deleteSecret(instanceId: InstanceUuid, key: string): Promi
 }
 
 /**
- * Find an instance whose `auth_api_key` secret equals the provided token.
+ * Find the active instance whose `auth_api_key` secret equals the provided token.
  *
- * Iterates every active instance with an `auth_api_key` row, decrypts each
- * value, and compares with `timingSafeEqual` so the comparison itself is not
- * leaky. Linear scan is acceptable at our cardinality (few dozen instances at
- * most); callers must not invoke this on hot paths without their own cache.
+ * One indexed lookup by the token's keyed digest: no stored key is decrypted but
+ * the one the digest matched, so the cost does not grow with the number of agents
+ * and a wrong token costs what a right one does. The matched key is decrypted and
+ * checked, because a digest only points at a candidate: the value it describes
+ * may have been replaced since. A row without a digest (written before the column
+ * existed, or rewritten by a release that does not know it, which a database
+ * trigger clears it for) comes back from the same query; it is decrypted once and
+ * given its digest, so the next lookup no longer reads it.
  *
- * Returns the matched instance slug or `null` when no key matches.
+ * A token two agents share names neither: it answers `null`.
  */
 export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: string; instanceId: InstanceUuid } | null> {
   if (!token) return null;
+  const digest = lookupDigest(token);
 
   const rows = await db
     .select({
+      id: instanceSecrets.id,
       slug: instances.slug,
       instanceId: instances.id,
       value: instanceSecrets.value,
+      lookupDigest: instanceSecrets.lookupDigest,
     })
     .from(instanceSecrets)
     .innerJoin(instances, eq(instances.id, instanceSecrets.instanceId))
     .where(and(
       eq(instanceSecrets.key, SECRET_KEYS.AUTH_API_KEY),
       eq(instances.status, "active"),
+      or(eq(instanceSecrets.lookupDigest, digest), isNull(instanceSecrets.lookupDigest)),
     ));
 
-  const tokBuf = Buffer.from(token, "utf-8");
-  let match: { slug: string; instanceId: InstanceUuid } | null = null;
-
+  const matches: { slug: string; instanceId: InstanceUuid }[] = [];
   for (const row of rows) {
-    let plaintext: string;
+    let valueDigest: string;
     try {
-      plaintext = decrypt(row.value);
+      valueDigest = lookupDigest(decrypt(row.value));
     } catch {
-      // Skip rows we can't decrypt (e.g. key rotation in progress) — never
-      // throw, since that would let an attacker probe per-row failures by
-      // measuring response codes.
+      // A row that cannot be decrypted (e.g. key rotation in progress) is
+      // skipped, never thrown: per-row failures must not show in responses.
       continue;
     }
-    const expBuf = Buffer.from(plaintext, "utf-8");
-    if (tokBuf.length === expBuf.length && timingSafeEqual(tokBuf, expBuf)) {
-      // Don't early-return: keep iterating to keep the wall-clock time
-      // independent of which row matched.
-      match = { slug: row.slug, instanceId: asInstanceUuid(row.instanceId) };
+    if (valueDigest !== row.lookupDigest) {
+      await db
+        .update(instanceSecrets)
+        .set({ lookupDigest: valueDigest })
+        .where(and(eq(instanceSecrets.id, row.id), eq(instanceSecrets.value, row.value)));
     }
+    if (valueDigest === digest) matches.push({ slug: row.slug, instanceId: asInstanceUuid(row.instanceId) });
   }
 
-  return match;
+  return matches.length === 1 ? matches[0] : null;
 }

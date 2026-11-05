@@ -20,9 +20,9 @@ import type { ReasoningToggle } from "../model-catalog.js";
  * (`defaultReasoningOff` per provider, `reasoningOff` per model), so this
  * function reads data and no provider branches on a model id.
  *
- * `reasoningAlwaysOn` models get NOTHING when thinking is off: they reason on
- * every call and ignore the kwarg, so sending one is noise on the wire and the
- * panel locks their toggle on instead.
+ * `reasoningAlwaysOn` models never get an off-switch: they reason on every call
+ * and ignore the kwarg, so sending one is noise on the wire. The gateway asks
+ * for them with thinking on, at their lowest level, when thinking is off.
  */
 export function buildCompatibleReasoningOptions(input: {
   provider: string;

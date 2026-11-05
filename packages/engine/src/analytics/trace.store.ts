@@ -47,7 +47,7 @@ export interface PipelineTraceEntry {
 }
 
 class TraceStore {
-  private readonly queue = new BufferedInsertQueue<PipelineTraceEntry>({
+  private readonly queue = new BufferedInsertQueue<PipelineTraceEntry & { createdAt: Date }>({
     table: pipelineTraces,
     label: "pipeline traces",
   });
@@ -57,7 +57,9 @@ class TraceStore {
   }
 
   record(entry: PipelineTraceEntry) {
-    this.queue.push(entry);
+    // Stamped here, not by the column default: the queue writes every few seconds, and ordering
+    // traces against tool and AI rows by the time of the write misplaces them.
+    this.queue.push({ ...entry, createdAt: new Date() });
   }
 
   flush() {

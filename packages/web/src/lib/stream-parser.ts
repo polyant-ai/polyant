@@ -58,6 +58,15 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * The most messages the engine accepts in one request. Once a conversation has
+ * been saved, the engine reads its history from storage and ignores the one the
+ * request carries; the request's history only seeds a conversation that has
+ * none saved, and the engine keeps far fewer messages than this as context. So
+ * a longer conversation sends its most recent messages, ending with the new one.
+ */
+export const MAX_REQUEST_MESSAGES = 100;
+
 export interface StreamRequestOptions {
   /** Instance slug — also used as the `model` field for the OpenAI-compat handler. */
   instanceSlug: string;
@@ -102,7 +111,7 @@ export async function streamChatCompletion(
         headers,
         body: JSON.stringify({
           model: instanceSlug,
-          messages,
+          messages: messages.slice(-MAX_REQUEST_MESSAGES),
           stream: true,
           chat_id: chatId,
         }),

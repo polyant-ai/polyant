@@ -611,4 +611,45 @@ describe("MessageCoordinator", () => {
     expect(handler.mock.calls[1][0].text).toBe("first\nsecond");
     await vi.runAllTimersAsync();
   });
+
+  it("logs each burst once when it closes: fragments, runs, restarts and the gaps between fragments", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      lines.push(String(chunk));
+      return true;
+    });
+    let calls = 0;
+    const handler = vi.fn(async (_msg: IncomingMessage, signal: AbortSignal) => {
+      calls++;
+      if (calls === 1) {
+        // The second fragment arrives while the first run is in flight.
+        await new Promise((r) => setTimeout(r, 500));
+        if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      }
+      return { text: "ok" };
+    });
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await c.onMessage(makeMsg({ text: "a" }));
+    await vi.advanceTimersByTimeAsync(800);
+    await c.onMessage(makeMsg({ text: "b" }));
+    await vi.advanceTimersByTimeAsync(2100); // run 1 starts
+    await c.onMessage(makeMsg({ text: "c" })); // cancels it
+    await vi.runAllTimersAsync();
+    spy.mockRestore();
+
+    const burst = lines.filter((l) => l.includes("burst closed"));
+    expect(burst).toHaveLength(1);
+    expect(burst[0]).toContain("fragments=3");
+    expect(burst[0]).toContain("runs=2");
+    expect(burst[0]).toContain("restarts=1");
+    expect(burst[0]).toMatch(/gapsMs=\[800,2100\]/);
+    // Stable identifiers only: never the contact's address.
+    expect(burst[0]).not.toContain("+390000000001");
+  });
 });
+

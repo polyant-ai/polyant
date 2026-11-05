@@ -181,6 +181,23 @@ describe("matchEvent", () => {
     expect(mockChat.mock.calls[0][0].messages[0].content).toContain("events_url");
   });
 
+  it("sends the payload once as compact JSON, without indentation to pay for", async () => {
+    mockChat.mockResolvedValue(reply("no"));
+    await matchEvent({ lead: { name: "x", stage: "new" } }, [def("a")], "inst");
+    const sent = mockChat.mock.calls[0][0].messages[0].content as string;
+    expect(sent).toContain('{"lead":{"name":"x","stage":"new"}}');
+  });
+
+  it("gives consecutive definitions the same prompt up to their own criteria, so the provider can reuse it", async () => {
+    mockChat.mockResolvedValue(reply("no"));
+    await matchEvent(PAYLOAD, [def("first"), def("second")], "inst");
+
+    const [a, b] = mockChat.mock.calls.map((c) => c[0].messages[0].content as string);
+    const shared = a!.slice(0, a!.indexOf("match first"));
+    expect(shared).toContain('"number":1');
+    expect(b!.startsWith(shared)).toBe(true);
+  });
+
   it("returns null when there are no definitions at all", async () => {
     expect(await matchEvent(PAYLOAD, [], "inst")).toBeNull();
     expect(mockChat).not.toHaveBeenCalled();

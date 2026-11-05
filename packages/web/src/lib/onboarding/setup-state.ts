@@ -116,8 +116,8 @@ export async function loadSetupFacts(): Promise<SetupFacts> {
       return lists.some((l) => l.channels.some((c) => c.enabled));
     }, false),
     attempt(async () => {
-      const lists = await Promise.all(sample.map((i) => api.knowledge.list(i.slug)));
-      return lists.some((l) => l.documents.length > 0);
+      const lists = await Promise.all(sample.map((i) => api.knowledge.list(i.slug, { limit: 1 })));
+      return lists.some((l) => l.total > 0);
     }, false),
     attempt(async () => (await api.conversations.list({ limit: 1 })).total > 0, false),
   ]);

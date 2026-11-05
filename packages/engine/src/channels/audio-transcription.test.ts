@@ -56,6 +56,27 @@ describe("transcribeAudio", () => {
     if (!result.ok) expect(result.reason).toBe("too_long");
   });
 
+  it("rejects audio with no reported duration whose size cannot fit in 60 seconds", async () => {
+    const result = await transcribeAudio({
+      audio: Buffer.alloc(3 * 1024 * 1024),
+      mimeType: "audio/ogg",
+      instanceSlug: "demo",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("too_long");
+    expect(transcribeMock).not.toHaveBeenCalled();
+  });
+
+  it("transcribes a short clip with no reported duration", async () => {
+    transcribeMock.mockResolvedValue({ text: "ciao", model: "whisper-1", latencyMs: 5 });
+    const result = await transcribeAudio({
+      audio: Buffer.alloc(200 * 1024),
+      mimeType: "audio/ogg",
+      instanceSlug: "demo",
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("returns provider_error when credentials are missing", async () => {
     resolveInstanceConfigMock.mockResolvedValue({
       stt: { provider: "openai", credentials: {} },

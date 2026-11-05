@@ -15,7 +15,7 @@ const {
   const mockUpdate = vi.fn(() => ({ set: mockSet }));
   // db.transaction(cb) runs the callback with a tx that exposes the same
   // chainable update() the service calls inside the transaction.
-  const mockTransaction = vi.fn(async (cb: (tx: unknown) => unknown) => cb({ update: mockUpdate }));
+  const mockTransaction = vi.fn(async (cb: (tx: unknown) => unknown) => cb({ update: mockUpdate, execute: vi.fn() }));
   return {
     mockDeleteAllMemories: vi.fn(),
     mockDeleteAllKnowledge: vi.fn(),
@@ -89,7 +89,7 @@ describe("resetEmbeddingSpace", () => {
     mockWhere.mockResolvedValue(undefined);
     mockSet.mockReturnValue({ where: mockWhere });
     mockUpdate.mockReturnValue({ set: mockSet });
-    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ update: mockUpdate }));
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ update: mockUpdate, execute: vi.fn() }));
   });
 
   it("deletes memories + knowledge by SLUG (not the UUID) and realigns embedding_dim", async () => {

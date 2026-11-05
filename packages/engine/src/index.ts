@@ -7,11 +7,10 @@ installFileLogger();
 
 import { config } from "./config.js";
 import { retiredEnvironmentWarnings } from "./config-retired.js";
-import { db } from "./database/client.js";
+import { db, queryClient } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
-import { resetStuckProcessingEvents } from "./webhooks/webhook-backlog.store.js";
 import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
@@ -128,15 +127,9 @@ async function main() {
     // Fail knowledge documents whose ingestion died with its process, now and
     // periodically after.
     startStuckDocumentSweep(),
-    // Recover webhook events stuck in "processing" — see follow-up to #81. A fresh
-    // boot has no in-flight room cycle, so anything in PROCESSING is a zombie from a
-    // prior crash that has to be requeued.
-    nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
-      const resetEvents = await resetStuckProcessingEvents();
-      if (resetEvents > 0) {
-        log.info("webhooks", `Reset ${resetEvents} stale processing event(s) to pending`);
-      }
-    }),
+    // Room events a dead process left in processing have no boot step: another
+    // replica may be running their cycle right now. The room tick requeues them once
+    // their lease has expired.
   ]);
 
   // --- Message handlers (sync + streaming) ---
@@ -164,13 +157,15 @@ async function main() {
         roomCheck.outboundChannel === msg.channelType &&
         roomCheck.outboundTarget === msg.channelId
       ) {
-        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text);
+        // The cycle sends by itself; the channel's tool gate keeps a burst from queuing twice.
+        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text, msg.toolGate);
         return { text: "" };
       }
     }
 
-    // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, undefined, abortSignal);
+    // Phase 1: Context preparation. A reply to a webhook-triggered message
+    // continues the trigger's conversation, which holds its context.
+    const pre = await runPipelinePre(msg, activeTrigger, abortSignal);
     // Pre-generate the assistant message id so the pipeline trace can be linked
     // to the persisted message by id (not fragile ordinal matching).
     return runBufferedTurn(msg, pre, abortSignal, randomUUID());
@@ -249,6 +244,7 @@ async function main() {
       // Conversational entry point: a real user behind a stable, reused
       // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
       allowOAuth: true,
+      mcpServers: pre.mcpServers,
       optoutHint:
         ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
           ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -442,6 +438,7 @@ async function main() {
         // Conversational entry point: a real user behind a stable, reused
         // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
         allowOAuth: true,
+        mcpServers: pre.mcpServers,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
             ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -502,8 +499,10 @@ async function main() {
   // 4. Start NestJS HTTP server (OpenAI-compatible API)
   const nestApp = await startServer(handleMessage, handleMessageStream);
 
-  // 5. Start per-instance channel adapters from DB
+  // 5. Start per-instance channel adapters from DB, following saves made
+  // through another process from before the configs are read.
   channelManager.setMessageHandler(handleMessage);
+  await channelManager.listenForChanges(queryClient);
 
   const allInstances = await listAllInstances();
   for (const inst of allInstances) {
@@ -562,8 +561,10 @@ async function main() {
           // shutdowns below always run before the platform kills the process.
           // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
           // webhooks) are no longer open requests, and their sender will not retry
-          // them: wait for those within the same grace period.
-          name: "HTTP server and acknowledged turns",
+          // them; Room cycles and scheduled-task runs already started have no request
+          // at all. Wait for those within the same grace period. One still running
+          // after it is cut, and its lease lets another replica take it up.
+          name: "HTTP server and background turns",
           run: async () => {
             const streams = closeActivityStreams();
             const [{ forced }, background] = await Promise.all([
@@ -572,7 +573,7 @@ async function main() {
             ]);
             log.info("boot", `HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
             if (background.pending > 0) {
-              log.warn("boot", `${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+              log.warn("boot", `${background.pending} background turn(s) still running after the grace period; they are cut off`);
             }
           },
         },

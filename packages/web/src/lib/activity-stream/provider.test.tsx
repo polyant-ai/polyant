@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { renderHook, act } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ReactNode } from "react";
 import {
   ActivityStreamProvider,
@@ -125,16 +125,46 @@ describe("ActivityStreamProvider", () => {
     expect(calls).toEqual(["a"]);
   });
 
-  test("realLive flips true on open, false on error", () => {
+  test("realLive turns true when the stream opens", () => {
     const { result } = renderHook(() => useActivityStreamContext(), { wrapper });
     expect(result.current.realLive).toBe(false);
     act(() => {
       MockEventSource.last!.onopen?.(new Event("open"));
     });
     expect(result.current.realLive).toBe(true);
-    act(() => {
-      MockEventSource.last!.onerror?.(new Event("error"));
+  });
+
+  // The server closes a long-lived stream on purpose and the browser reopens it
+  // at once: that is not a lost connection and must not be shown as one.
+  describe("when the stream closes", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    test("shows nothing when the browser reopens it within the window", () => {
+      const { result } = renderHook(() => useActivityStreamContext(), { wrapper });
+      const source = MockEventSource.last!;
+      act(() => source.onopen?.(new Event("open")));
+
+      act(() => source.onerror?.(new Event("error")));
+      expect(result.current.realLive).toBe(true);
+      act(() => vi.advanceTimersByTime(1_000));
+      act(() => source.onopen?.(new Event("open")));
+      act(() => vi.advanceTimersByTime(30_000));
+
+      expect(result.current.realLive).toBe(true);
+      expect(result.current.error).toBeNull();
     });
-    expect(result.current.realLive).toBe(false);
+
+    test("says the connection is lost when it does not reopen within the window", () => {
+      const { result } = renderHook(() => useActivityStreamContext(), { wrapper });
+      const source = MockEventSource.last!;
+      act(() => source.onopen?.(new Event("open")));
+
+      act(() => source.onerror?.(new Event("error")));
+      act(() => vi.advanceTimersByTime(30_000));
+
+      expect(result.current.realLive).toBe(false);
+      expect(result.current.error).toBe("connection lost");
+    });
   });
 });

@@ -21,24 +21,24 @@ vi.mock("../../utils/error.js", () => ({
 import { createMockAudit } from "../../test-utils.js";
 import def from "./http-request.tool.js";
 
-function buildTool(secretOverrides?: Record<string, string>) {
+function buildTool(secretOverrides?: Record<string, string>, abortSignal?: AbortSignal) {
   const ctx = {
     instanceId: "test-instance",
     secrets: { http_api_key: "test-api-key-123", ...secretOverrides },
     audit: createMockAudit(),
     conversationId: "conv-1",
+    abortSignal,
   } as any;
   return { execute: (input: any) => def.execute(input, ctx), audit: ctx.audit };
 }
 
 function mockResponse(body: unknown, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return new Response(status === 204 ? null : text, {
     status,
     statusText: status === 200 ? "OK" : "Error",
-    text: vi.fn().mockResolvedValue(typeof body === "string" ? body : JSON.stringify(body)),
-    headers: new Headers({ "content-type": "application/json" }),
-  } as unknown as Response;
+    headers: { "content-type": "application/json" },
+  });
 }
 
 beforeEach(() => {
@@ -436,5 +436,46 @@ describe("httpRequest tool", () => {
         }),
       }),
     );
+  });
+
+  it("gives up the request when the turn is stopped", async () => {
+    const controller = new AbortController();
+    mockFetch.mockImplementation((_url: URL, init: RequestInit) =>
+      new Promise((_, reject) => {
+        init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      }),
+    );
+    const { execute } = buildTool(undefined, controller.signal);
+
+    const pending = execute({ url: "https://api.example.com/slow", method: "POST", body: "{}", authStyle: null });
+    controller.abort(new Error("turn stopped"));
+    const result = (await pending) as { error: string };
+
+    expect(result.error).toContain("turn stopped");
+  });
+
+  it("stops reading a huge response instead of buffering all of it", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled === 1024) return controller.close(); // 64 MiB on the wire
+        pulled++;
+        controller.enqueue(chunk);
+      },
+    });
+    mockFetch.mockResolvedValue(new Response(body, { status: 200 }));
+    const { execute } = buildTool();
+
+    const result = (await execute({
+      url: "https://api.example.com/huge",
+      method: "POST",
+      body: "{}",
+      authStyle: null,
+    })) as { truncated: boolean; body: string };
+
+    expect(result.truncated).toBe(true);
+    expect(result.body).toHaveLength(16_384);
+    expect(pulled).toBeLessThan(64);
   });
 });

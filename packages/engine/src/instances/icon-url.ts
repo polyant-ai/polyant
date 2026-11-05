@@ -18,9 +18,9 @@
  */
 export function buildInstanceIconUrl(
   slug: string,
-  icon: string | null,
+  hasIcon: boolean,
   updatedAt: Date | null,
 ): string | null {
-  if (!icon) return null;
+  if (!hasIcon) return null;
   return `/api/instances/${slug}/icon?v=${updatedAt?.getTime() ?? 0}`;
 }

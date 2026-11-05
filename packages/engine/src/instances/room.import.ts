@@ -17,7 +17,6 @@ export async function importRoom(
       prompt: room.prompt,
       outboundChannel: room.outboundChannel,
       outboundTarget: room.outboundTarget,
-      evalIntervalMinutes: room.evalIntervalMinutes,
     })
     .onConflictDoUpdate({
       target: [instanceRoom.instanceId],
@@ -26,7 +25,6 @@ export async function importRoom(
         prompt: room.prompt,
         outboundChannel: room.outboundChannel,
         outboundTarget: room.outboundTarget,
-        evalIntervalMinutes: room.evalIntervalMinutes,
         updatedAt: new Date(),
       },
     });

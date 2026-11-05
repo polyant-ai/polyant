@@ -74,14 +74,26 @@ function toErrorState(err: unknown): TenantState {
   return { status: "error" };
 }
 
+/**
+ * `retry()` re-reads the tenancy. From a failure it shows `loading` again. From
+ * `ready` (a page that renamed the organization or a workspace) it refreshes in
+ * the background: the panel renders pages only while the tenancy is ready, so
+ * passing through `loading` would unmount the page, drop its local state and
+ * reload all its data. The earlier answer stays until the new one arrives, and
+ * also when the refresh cannot reach the server; an expired session or a lost
+ * organization still replaces it.
+ */
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<TenantState>({ status: "loading" });
 
   const load = useCallback(() => {
-    setState({ status: "loading" });
+    setState((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
     fetchTenant().then(
       (payload) => setState(toState(payload)),
-      (err: unknown) => setState(toErrorState(err)),
+      (err: unknown) => {
+        const next = toErrorState(err);
+        setState((prev) => (prev.status === "ready" && next.status === "error" ? prev : next));
+      },
     );
   }, []);
 
