@@ -343,8 +343,13 @@ function callPath(request: ChatRequest, options: ChatCallOptions | undefined, st
 }
 
 function withPath(entry: AILogEntry, path: CallPath): AILogEntry {
-  const { captureExchanges: _, ...fields } = path;
-  return { ...entry, ...fields };
+  return {
+    ...entry,
+    id: path.id,
+    startedAt: path.startedAt,
+    ...(path.messageId ? { messageId: path.messageId } : {}),
+    ...(path.originName ? { originName: path.originName, parentRef: path.parentRef } : {}),
+  };
 }
 
 function keepExchanges(path: CallPath, options: ChatCallOptions | undefined, exchanges: ChatResponse["exchanges"]): void {

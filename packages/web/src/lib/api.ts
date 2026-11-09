@@ -37,7 +37,10 @@ export type {
   CostBreakdown,
   MessageLatency,
   MessageDebug,
-  TurnModelCall,
+  PathModelCall,
+  PathHookRun,
+  PathExchange,
+  TurnSummary,
   LlmDebugPayload,
   ReasoningDetail,
   StepDetail,
@@ -113,6 +116,7 @@ import type {
   ConversationListItem,
   ConversationMessage,
   MessageDebug,
+  PathExchange,
   Memory,
   KnowledgeDocument,
   KnowledgeDocumentDetail,
@@ -660,6 +664,11 @@ export const api = {
     messageDebug: (conversationId: string, messageId: string, instanceId: string) =>
       request<MessageDebug>(
         urlPath`/api/conversations/${conversationId}/messages/${messageId}/debug?instanceId=${instanceId}`,
+      ),
+    /** The raw requests one model call of the turn sent the provider, with the answers (kept under debug). */
+    callExchanges: (conversationId: string, messageId: string, callId: string, instanceId: string) =>
+      request<{ exchanges: PathExchange[] }>(
+        urlPath`/api/conversations/${conversationId}/messages/${messageId}/debug/calls/${callId}/exchanges?instanceId=${instanceId}`,
       ),
     /** The conversation state store snapshot (latest; includes the `_channel` identity). */
     state: (conversationId: string, instanceId: string) =>
