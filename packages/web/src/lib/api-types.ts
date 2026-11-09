@@ -703,7 +703,10 @@ export interface MessageDebug {
   } | null;
   /** The turn's model, usage, cost and latency; null without a pipeline trace. */
   summary: TurnSummary | null;
-  /** Every model call and hook run of the turn; null for a turn recorded before the request path. */
+  /**
+   * Every model call and hook run of the turn. A turn from before the request
+   * path has only its agent call, from its trace, and the times its trace kept.
+   */
   path: {
     turnStartedAt: string | null;
     replySentAt: string | null;
@@ -713,7 +716,7 @@ export interface MessageDebug {
     intermediateText: "discard" | "progress" | "reply" | null;
     modelCalls: PathModelCall[];
     hookRuns: PathHookRun[];
-  } | null;
+  };
 }
 
 // ── Memories ──────────────────────────────────────────────────────────

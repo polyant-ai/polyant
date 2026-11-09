@@ -202,8 +202,9 @@ export interface MessageDebug {
   summary: MessageMetadata | null;
   /**
    * The turn's request path: every model call and hook run filed under the
-   * message, t0, and when and what was handed to the channel. Null for a turn
-   * recorded before the request path existed.
+   * message, t0, and when and what was handed to the channel. A turn recorded
+   * before the request path existed gets the agent's call from its trace and
+   * steps, and the times its trace and message have.
    */
   path: {
     turnStartedAt: string | null;
@@ -214,7 +215,7 @@ export interface MessageDebug {
     intermediateText: string | null;
     modelCalls: PathModelCall[];
     hookRuns: PathHookRun[];
-  } | null;
+  };
 }
 
 export interface MessageMetadata {
@@ -1026,6 +1027,7 @@ export class ConversationStore {
           debugPayload: conversationMessages.debugPayload,
           steps: conversationMessages.steps,
           content: conversationMessages.content,
+          createdAt: conversationMessages.createdAt,
         })
         .from(conversationMessages)
         .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
@@ -1041,10 +1043,40 @@ export class ConversationStore {
     const row = rows[0];
     if (!row) return null;
     const trace = traces[0];
+    const steps = (row.steps as StepDetail[] | null) ?? null;
     const recorded = trace?.turnStartedAt != null || runs.modelCalls.length > 0 || runs.hookRuns.length > 0;
+    // A turn from before the request path filed nothing under its message: its
+    // agent call comes from the trace, t0 from when the trace closed less the
+    // turn's length, and the send from when the reply was saved.
+    const earlier = !recorded && trace?.createdAt ? new Date(trace.createdAt.getTime() - trace.totalMs) : null;
+    const agentFromTrace: PathModelCall[] =
+      !recorded && trace?.model
+        ? [
+            {
+              id: messageId,
+              callType: "conversation",
+              purpose: null,
+              originName: null,
+              parentRef: null,
+              provider: trace.provider ?? "",
+              model: trace.model,
+              startedAt: null,
+              durationMs: trace.llmCallMs ?? 0,
+              promptTokens: trace.promptTokens ?? 0,
+              completionTokens: trace.completionTokens ?? 0,
+              cachedInputTokens: trace.cachedInputTokens ?? 0,
+              cacheCreationInputTokens: trace.cacheCreationInputTokens ?? 0,
+              costUsd: trace.cost?.total ?? 0,
+              stepCount: steps?.length || 1,
+              outcome: "ok",
+              errorKind: null,
+              exchangeCount: 0,
+            },
+          ]
+        : [];
     return {
       debugPayload: (row.debugPayload as LlmDebugPayload | null) ?? null,
-      steps: (row.steps as StepDetail[] | null) ?? null,
+      steps,
       content: row.content,
       turn: trace
         ? {
@@ -1090,7 +1122,14 @@ export class ConversationStore {
             intermediateText: trace?.intermediateText ?? null,
             ...runs,
           }
-        : null,
+        : {
+            turnStartedAt: earlier?.toISOString() ?? null,
+            replySentAt: earlier && row.createdAt ? row.createdAt.toISOString() : null,
+            deliveredText: null,
+            intermediateText: null,
+            modelCalls: agentFromTrace,
+            hookRuns: [],
+          },
     };
   }
 

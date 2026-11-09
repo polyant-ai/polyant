@@ -55,7 +55,7 @@ describe("getMessageDebug (integration)", () => {
     await conversationStore.deleteConversation(CID, allTenantsScope("integration test cleanup")).catch(() => {});
   });
 
-  it.skipIf(!DB_AVAILABLE)("reads a turn's request path by its message, and none for an older turn", async () => {
+  it.skipIf(!DB_AVAILABLE)("reads a turn's request path by its message, and an older turn's from its trace", async () => {
     await conversationStore.ensureConversation(CID, SLUG);
     await message(null, "user", 0);
     // Before the request path: a call with no message id, in the turn's time window.
@@ -79,18 +79,30 @@ describe("getMessageDebug (integration)", () => {
 assistant', null)
     `);
 
+    await db.execute(sql`
+      INSERT INTO pipeline_traces (conversation_id, message_id, instance_id, channel, total_ms, llm_call_ms, is_streaming,
+                                   model, provider, prompt_tokens, completion_tokens, created_at)
+      VALUES (${CID}, ${OLD}, ${SLUG}, 'web', 2000, 1500, false, 'old-model', 'openai', 30, 7, ${at(3)})
+    `);
+
+    // The call in the old turn's window is not taken: the agent's call comes from the trace.
     const old = await conversationStore.getMessageDebug(CID, OLD);
-    expect(old?.path).toBeNull();
+    expect(old?.path.modelCalls.map((c) => [c.id, c.callType, c.model, c.promptTokens, c.durationMs, c.startedAt])).toEqual([
+      [OLD, "conversation", "old-model", 30, 1500, null],
+    ]);
+    expect(old?.path.hookRuns).toEqual([]);
+    expect(old?.path.turnStartedAt).toBe(at(1));
+    expect(old?.path.replySentAt).toBe(at(3));
 
     const turn = await conversationStore.getMessageDebug(CID, NEW);
-    expect(turn?.path?.modelCalls.map((c) => [c.model, c.originName, c.parentRef])).toEqual([
+    expect(turn?.path.modelCalls.map((c) => [c.model, c.originName, c.parentRef])).toEqual([
       ["hook-model", "classify", HOOK_RUN],
       ["answer", null, null],
     ]);
-    expect(turn?.path?.hookRuns.map((h) => [h.id, h.name])).toEqual([[HOOK_RUN, "classify"]]);
-    expect(turn?.path?.turnStartedAt).toBe(at(10));
-    expect(turn?.path?.replySentAt).toBe(at(14));
-    expect(turn?.path?.deliveredText).toBe("step one\n\nassistant");
+    expect(turn?.path.hookRuns.map((h) => [h.id, h.name])).toEqual([[HOOK_RUN, "classify"]]);
+    expect(turn?.path.turnStartedAt).toBe(at(10));
+    expect(turn?.path.replySentAt).toBe(at(14));
+    expect(turn?.path.deliveredText).toBe("step one\n\nassistant");
     expect(turn?.content).toBe("assistant");
   });
 
@@ -104,7 +116,7 @@ assistant', null)
     expect(exchanges.map((e) => [e.stepIndex, e.status])).toEqual([[0, 200], [1, 429]]);
 
     const turn = await conversationStore.getMessageDebug(CID, NEW);
-    expect(turn?.path?.modelCalls.find((c) => c.id === AGENT_CALL)?.exchangeCount).toBe(2);
+    expect(turn?.path.modelCalls.find((c) => c.id === AGENT_CALL)?.exchangeCount).toBe(2);
 
     expect(await readExchanges(OTHER_CID, NEW, AGENT_CALL)).toEqual([]);
     expect(await readExchanges(CID, OLD, AGENT_CALL)).toEqual([]);

@@ -49,7 +49,8 @@ const step = {
 
 /** A turn with nothing but what the test sets. */
 function turn(data: Partial<MessageDebug>): MessageDebug {
-  return { debugPayload: null, steps: null, content: "", turn: null, summary: null, path: null, ...data };
+  const path = { turnStartedAt: null, replySentAt: null, deliveredText: null, intermediateText: null, modelCalls: [], hookRuns: [] };
+  return { debugPayload: null, steps: null, content: "", turn: null, summary: null, path, ...data };
 }
 
 function renderSheet(data: Partial<MessageDebug>) {
@@ -213,7 +214,7 @@ describe("DebugSheet request path", () => {
     },
     { index: 1, stepType: "tool-result" as const, text: "It ships tomorrow.", startedAt: at(1600), toolCalls: [], finishReason: "stop", durationMs: 1400 },
   ];
-  const path: NonNullable<MessageDebug["path"]> = {
+  const path: MessageDebug["path"] = {
     turnStartedAt: T0,
     replySentAt: at(3200),
     deliveredText: "Checking the order.\n\nIt ships tomorrow.",
@@ -274,9 +275,27 @@ describe("DebugSheet request path", () => {
     expect(callExchanges).not.toHaveBeenCalled();
   });
 
-  it("tells an older turn apart and keeps its steps", async () => {
-    renderSheet({ steps: [step] });
-    expect(await screen.findByText("message.debug.path.legacy")).toBeInTheDocument();
-    expect(screen.getByText("lookup")).toBeInTheDocument();
+  it("lays an older turn out the same way, with the times it kept", async () => {
+    // Steps saved before the request path carry no start times.
+    const older = [
+      { ...steps[0], startedAt: undefined, toolCalls: [{ toolCallId: "tc-1", toolName: "lookupOrder", args: { order: "48213" } }] },
+      { ...steps[1], startedAt: undefined },
+    ];
+    renderSheet({
+      steps: older,
+      content: "It ships tomorrow.",
+      path: {
+        turnStartedAt: T0,
+        replySentAt: at(3200),
+        deliveredText: null,
+        intermediateText: null,
+        hookRuns: [],
+        modelCalls: [call({ id: "msg-1", startedAt: null, exchangeCount: 0 })],
+      },
+    });
+    expect(await screen.findByText("message.debug.path.title")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.path.agent")).toBeInTheDocument();
+    expect(screen.getAllByText("message.debug.path.step")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /message\.debug\.path\.sent/ })).toBeInTheDocument();
   });
 });

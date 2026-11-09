@@ -27,7 +27,6 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useResource } from "@/hooks/use-resource";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { MessageExtras } from "./message-extras";
 import { JsonTree } from "./json-tree";
 import { extractTurnState } from "./turn-state";
 import { RequestPath } from "./request-path";
@@ -95,10 +94,8 @@ function Summary({ debug }: { debug: MessageDebug }) {
       if (stt.durationMs != null) diagnostics.push({ label: t("message.debug.sttDuration"), value: formatLatency(stt.durationMs) });
     }
   }
-  if (debug.path) {
-    const policy = debug.path.intermediateText;
-    diagnostics.push({ label: t("message.debug.path.policy.label"), value: t(policy ? POLICY_KEY[policy] : "message.debug.path.policy.unset") });
-  }
+  const policy = debug.path.intermediateText;
+  diagnostics.push({ label: t("message.debug.path.policy.label"), value: t(policy ? POLICY_KEY[policy] : "message.debug.path.policy.unset") });
 
   return (
     <div className="flex flex-col gap-2">
@@ -146,26 +143,18 @@ function Summary({ debug }: { debug: MessageDebug }) {
   );
 }
 
-/** The Model tab: the summary, then the request path, or what an older turn still has. */
+/** The Model tab: the summary, then the request path. */
 function ModelTab({ debug, target }: { debug: MessageDebug; target: DebugSheetTarget }) {
-  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-2">
       <Summary debug={debug} />
-      {debug.path ? (
-        <RequestPath
-          debug={debug}
-          path={debug.path}
-          conversationId={target.conversationId}
-          messageId={target.messageId}
-          instanceId={target.instanceId}
-        />
-      ) : (
-        <div className="mt-4 flex flex-col gap-3 border-t pt-3">
-          <p className="text-sm text-muted-foreground">{t("message.debug.path.legacy")}</p>
-          {debug.steps && debug.steps.length > 0 && <MessageExtras steps={debug.steps} />}
-        </div>
-      )}
+      <RequestPath
+        debug={debug}
+        path={debug.path}
+        conversationId={target.conversationId}
+        messageId={target.messageId}
+        instanceId={target.instanceId}
+      />
     </div>
   );
 }
