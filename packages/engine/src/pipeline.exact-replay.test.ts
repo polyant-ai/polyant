@@ -218,6 +218,7 @@ describe("runPipelinePost — what a turn keeps for exact replay", () => {
   function ctx(toolHistoryReplay: "compact" | "exact"): PipelineContext {
     return {
       pipelineStart: 0,
+      messageId: "00000000-0000-4000-8000-000000000001",
       instanceId: asInstanceSlug("sky"),
       conversationId: "sky:web:c1",
       conversationSummary: undefined,

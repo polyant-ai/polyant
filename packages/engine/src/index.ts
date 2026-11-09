@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "reflect-metadata";
-import { randomUUID } from "crypto";
+import { newTurn, runInTurn } from "./request-path/turn-scope.js";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
@@ -134,8 +134,15 @@ async function main() {
 
   // --- Message handlers (sync + streaming) ---
 
+  // Each turn runs in its own scope (request-path/turn-scope.ts): the id its
+  // assistant message will be saved under, so every model call, hook run and
+  // tool run of the turn points at it.
   // 3a. Synchronous message handler
   async function handleMessage(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
+    return runInTurn(newTurn(), () => handleMessageTurn(msg, abortSignal));
+  }
+
+  async function handleMessageTurn(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
     // GDPR opt-out gate (deterministic, pre-LLM, before Room/task routing so
     // STOP/START are always honored first). Returns a short-circuit reply
     // (possibly empty = no outbound) or proceeds to the normal pipeline.
@@ -166,9 +173,9 @@ async function main() {
     // Phase 1: Context preparation. A reply to a webhook-triggered message
     // continues the trigger's conversation, which holds its context.
     const pre = await runPipelinePre(msg, activeTrigger, abortSignal);
-    // Pre-generate the assistant message id so the pipeline trace can be linked
-    // to the persisted message by id (not fragile ordinal matching).
-    return runBufferedTurn(msg, pre, abortSignal, randomUUID());
+    // The turn's message id, so the pipeline trace links to the persisted
+    // message by id (not fragile ordinal matching).
+    return runBufferedTurn(msg, pre, abortSignal, pre.ctx.messageId);
   }
 
   /**
@@ -241,6 +248,7 @@ async function main() {
       cacheConfig: ctx.instanceConfig.cacheConfig,
       intermediateText: ctx.instanceConfig.intermediateText,
       debugEnabled: ctx.instanceConfig.debugEnabled,
+      messageId: ctx.messageId,
       // Conversational entry point: a real user behind a stable, reused
       // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
       allowOAuth: true,
@@ -330,6 +338,10 @@ async function main() {
 
   // 3b. Streaming message handler (for OpenAI-compatible SSE)
   async function handleMessageStream(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
+    return runInTurn(newTurn(), () => handleMessageStreamTurn(msg, abortSignal));
+  }
+
+  async function handleMessageStreamTurn(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
     // GDPR opt-out gate — same deterministic short-circuit as the sync path,
     // wrapped as a single-chunk stream (reusing the missing-key pattern below).
     const optoutGate = await runOptoutGate(msg);
@@ -352,7 +364,7 @@ async function main() {
     // persist it via runPipelinePost (post-LLM hooks + memory/summary run).
     if (pre.shortCircuit) {
       const canned = pre.shortCircuit.text;
-      const haltMessageId = randomUUID();
+      const haltMessageId = ctx.messageId;
       const completed = runPipelinePost({
         ctx,
         contextPrepMs,
@@ -388,7 +400,7 @@ async function main() {
       // Pre-generate the persisted assistant id and thread it through so the
       // `meta` echoed in the SSE `done` event addresses the SAME row the debug
       // payload is stored on (parity with the halt + normal streaming paths).
-      const bufferedMessageId = randomUUID();
+      const bufferedMessageId = ctx.messageId;
       const out = await runBufferedTurn(msg, pre, abortSignal, bufferedMessageId);
       const text = out.text;
       return {
@@ -435,6 +447,7 @@ async function main() {
         cacheConfig: ctx.instanceConfig.cacheConfig,
         intermediateText: ctx.instanceConfig.intermediateText,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        messageId: ctx.messageId,
         // Conversational entry point: a real user behind a stable, reused
         // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
         allowOAuth: true,
@@ -455,11 +468,14 @@ async function main() {
     // Pre-generate the assistant message id so first-party SSE consumers can
     // echo it (with the conversationId) before persistence completes — used to
     // fetch the per-message debug payload without ordinal-matching.
-    const assistantMessageId = randomUUID();
+    const assistantMessageId = ctx.messageId;
 
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
+      // The stream has ended: its last text is with the client.
+      const replySentAt = Date.now();
       const { finalText, hookExecutions } = await runPipelinePost({
+        replySentAt,
         ctx,
         contextPrepMs,
         messageText,

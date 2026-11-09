@@ -64,6 +64,9 @@ vi.mock("./providers/base.js", async (importActual) => ({
     (err !== null && typeof err === "object" ? pinnedUsage.get(err) : null) ?? null,
 }));
 
+const mockRecordExchanges = vi.hoisted(() => vi.fn());
+vi.mock("../request-path/exchange.store.js", () => ({ recordExchanges: mockRecordExchanges }));
+
 vi.mock("./logger.js", async (importActual) => {
   // `classifyProviderError` stays REAL: the point of the failure tests below is
   // that the class written to ai_logs is derived from the actual error shape.
@@ -117,6 +120,7 @@ import { buildLangSmithProviderOptions } from "./langsmith.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import type { ChatRequest } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
+import { runAs, runInTurn } from "../request-path/turn-scope.js";
 
 const mockFindInstanceBySlug = vi.mocked(findInstanceBySlug);
 
@@ -238,6 +242,34 @@ describe("AI Gateway", () => {
         "service",
         0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
+    });
+
+    it("files the call under its turn's message, with its start, its row id up front, and the run that made it", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+
+      await runAs(
+        { kind: "tool", name: "lookupOrder", toolCallId: "tc-1" },
+        () => chat(makeRequest(), { conversationId: "conv-1", callType: "service", purpose: "tool" }),
+        { messageId: "msg-1", debug: false },
+      );
+
+      const row = vi.mocked(aiLogger.log).mock.calls.at(-1)?.[0];
+      expect(row).toMatchObject({ messageId: "msg-1", originName: "lookupOrder", parentRef: "tc-1", purpose: "tool" });
+      expect(row?.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(row?.startedAt).toBeInstanceOf(Date);
+    });
+
+    it("asks the provider for the raw exchanges only while the turn debugs, and keeps them under the call's row", async () => {
+      const exchanges = [{ stepIndex: 0, attempt: 1, status: 200, request: { a: 1 }, response: { b: 2 } }];
+      mockProviderChat.mockResolvedValue(makeChatResponse({ exchanges }));
+
+      await chat(makeRequest(), { conversationId: "conv-1" });
+      expect(mockProviderChat.mock.calls.at(-1)?.[0]).toMatchObject({ captureExchanges: false });
+
+      await runInTurn({ messageId: "msg-2", debug: true }, () => chat(makeRequest(), { conversationId: "conv-1" }));
+      expect(mockProviderChat.mock.calls.at(-1)?.[0]).toMatchObject({ captureExchanges: true });
+      const rowId = vi.mocked(aiLogger.log).mock.calls.at(-1)?.[0].id;
+      expect(mockRecordExchanges).toHaveBeenLastCalledWith(rowId, expect.objectContaining({ messageId: "msg-2", conversationId: "conv-1" }), exchanges);
     });
 
     it("returns full response from provider", async () => {

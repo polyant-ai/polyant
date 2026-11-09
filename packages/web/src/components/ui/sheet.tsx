@@ -52,11 +52,14 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  size = "default",
   onOpenAutoFocus,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** `wide` for a side drawer whose content is a table read across (the message request path). */
+  size?: "default" | "wide"
 }) {
   const { t } = useI18n()
   return (
@@ -76,7 +79,8 @@ function SheetContent({
         className={cn(
           "outline-none bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
           side === "right" &&
-            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-full border-l sm:max-w-4xl",
+            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-full border-l",
+          side === "right" && (size === "wide" ? "sm:max-w-[min(90rem,92vw)]" : "sm:max-w-4xl"),
           side === "left" &&
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-full border-r sm:max-w-4xl",
           side === "top" &&

@@ -142,6 +142,7 @@ describe("runPipelinePost — attachment storage is opt-in", () => {
   function ctx(attachmentStorageEnabled: boolean): PipelineContext {
     return {
       pipelineStart: 0,
+      messageId: "00000000-0000-4000-8000-000000000001",
       instanceId: asInstanceSlug("shop"),
       conversationId: "shop:whatsapp:+39",
       conversationSummary: undefined,

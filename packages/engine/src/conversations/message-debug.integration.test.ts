@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * getMessageDebug against a real Postgres: which model calls belong to a turn.
- * `ai_logs` carries no message id, so the turn is the span from the user
- * message that opened it to the next user message, and this pins that span.
+ * getMessageDebug against a real Postgres: a turn's request path is what is
+ * filed under its message — model calls, hook runs, the trace's t0 and send
+ * time — and a turn recorded before the request path has none. The raw
+ * exchanges of a call are read only through the message they belong to.
  *
  * Self-skips when no migrated database is reachable.
  */
@@ -13,14 +14,19 @@ import { describe, it, expect, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { conversationStore } from "./store.js";
+import { readExchanges } from "../request-path/request-path.store.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { allTenantsScope } from "../authz/scope-filter.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const CID = `itest:message-debug:${Date.now()}`;
+const OTHER_CID = `${CID}:other`;
 const SLUG = asInstanceSlug("itest-message-debug");
-const FIRST = "11111111-0000-4000-8000-000000000001";
-const SECOND = "11111111-0000-4000-8000-000000000002";
+const OLD = "11111111-0000-4000-8000-000000000001";
+const NEW = "11111111-0000-4000-8000-000000000002";
+const AGENT_CALL = "22222222-0000-4000-8000-000000000001";
+const HOOK_CALL = "22222222-0000-4000-8000-000000000002";
+const HOOK_RUN = "33333333-0000-4000-8000-000000000001";
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, s)).toISOString();
 
@@ -31,48 +37,76 @@ async function message(id: string | null, role: string, second: number) {
   `);
 }
 
-async function call(model: string, callType: string, second: number) {
+async function call(id: string, model: string, second: number, filed: { messageId?: string; callType?: string; purpose?: string; originName?: string; parentRef?: string }) {
   await db.execute(sql`
-    INSERT INTO ai_logs (provider, model, tier, prompt_tokens, completion_tokens, total_tokens,
-                         estimated_cost_usd, duration_ms, conversation_id, call_type, created_at)
-    VALUES ('openai', ${model}, 'standard', 10, 5, 15, 0.001, 100, ${CID}, ${callType}, ${at(second)})
+    INSERT INTO ai_logs (id, provider, model, tier, prompt_tokens, completion_tokens, total_tokens,
+                         estimated_cost_usd, duration_ms, conversation_id, call_type, purpose,
+                         message_id, started_at, origin_name, parent_ref, created_at)
+    VALUES (${id}::uuid, 'openai', ${model}, 'standard', 10, 5, 15, 0.001, 100, ${CID},
+            ${filed.callType ?? "conversation"}, ${filed.purpose ?? null}, ${filed.messageId ?? null}::uuid,
+            ${at(second)}, ${filed.originName ?? null}, ${filed.parentRef ?? null}, ${at(second + 1)})
   `);
 }
 
 describe("getMessageDebug (integration)", () => {
   afterAll(async () => {
     if (!DB_AVAILABLE) return;
-    await db.execute(sql`DELETE FROM ai_logs WHERE conversation_id = ${CID}`);
-    await db.execute(sql`DELETE FROM pipeline_traces WHERE conversation_id = ${CID}`);
+    await db.execute(sql`DELETE FROM model_exchanges WHERE conversation_id IN (${CID}, ${OTHER_CID})`);
     await conversationStore.deleteConversation(CID, allTenantsScope("integration test cleanup")).catch(() => {});
   });
 
-  it.skipIf(!DB_AVAILABLE)("gives each turn the model calls from its user message to the next one", async () => {
+  it.skipIf(!DB_AVAILABLE)("reads a turn's request path by its message, and none for an older turn", async () => {
     await conversationStore.ensureConversation(CID, SLUG);
     await message(null, "user", 0);
-    await call("answer-1", "conversation", 2);
-    await message(FIRST, "assistant", 3);
-    // A post-response call of the first turn, after its answer was saved.
-    await call("summary-1", "service", 4);
+    // Before the request path: a call with no message id, in the turn's time window.
+    await call("22222222-0000-4000-8000-000000000009", "legacy", 1, {});
+    await message(OLD, "assistant", 3);
     await message(null, "user", 10);
-    await call("answer-2", "conversation", 12);
-    await message(SECOND, "assistant", 13);
+    await call(HOOK_CALL, "hook-model", 11, { messageId: NEW, callType: "service", purpose: "hook", originName: "classify", parentRef: HOOK_RUN });
+    await call(AGENT_CALL, "answer", 12, { messageId: NEW });
+    await message(NEW, "assistant", 14);
+    await db.execute(sql`
+      INSERT INTO hook_executions (id, instance_id, conversation_id, hook_id, event, action_type, tool_name,
+                                   success, duration_ms, message_id, started_at)
+      VALUES (${HOOK_RUN}::uuid, ${SLUG}, ${CID}, gen_random_uuid(), 'message_received', 'function', 'classify',
+              true, 40, ${NEW}::uuid, ${at(11)})
+    `);
     await db.execute(sql`
       INSERT INTO pipeline_traces (conversation_id, message_id, instance_id, channel, total_ms, is_streaming,
-                                   stt_provider, stt_duration_ms, audio_duration_sec)
-      VALUES (${CID}, ${SECOND}, ${SLUG}, 'whatsapp', 900, false, 'deepgram', 320, 4.5)
+                                   turn_started_at, reply_sent_at, delivered_text, intermediate_text)
+      VALUES (${CID}, ${NEW}, ${SLUG}, 'web', 4000, true, ${at(10)}, ${at(14)}, 'step one
+
+assistant', null)
     `);
 
-    const first = await conversationStore.getMessageDebug(CID, FIRST);
-    expect(first?.modelCalls.map((c) => c.model)).toEqual(["answer-1", "summary-1"]);
-    expect(first?.turn).toBeNull();
+    const old = await conversationStore.getMessageDebug(CID, OLD);
+    expect(old?.path).toBeNull();
 
-    const second = await conversationStore.getMessageDebug(CID, SECOND);
-    expect(second?.modelCalls.map((c) => c.model)).toEqual(["answer-2"]);
-    expect(second?.turn).toEqual({
-      channel: "whatsapp",
-      streaming: false,
-      speechToText: { provider: "deepgram", durationMs: 320, audioDurationSec: 4.5 },
-    });
+    const turn = await conversationStore.getMessageDebug(CID, NEW);
+    expect(turn?.path?.modelCalls.map((c) => [c.model, c.originName, c.parentRef])).toEqual([
+      ["hook-model", "classify", HOOK_RUN],
+      ["answer", null, null],
+    ]);
+    expect(turn?.path?.hookRuns.map((h) => [h.id, h.name])).toEqual([[HOOK_RUN, "classify"]]);
+    expect(turn?.path?.turnStartedAt).toBe(at(10));
+    expect(turn?.path?.replySentAt).toBe(at(14));
+    expect(turn?.path?.deliveredText).toBe("step one\n\nassistant");
+    expect(turn?.content).toBe("assistant");
+  });
+
+  it.skipIf(!DB_AVAILABLE)("reads a call's raw exchanges only through its own message and conversation", async () => {
+    await db.execute(sql`
+      INSERT INTO model_exchanges (ai_log_id, message_id, conversation_id, step_index, attempt, status, request, response)
+      VALUES (${AGENT_CALL}::uuid, ${NEW}::uuid, ${CID}, 0, 1, 200, '{"messages":[]}'::jsonb, '{"content":[]}'::jsonb),
+             (${AGENT_CALL}::uuid, ${NEW}::uuid, ${CID}, 1, 1, 429, '{"messages":[1]}'::jsonb, '{"error":"rate"}'::jsonb)
+    `);
+    const exchanges = await readExchanges(CID, NEW, AGENT_CALL);
+    expect(exchanges.map((e) => [e.stepIndex, e.status])).toEqual([[0, 200], [1, 429]]);
+
+    const turn = await conversationStore.getMessageDebug(CID, NEW);
+    expect(turn?.path?.modelCalls.find((c) => c.id === AGENT_CALL)?.exchangeCount).toBe(2);
+
+    expect(await readExchanges(OTHER_CID, NEW, AGENT_CALL)).toEqual([]);
+    expect(await readExchanges(CID, OLD, AGENT_CALL)).toEqual([]);
   });
 });

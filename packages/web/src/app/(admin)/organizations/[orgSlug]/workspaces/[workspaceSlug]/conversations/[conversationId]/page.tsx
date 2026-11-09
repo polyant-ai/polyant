@@ -705,16 +705,6 @@ export default function ConversationDetailPage() {
                             conversationId,
                             messageId: msg.id,
                             instanceId,
-                            model: msg.model,
-                            provider: msg.provider,
-                            promptTokens: msg.promptTokens,
-                            completionTokens: msg.completionTokens,
-                            cachedInputTokens: msg.cachedInputTokens,
-                            cacheCreationInputTokens: msg.cacheCreationInputTokens,
-                            cost: msg.cost,
-                            thinking: msg.thinking,
-                            temperature: msg.temperature,
-                            latency: msg.latency,
                           })
                         }
                         className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"

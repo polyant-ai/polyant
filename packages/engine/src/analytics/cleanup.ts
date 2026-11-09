@@ -38,6 +38,7 @@ export interface AnalyticsCleanupResult {
   scheduledTaskRunsDeleted: number;
   eventBacklogDeleted: number;
   debugPayloadsCleared: number;
+  modelExchangesDeleted: number;
   webhookDeliveriesDeleted: number;
   cutoff: Date;
 }
@@ -135,6 +136,10 @@ export async function clearOldDebugPayloads(cutoff: Date): Promise<number> {
   }
 }
 
+/** Raw model exchanges hold the prompt, like the debug payloads: they go with them. */
+export const deleteOldModelExchanges = (cutoff: Date): Promise<number> =>
+  deleteOlderThan("model_exchanges", "created_at", cutoff);
+
 /** Run a full cleanup pass. Safe to call repeatedly (idempotent). */
 export async function runAnalyticsCleanup(retentionDays: number): Promise<AnalyticsCleanupResult> {
   const cutoff = computeCutoff(retentionDays);
@@ -146,6 +151,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
     debugPayloadsCleared,
+    modelExchangesDeleted,
     webhookDeliveriesDeleted,
   ] = await Promise.all([
     deleteOldAiLogs(cutoff),
@@ -155,6 +161,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     deleteOldScheduledTaskRuns(cutoff),
     deleteOldCompletedBacklog(cutoff),
     clearOldDebugPayloads(computeCutoff(config.retention.debugPayloadDays)),
+    deleteOldModelExchanges(computeCutoff(config.retention.debugPayloadDays)),
     deleteExpiredWebhookDeliveries(),
   ]);
   return {
@@ -165,6 +172,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
     debugPayloadsCleared,
+    modelExchangesDeleted,
     webhookDeliveriesDeleted,
     cutoff,
   };

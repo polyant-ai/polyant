@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { config } from "../config.js";
 
@@ -61,7 +62,10 @@ const lanes: Record<BackgroundLane, { queued: Array<() => void>; running: number
 export function runBackgroundJob(lane: BackgroundLane, job: () => Promise<unknown>): Promise<void> {
   const state = lanes[lane];
   const done = new Promise<void>((resolve) => {
-    const start = () => {
+    // Bound to the context the job was queued in: a queued start runs from the
+    // finally of whichever job ends first, and would otherwise carry that
+    // job's turn (see request-path/turn-scope.ts).
+    const start = AsyncLocalStorage.bind(() => {
       state.running++;
       void job()
         .catch(() => undefined)
@@ -70,7 +74,7 @@ export function runBackgroundJob(lane: BackgroundLane, job: () => Promise<unknow
           resolve();
           state.queued.shift()?.();
         });
-    };
+    });
     if (state.running < backgroundJobLimit(lane)) start();
     else state.queued.push(start);
   });

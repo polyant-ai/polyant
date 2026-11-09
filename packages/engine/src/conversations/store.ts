@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { readTurnRuns, type PathHookRun, type PathModelCall } from "../request-path/request-path.store.js";
+import { modelExchanges } from "../request-path/exchanges.schema.js";
 import type { ModelMessage } from "ai";
 import { db, type DbTransaction } from "../database/client.js";
 import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ExactReplay, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
@@ -183,33 +185,36 @@ export interface ConversationSearchResult extends ConversationListItem {
  * user message; completion tokens + cache + model + cost land on the assistant
  * message. Cache/model/cost are null for legacy rows without a linked trace.
  */
-/** One model call made during a turn, as `ai_logs` recorded it. */
-export interface TurnModelCall {
-  /** "conversation" for the agent's answer, "service" for the calls around it, "embedding" for an embedder. */
-  callType: string;
-  provider: string;
-  model: string;
-  durationMs: number;
-  promptTokens: number;
-  completionTokens: number;
-  costUsd: number;
-  outcome: string;
-  errorKind: string | null;
-  createdAt: string | null;
-}
-
 /** Everything the per-message Debug sheet loads on open. */
 export interface MessageDebug {
   /** Null when the turn was generated with DEBUG off. */
   debugPayload: LlmDebugPayload | null;
   steps: StepDetail[] | null;
+  /** The text the message holds: the reply as persisted. */
+  content: string;
   /** How the turn arrived; null for a message with no pipeline trace. */
   turn: {
     channel: string;
     streaming: boolean;
     speechToText: { provider: string; durationMs: number | null; audioDurationSec: number | null } | null;
   } | null;
-  modelCalls: TurnModelCall[];
+  /** The turn's model, usage, cost and latency, from its pipeline trace; null without one. */
+  summary: MessageMetadata | null;
+  /**
+   * The turn's request path: every model call and hook run filed under the
+   * message, t0, and when and what was handed to the channel. Null for a turn
+   * recorded before the request path existed.
+   */
+  path: {
+    turnStartedAt: string | null;
+    replySentAt: string | null;
+    /** What the channel received, when it differs from `content`; null when it received `content`. */
+    deliveredText: string | null;
+    /** The agent's intermediate-text policy for the turn; null when none was set. */
+    intermediateText: string | null;
+    modelCalls: PathModelCall[];
+    hookRuns: PathHookRun[];
+  } | null;
 }
 
 export interface MessageMetadata {
@@ -1015,75 +1020,32 @@ export class ConversationStore {
    * conversation. Returns null when the message does not exist in that conversation.
    */
   async getMessageDebug(conversationId: string, messageId: string): Promise<MessageDebug | null> {
-    const rows = await db
-      .select({
-        debugPayload: conversationMessages.debugPayload,
-        steps: conversationMessages.steps,
-        createdAt: conversationMessages.createdAt,
-      })
-      .from(conversationMessages)
-      .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
-      .limit(1);
-
-    const row = rows[0];
-    if (!row) return null;
-
-    // `ai_logs` has no message id, so the turn's calls are the conversation's
-    // calls from the user message that opened the turn up to the next one:
-    // the calls that answered it and the post-response ones after it.
-    // An ISO string cast in SQL: the raw fragments below do not serialize a Date.
-    const at = sql`${(row.createdAt ?? new Date()).toISOString()}::timestamptz`;
-    const turnStart = sql`COALESCE((
-      SELECT MAX(${conversationMessages.createdAt}) FROM ${conversationMessages}
-      WHERE ${conversationMessages.conversationId} = ${conversationId}
-        AND ${conversationMessages.role} = 'user' AND ${conversationMessages.createdAt} <= ${at}
-    ), ${at})`;
-    const turnEnd = sql`COALESCE((
-      SELECT MIN(${conversationMessages.createdAt}) FROM ${conversationMessages}
-      WHERE ${conversationMessages.conversationId} = ${conversationId}
-        AND ${conversationMessages.role} = 'user' AND ${conversationMessages.createdAt} > ${at}
-    ), 'infinity'::timestamptz)`;
-
-    const [traces, calls] = await Promise.all([
+    const [rows, traces, runs] = await Promise.all([
       db
         .select({
-          channel: pipelineTraces.channel,
-          isStreaming: pipelineTraces.isStreaming,
-          sttProvider: pipelineTraces.sttProvider,
-          sttDurationMs: pipelineTraces.sttDurationMs,
-          audioDurationSec: pipelineTraces.audioDurationSec,
+          debugPayload: conversationMessages.debugPayload,
+          steps: conversationMessages.steps,
+          content: conversationMessages.content,
         })
+        .from(conversationMessages)
+        .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
+        .limit(1),
+      db
+        .select()
         .from(pipelineTraces)
         .where(and(eq(pipelineTraces.messageId, messageId), eq(pipelineTraces.conversationId, conversationId)))
         .limit(1),
-      db
-        .select({
-          callType: aiLogs.callType,
-          provider: aiLogs.provider,
-          model: aiLogs.model,
-          durationMs: aiLogs.durationMs,
-          promptTokens: aiLogs.promptTokens,
-          completionTokens: aiLogs.completionTokens,
-          costUsd: aiLogs.estimatedCostUsd,
-          outcome: aiLogs.outcome,
-          errorKind: aiLogs.errorKind,
-          createdAt: aiLogs.createdAt,
-        })
-        .from(aiLogs)
-        .where(
-          and(
-            eq(aiLogs.conversationId, conversationId),
-            sql`${aiLogs.createdAt} >= ${turnStart}`,
-            sql`${aiLogs.createdAt} < ${turnEnd}`,
-          ),
-        )
-        .orderBy(asc(aiLogs.createdAt)),
+      readTurnRuns(conversationId, messageId),
     ]);
 
+    const row = rows[0];
+    if (!row) return null;
     const trace = traces[0];
+    const recorded = trace?.turnStartedAt != null || runs.modelCalls.length > 0 || runs.hookRuns.length > 0;
     return {
       debugPayload: (row.debugPayload as LlmDebugPayload | null) ?? null,
       steps: (row.steps as StepDetail[] | null) ?? null,
+      content: row.content,
       turn: trace
         ? {
             channel: trace.channel,
@@ -1099,7 +1061,36 @@ export class ConversationStore {
                 : null,
           }
         : null,
-      modelCalls: calls.map((c) => ({ ...c, createdAt: c.createdAt?.toISOString() ?? null })),
+      summary: trace
+        ? {
+            promptTokens: trace.promptTokens ?? 0,
+            completionTokens: trace.completionTokens ?? 0,
+            cachedInputTokens: trace.cachedInputTokens ?? 0,
+            cacheCreationInputTokens: trace.cacheCreationInputTokens ?? 0,
+            cacheCreation5mInputTokens: trace.cacheCreation5mInputTokens ?? null,
+            model: trace.model ?? null,
+            provider: trace.provider ?? null,
+            cost: trace.cost ?? null,
+            thinking: trace.thinking ?? null,
+            temperature: trace.temperature ?? null,
+            latency: {
+              contextPrepMs: trace.contextPrepMs ?? null,
+              toolBuildingMs: trace.toolBuildingMs ?? null,
+              llmCallMs: trace.llmCallMs ?? null,
+              totalMs: trace.totalMs ?? null,
+              ttfbMs: trace.ttfbMs ?? null,
+            },
+          }
+        : null,
+      path: recorded
+        ? {
+            turnStartedAt: trace?.turnStartedAt?.toISOString() ?? null,
+            replySentAt: trace?.replySentAt?.toISOString() ?? null,
+            deliveredText: trace?.deliveredText ?? null,
+            intermediateText: trace?.intermediateText ?? null,
+            ...runs,
+          }
+        : null,
     };
   }
 
@@ -1520,6 +1511,10 @@ export class ConversationStore {
       await tx
         .delete(hookExecutions)
         .where(eq(hookExecutions.conversationId, conversationId));
+      // Raw model exchanges (debug): the prompts of the conversation.
+      await tx
+        .delete(modelExchanges)
+        .where(eq(modelExchanges.conversationId, conversationId));
       // Memories extracted from this conversation: drop them too, so deleting a
       // conversation leaves no derived facts behind (right-to-be-forgotten).
       await tx

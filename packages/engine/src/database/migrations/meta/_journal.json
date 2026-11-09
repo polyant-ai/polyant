@@ -799,6 +799,20 @@
       "when": 1793727300000,
       "tag": "0120_event_backlog_processing_index",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1793727400000,
+      "tag": "0121_request_path",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1793727500000,
+      "tag": "0122_request_path_indexes",
+      "breakpoints": true
     }
   ]
 }

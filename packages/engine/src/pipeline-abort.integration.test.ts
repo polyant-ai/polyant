@@ -80,6 +80,7 @@ async function finishTurn(
 
   const ctx: PipelineContext = {
     pipelineStart: Date.now(),
+    messageId: randomUUID(),
     instanceId: AGENT,
     conversationId,
     conversationSummary: undefined,

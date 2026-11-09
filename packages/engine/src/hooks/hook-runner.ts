@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ConversationStateApi } from "@polyant-ai/plugin-sdk";
+import { randomUUID } from "node:crypto";
+import { runAs } from "../request-path/turn-scope.js";
 import { errMsg } from "../utils/error.js";
 import { getEnabledHooks } from "./hooks.store.js";
 import { recordHookExecution } from "./hook-executions.store.js";
@@ -185,6 +187,8 @@ export async function runHooks(
     // to the web + SSE, out of scope) but post-cutover it holds the function name.
     const toolName = hook.actionConfig.functionName ?? "";
     const started = Date.now();
+    // The run's id, known before it runs, so what it asks the model nests under it.
+    const runId = randomUUID();
     let success = true;
     let error: string | undefined;
     // Input/output reported incrementally by the executor — args land before
@@ -202,7 +206,11 @@ export async function runHooks(
       state: ctx.state ? fenceState(ctx.state, signal, label) : ctx.state,
     };
     try {
-      await withTimeout(executor.execute(hook, payload, hookCtx, capture), hook.timeoutMs, label, expiry);
+      await runAs(
+        { kind: "hook", name: toolName, runId },
+        () => withTimeout(executor.execute(hook, payload, hookCtx, capture), hook.timeoutMs, label, expiry),
+        ctx.turn,
+      );
     } catch (err) {
       success = false;
       error = errMsg(err);
@@ -228,6 +236,9 @@ export async function runHooks(
     // a failed insert never affects the run. It used to be written to the tool
     // audit log as well, where hook rows outnumbered the tool calls.
     recordHookExecution({
+      id: runId,
+      messageId: ctx.turn?.messageId,
+      startedAt: new Date(started),
       instanceId: ctx.instanceId,
       conversationId: ctx.conversationId,
       hookId: hook.id,

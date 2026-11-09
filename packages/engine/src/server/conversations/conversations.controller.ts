@@ -22,6 +22,7 @@ import { callerTenantScope } from "../utils/caller-tenant-scope.js";
 import type { TenantScope } from "../../authz/scope-filter.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { readExchanges } from "../../request-path/request-path.store.js";
 
 /** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -188,6 +189,28 @@ export class ConversationsController {
     const debug = await conversationStore.getMessageDebug(id, messageId);
     if (!debug) throw new NotFoundException(`Message not found: ${messageId}`);
     return debug;
+  }
+
+  // GET /api/conversations/:conversationId/messages/:messageId/debug/calls/:callId/exchanges
+  // — the raw requests one model call of the turn sent the provider, and the
+  // answers, kept while the agent's debug flag was on. Fetched when the call's
+  // row is opened: the bodies are whole prompts. Empty for a call not filed
+  // under this message.
+  @RequirePermission(Permission.CONVERSATION_READ)
+  @Get(":conversationId/messages/:messageId/debug/calls/:callId/exchanges")
+  async getCallExchanges(
+    @Param("conversationId") conversationId: string,
+    @Param("messageId") messageId: string,
+    @Param("callId") callId: string,
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    const uid = requireInstanceId(instanceId);
+    if (!UUID_RE.test(messageId)) throw new BadRequestException("messageId must be a UUID");
+    if (!UUID_RE.test(callId)) throw new BadRequestException("callId must be a UUID");
+    const id = decodeURIComponent(conversationId);
+    await loadConversationScoped(id, uid, await callerTenantScope(user));
+    return { exchanges: await readExchanges(id, messageId, callId) };
   }
 
   // GET /api/conversations/:conversationId/hooks — lifecycle hook execution

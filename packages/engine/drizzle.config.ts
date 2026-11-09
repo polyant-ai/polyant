@@ -71,6 +71,7 @@ export default defineConfig({
     "./src/auth/management-api-keys.schema.ts",
     "./src/conversations/principal-secrets.schema.ts",
     "./src/hooks/hooks.schema.ts",
+    "./src/request-path/exchanges.schema.ts",
     "./src/instances/mcp-servers.schema.ts",
     "./src/management-audit/management-audit.schema.ts",
     "./src/platform/platform-settings.schema.ts",

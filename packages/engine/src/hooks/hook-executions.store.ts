@@ -38,6 +38,10 @@ export interface RecordHookExecutionInput {
   durationMs: number;
   args?: Record<string, unknown>;
   result?: string;
+  /** Set up front so a model call the hook made can point at this run (request path). */
+  id?: string;
+  messageId?: string;
+  startedAt?: Date;
 }
 
 function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
@@ -61,6 +65,9 @@ function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
 /** Insert one execution record. The runner calls this fire-and-forget. */
 export async function recordHookExecution(input: RecordHookExecutionInput): Promise<void> {
   await db.insert(hookExecutions).values({
+    ...(input.id ? { id: input.id } : {}),
+    messageId: input.messageId ?? null,
+    startedAt: input.startedAt ?? null,
     instanceId: input.instanceId,
     conversationId: input.conversationId,
     hookId: input.hookId,

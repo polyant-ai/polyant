@@ -48,6 +48,9 @@ export const hookExecutions = pgTable(
     args: jsonb("args").$type<Record<string, unknown>>(),
     /** Tool result, JSON-stringified and truncated. */
     result: text("result"),
+    /** The assistant message of the turn the run belongs to, and when it started (request path). */
+    messageId: uuid("message_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -55,5 +58,6 @@ export const hookExecutions = pgTable(
     index("idx_hook_executions_instance").on(table.instanceId),
     // The cleanup deletes by age.
     index("idx_hook_executions_created").on(table.createdAt),
+    index("idx_hook_executions_message").on(table.messageId),
   ],
 );
