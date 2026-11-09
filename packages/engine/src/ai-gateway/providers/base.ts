@@ -11,6 +11,7 @@ import type { StepMarkerInput } from "./prompt-caching.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
 import { classifyProviderError } from "../logger.js";
+import { callTimeline, exchangeRecorder, type CallTimeline, type ExchangeRecorder } from "./call-trace.js";
 
 const log = createLogger();
 
@@ -138,6 +139,8 @@ interface SdkStep {
   usage?: MappedUsage;
   /** The provider reported that this step's model call ran in fast mode. */
   fast?: boolean;
+  /** How long the step waited for the model (SDK `performance.responseTimeMs`). */
+  responseTimeMs?: number;
 }
 
 /**
@@ -430,6 +433,9 @@ function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
       finishReason: typeof s.finishReason === "string" ? s.finishReason : undefined,
       usage: mapUsage(s.usage),
       ...(ranFast(s.providerMetadata) ? { fast: true } : {}),
+      ...(typeof (s.performance as { responseTimeMs?: unknown } | undefined)?.responseTimeMs === "number"
+        ? { responseTimeMs: (s.performance as { responseTimeMs: number }).responseTimeMs }
+        : {}),
     };
   });
 }
@@ -485,9 +491,10 @@ function normaliseReasoningDetails(details: unknown[] | undefined): ReasoningDet
  * proportionally across steps (the SDK does not expose per-step timing in
  * v4); for single-step responses this collapses to the full duration.
  */
-export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetail[] {
+export function buildSteps(steps: SdkStep[], totalDurationMs: number, timeline?: CallTimeline): StepDetail[] {
   if (steps.length === 0) return [];
   const perStepDuration = Math.max(0, Math.floor(totalDurationMs / steps.length));
+  const iso = (ms: number | undefined) => (ms === undefined ? undefined : new Date(ms).toISOString());
 
   return steps.map((s, i) => {
     const reasoning = normaliseReasoningDetails(s.reasoningDetails);
@@ -495,13 +502,21 @@ export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetai
       index: i,
       stepType: (s.stepType as StepDetail["stepType"]) ?? "initial",
       text: s.text ?? "",
-      toolCalls: (s.toolCalls ?? []).map((tc) => ({
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        args: tc.args as Record<string, unknown>,
-      })),
+      toolCalls: (s.toolCalls ?? []).map((tc) => {
+        const run = timeline?.toolRuns.get(tc.toolCallId);
+        return {
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args as Record<string, unknown>,
+          ...(run ? { startedAt: iso(run.startedAt) } : {}),
+          ...(run?.durationMs !== undefined ? { durationMs: run.durationMs } : {}),
+        };
+      }),
       finishReason: s.finishReason ?? "stop",
-      durationMs: perStepDuration,
+      // The SDK's own measure of the model request when it reports one; the
+      // even share of the call's time otherwise (older SDKs, tests).
+      durationMs: s.responseTimeMs !== undefined ? Math.round(s.responseTimeMs) : perStepDuration,
+      ...(timeline?.stepStarts[i] !== undefined ? { startedAt: iso(timeline.stepStarts[i]) } : {}),
     };
     if (s.toolResults && s.toolResults.length > 0) {
       detail.toolResults = s.toolResults.map((tr) => ({
@@ -538,8 +553,9 @@ function buildChatResponse(
   durationMs: number,
   modelId: string,
   providerName: string,
+  timeline?: CallTimeline,
 ): ChatResponse {
-  const steps = buildSteps(rawSteps, durationMs);
+  const steps = buildSteps(rawSteps, durationMs, timeline);
   const { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens, cacheCreation5mInputTokens } =
     buildUsage(usage, rawSteps);
 
@@ -900,6 +916,7 @@ function requestMiddleware(
   modelId: string,
   observer: RequestObserver,
   deadline: RequestDeadline | undefined,
+  exchanges?: ExchangeRecorder,
 ): LanguageModelMiddleware {
   let lastFailure: unknown;
   const attempt = async <T>(params: { prompt: unknown; tools?: unknown }, run: () => PromiseLike<T>): Promise<T> => {
@@ -907,14 +924,17 @@ function requestMiddleware(
       log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
     }
     observer.requestStarted(params);
+    exchanges?.begin(lastFailure !== undefined, params);
     deadline?.start();
     try {
       const result = await run();
       lastFailure = undefined;
+      exchanges?.answered(result);
       return result;
     } catch (err) {
       lastFailure = err;
       observer.requestFailed(err);
+      exchanges?.failed(err);
       throw err;
     } finally {
       deadline?.stop();
@@ -1001,13 +1021,16 @@ export function createProvider(
     const prepareStep =
       request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId, request.cacheConfig?.userTurn);
     const completed = completedCallsUsage();
+    const timeline = callTimeline();
+    // Only while the agent's debug flag is on: the request is the prompt.
+    const exchanges = request.captureExchanges ? exchangeRecorder() : undefined;
     const deadline = request.requestTimeoutMs !== undefined ? requestDeadline(request.requestTimeoutMs) : undefined;
     const abortSignal = deadline && request.abortSignal ? AbortSignal.any([request.abortSignal, deadline.signal]) : (deadline?.signal ?? request.abortSignal);
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
       model: wrapLanguageModel({
         model: createModel(modelId, request.apiKeys),
-        middleware: requestMiddleware(providerName, modelId, completed.requests, deadline),
+        middleware: requestMiddleware(providerName, modelId, completed.requests, deadline, exchanges),
       }),
       instructions,
       messages,
@@ -1019,11 +1042,14 @@ export function createProvider(
       ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
       ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
+      onStepStart: timeline.onStepStart,
+      onToolExecutionStart: timeline.onToolExecutionStart,
+      onToolExecutionEnd: timeline.onToolExecutionEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
       ...temperatureCallParam(providerName, modelId, request),
     });
-    return { instructions, messages, completed, args };
+    return { instructions, messages, completed, timeline, exchanges, args };
   };
 
   return {
@@ -1032,11 +1058,12 @@ export function createProvider(
     async chat(request: ChatRequest, modelId: string): Promise<ChatResponse> {
       const start = Date.now();
 
-      const { instructions, messages, completed, args } = callSetup(request, modelId);
+      const { instructions, messages, completed, timeline, exchanges, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
+        exchanges?.pinTo(err);
         throw err;
       });
 
@@ -1053,8 +1080,10 @@ export function createProvider(
         Date.now() - start,
         modelId,
         providerName,
+        timeline,
       );
       if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+      if (exchanges) response.exchanges = exchanges.list;
       const responseMessages = await responseMessagesOf(result);
       if (responseMessages) response.responseMessages = responseMessages;
       return response;
@@ -1066,7 +1095,7 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { instructions, messages, completed, args } = callSetup(request, modelId);
+      const { instructions, messages, completed, timeline, exchanges, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedStreamText(args()),
       );
@@ -1086,7 +1115,8 @@ export function createProvider(
           try {
             const finalText = await result.text;
             const finalUsage = await cumulativeUsage(result);
-            const steps = normalizeSdkSteps(await result.steps);
+            const sdkSteps = await result.steps;
+            const steps = normalizeSdkSteps(sdkSteps);
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
             const topReasoning = await finalStepReasoningAsync(result);
             const response = buildChatResponse(
@@ -1097,8 +1127,13 @@ export function createProvider(
               Date.now() - start,
               modelId,
               providerName,
+              timeline,
             );
             if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+            if (exchanges) {
+              exchanges.fillFromSteps(sdkSteps);
+              response.exchanges = exchanges.list;
+            }
             const responseMessages = await responseMessagesOf(result);
             if (responseMessages) response.responseMessages = responseMessages;
             return response;
@@ -1106,6 +1141,7 @@ export function createProvider(
             // Stream-time provider errors surface here (not at the initial await).
             logProviderError(providerName, modelId, err, { system: instructions, messages, abortSignal: request.abortSignal });
             completed.pinTo(err);
+            exchanges?.pinTo(err);
             throw err;
           }
         })(),

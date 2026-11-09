@@ -2,6 +2,7 @@
 
 import type { ModelMessage, Tool } from "ai";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import type { ModelExchange } from "./providers/call-trace.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
@@ -109,6 +110,12 @@ export interface ChatRequest {
    */
   captureDebug?: boolean;
   /**
+   * When true, the provider keeps every request it sends and what came back
+   * (`ChatResponse.exchanges`). The gateway sets it while the agent's debug
+   * flag is on; the bodies hold the prompt.
+   */
+  captureExchanges?: boolean;
+  /**
    * Per-instance prompt-cache control. `enabled: false` skips ALL cache markers
    * (Anthropic `cacheControl` / Bedrock `cachePoint`), so the provider never pays
    * a cache write; `ttl` selects the cross-turn Anthropic breakpoint TTL. Undefined
@@ -127,6 +134,8 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
+  /** Each request the call sent the provider and its answer; only with `captureExchanges`. */
+  exchanges?: ModelExchange[];
   text: string;
   /**
    * Multi-step tool loop. Empty array → no tools were used. Each step records
@@ -257,6 +266,14 @@ export interface AILogEntry {
   /** What a service call was for (see {@link ServicePurpose}). Absent on other calls. */
   purpose?: ServicePurpose;
   createdAt?: Date;
+  /** The assistant message of the turn the call belongs to (request path). */
+  messageId?: string;
+  /** When the call started. */
+  startedAt?: Date;
+  /** For a call a hook or a tool made: the hook function or tool name. */
+  originName?: string;
+  /** For a call a hook or a tool made: the hook run id or the tool call id. */
+  parentRef?: string;
   /**
    * Whether the provider call returned ("ok"), died before returning ("error"),
    * or was preempted by its caller after some model calls had been billed

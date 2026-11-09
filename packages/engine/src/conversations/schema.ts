@@ -80,7 +80,8 @@ export interface StepDetail {
   index: number;
   stepType: "initial" | "continue" | "tool-result";
   text: string;
-  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  /** Each tool call, with when its run started and how long it took (request path; absent on older rows). */
+  toolCalls: { toolCallId: string; toolName: string; args: unknown; startedAt?: string; durationMs?: number }[];
   toolResults?: { toolCallId: string; result: unknown }[];
   reasoning?: ReasoningDetail[];
   finishReason: string;
@@ -97,6 +98,8 @@ export interface StepDetail {
   /** The provider reported that this step's model call ran in fast mode. */
   fast?: boolean;
   durationMs: number;
+  /** When the step's model request started (ISO); absent on rows written before the request path. */
+  startedAt?: string;
   legacy?: boolean;
 }
 

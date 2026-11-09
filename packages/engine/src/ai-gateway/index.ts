@@ -6,7 +6,11 @@ import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./p
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { buildBedrockReasoningOffOptions, buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { getProviderAdapter } from "./providers/registry.js";
+import { randomUUID } from "node:crypto";
 import { usageCompletedBeforeFailure } from "./providers/base.js";
+import { exchangesOf } from "./providers/call-trace.js";
+import { currentTurn } from "../request-path/turn-scope.js";
+import { recordExchanges } from "../request-path/exchange.store.js";
 import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
 import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
@@ -192,6 +196,12 @@ export type ChatCallOptions = ChatCallContext &
 
 interface ChatCallContext {
   conversationId?: string;
+  /**
+   * The assistant message of the turn the call belongs to. The agent's own
+   * calls pass it; any other call inside a turn takes it from the turn scope
+   * (request-path/turn-scope.ts).
+   */
+  messageId?: string;
   instanceId?: InstanceSlug;
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
@@ -251,7 +261,8 @@ function logAndRecordUsage(
   config: { providerName: string; modelId: string },
   request: ChatRequest,
   response: ChatResponse,
-  options?: ChatCallOptions,
+  options: ChatCallOptions | undefined,
+  path: CallPath,
 ): void {
   rememberCachedPrefix(cachedPrefixKey(config.modelId, options), response);
   pipelineLog.llmResponse(
@@ -275,7 +286,7 @@ function logAndRecordUsage(
   response.thinking = request.thinking ?? false;
   response.temperature = request.temperature;
 
-  aiLogger.log(withPurpose(
+  aiLogger.log(withPath(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
@@ -295,12 +306,50 @@ function logAndRecordUsage(
       response.usage.cacheCreationInputTokens,
     ),
     options,
-  ));
+  ), path));
+  keepExchanges(path, options, response.exchanges);
 }
 
 /** A row with the purpose of the service call it records, when the caller named one. */
 function withPurpose(entry: AILogEntry, options: ChatCallOptions | undefined): AILogEntry {
   return options?.purpose ? { ...entry, purpose: options.purpose } : entry;
+}
+
+/**
+ * Where a call sits in its turn's request path: its row id (set up front so the
+ * exchanges can point at it), the turn's message, when it started, and the hook
+ * or tool run that made it.
+ */
+interface CallPath {
+  id: string;
+  startedAt: Date;
+  messageId?: string;
+  originName?: string;
+  parentRef?: string;
+  captureExchanges: boolean;
+}
+
+function callPath(request: ChatRequest, options: ChatCallOptions | undefined, startedAt: number): CallPath {
+  const scope = currentTurn();
+  const origin = scope?.origin;
+  const messageId = options?.messageId ?? scope?.messageId;
+  return {
+    id: randomUUID(),
+    startedAt: new Date(startedAt),
+    ...(messageId ? { messageId } : {}),
+    ...(origin ? { originName: origin.name, parentRef: origin.kind === "hook" ? origin.runId : origin.toolCallId } : {}),
+    captureExchanges: request.captureDebug === true || scope?.debug === true,
+  };
+}
+
+function withPath(entry: AILogEntry, path: CallPath): AILogEntry {
+  const { captureExchanges: _, ...fields } = path;
+  return { ...entry, ...fields };
+}
+
+function keepExchanges(path: CallPath, options: ChatCallOptions | undefined, exchanges: ChatResponse["exchanges"]): void {
+  if (!exchanges?.length) return;
+  recordExchanges(path.id, { messageId: path.messageId, conversationId: options?.conversationId, instanceId: options?.instanceId }, exchanges);
 }
 
 /** The provider's price of a usage, as the success path prices a response. */
@@ -363,19 +412,21 @@ function logFailedCall(
   err: unknown,
   options: ChatCallOptions | undefined,
   durationMs: number,
+  path: CallPath,
 ): void {
   const usage = usageCompletedBeforeFailure(err);
   const signal = request.abortSignal;
   const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
   const aborted = signal?.aborted === true && !timedOut;
   if (aborted && !usage) return;
+  keepExchanges(path, options, exchangesOf(err));
   const errorKind = aborted ? null : timedOut ? "timeout" : classifyProviderError(err);
   // Aborted or timed out, the call in flight had the prompt and was billed for it.
   const billedInFlight = aborted || errorKind === "timeout";
   const inFlight = billedInFlight && usage?.inFlight ? inFlightCall(usage.inFlight.promptTokens, cachedPrefixKey(config.modelId, options)) : undefined;
   const cost = (usage ? costOfUsage(config, usage) : 0) + (inFlight ? costOfUsage(config, inFlight) : 0);
   const promptTokens = (usage?.promptTokens ?? 0) + (inFlight?.promptTokens ?? 0);
-  aiLogger.log(withPurpose(
+  aiLogger.log(withPath(withPurpose(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
@@ -397,7 +448,7 @@ function logFailedCall(
       aborted ? (inFlight ? "in_flight" : null) : errorKind,
     ),
     options,
-  ));
+  ), path));
 }
 
 /** The usage of a model call aborted in flight: its estimated prompt, read from cache up to the conversation's cached prefix. */
@@ -459,11 +510,12 @@ export async function chat(
 ): Promise<ChatResponse> {
   const config = resolveCallConfig(request, options);
   const callStartedAt = Date.now();
+  const path = callPath(request, options, callStartedAt);
 
   let response: ChatResponse;
   try {
     response = await config.provider.chat(
-      providerRequest(request, config, { streamed: false, service: options?.callType === "service" }),
+      { ...providerRequest(request, config, { streamed: false, service: options?.callType === "service" }), captureExchanges: path.captureExchanges },
       config.modelId,
     );
   } catch (err) {
@@ -471,11 +523,11 @@ export async function chat(
     // the provider, and a thrown error here skips the success log below
     // entirely (no retry loop wraps this — a caller that retries makes a new
     // chat() call, which is correctly a new event).
-    logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+    logFailedCall(config, request, err, options, Date.now() - callStartedAt, path);
     throw err;
   }
 
-  logAndRecordUsage(config, request, response, options);
+  logAndRecordUsage(config, request, response, options, path);
 
   // Replay the response steps onto the ActivityBus as a one-shot batch so
   // non-streaming callers (room-engine, webhook-engine, scheduled-tasks)
@@ -501,6 +553,7 @@ export async function chatStream(
 ): Promise<ChatStreamResult> {
   const config = resolveCallConfig(request, options);
   const callStartedAt = Date.now();
+  const path = callPath(request, options, callStartedAt);
 
   if (!config.provider.chatStream) {
     throw new Error(`Provider "${config.providerName}" does not support streaming`);
@@ -509,13 +562,13 @@ export async function chatStream(
   let stream: ChatStreamResult;
   try {
     stream = await config.provider.chatStream(
-      providerRequest(request, config, { streamed: true, service: options?.callType === "service" }),
+      { ...providerRequest(request, config, { streamed: true, service: options?.callType === "service" }), captureExchanges: path.captureExchanges },
       config.modelId,
     );
   } catch (err) {
     // Same exactly-once reasoning as chat(): the request-time failure (before
     // any stream is established) is the only provider call chatStream() makes.
-    logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+    logFailedCall(config, request, err, options, Date.now() - callStartedAt, path);
     throw err;
   }
 
@@ -524,11 +577,11 @@ export async function chatStream(
   // exclusive — never both, so still exactly one row for this call.
   const wrappedResponse = stream.response
     .then((response) => {
-      logAndRecordUsage(config, request, response, options);
+      logAndRecordUsage(config, request, response, options, path);
       return response;
     })
     .catch((err) => {
-      logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+      logFailedCall(config, request, err, options, Date.now() - callStartedAt, path);
       throw err;
     });
 
