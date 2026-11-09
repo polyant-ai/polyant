@@ -143,4 +143,21 @@ describe("background turns", () => {
     release.resolve();
     await Promise.all(extractions);
   });
+
+  it("runs a queued job in the context it was queued from, not the one of the job that freed its slot", async () => {
+    const { AsyncLocalStorage } = await import("node:async_hooks");
+    const turn = new AsyncLocalStorage<string>();
+    const limit = backgroundJobLimit("memory");
+    const blockers = Array.from({ length: limit }, () => deferred());
+    const running = blockers.map((b, i) => turn.run(`blocker-${i}`, () => runBackgroundJob("memory", () => b.promise)));
+    let seen: string | undefined;
+    const queued = turn.run("queued-turn", () =>
+      runBackgroundJob("memory", async () => {
+        seen = turn.getStore();
+      }),
+    );
+    blockers.forEach((b) => b.resolve());
+    await Promise.all([...running, queued]);
+    expect(seen).toBe("queued-turn");
+  });
 });

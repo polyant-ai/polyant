@@ -9,7 +9,7 @@
 
 import { randomUUID } from "node:crypto";
 import { currentTurn } from "./request-path/turn-scope.js";
-import { joinStepTexts, type IntermediateTextPolicy } from "./ai-gateway/intermediate-text.js";
+import { deliveredText } from "./ai-gateway/intermediate-text.js";
 import type { ModelMessage } from "ai";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
@@ -831,21 +831,6 @@ export async function runPipelinePre(
 // ---------------------------------------------------------------------------
 // runPipelinePost — trace recording + persistence
 // ---------------------------------------------------------------------------
-
-/**
- * What the channel received. A buffered reply is the persisted text. A stream
- * with no intermediate-text policy, or with `progress`, let every step's text
- * through as it arrived, while the reply keeps only the last step's.
- */
-export function deliveredText(
-  policy: IntermediateTextPolicy | null | undefined,
-  streamed: boolean,
-  steps: readonly StepDetail[] | undefined,
-  reply: string,
-): string {
-  if (!streamed || policy === "discard" || policy === "reply" || !steps?.length) return reply;
-  return joinStepTexts(steps);
-}
 
 export interface PipelinePostOptions {
   ctx: PipelineContext;

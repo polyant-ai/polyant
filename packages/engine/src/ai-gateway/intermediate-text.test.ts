@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from "vitest";
-import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "./intermediate-text.js";
+import { applyIntermediateTextPolicy, deliveredText, replyTextFor, textDeltas } from "./intermediate-text.js";
 
 /** A two-step turn: a greeting written alongside a tool call, then the answer. */
 function toolTurn(): unknown[] {
@@ -155,5 +155,23 @@ describe("stream and stored reply agree", () => {
 
   it("keeps each step's whitespace under reply", () => {
     expect(replyTextFor("reply", "", [{ text: "  a\n" }, { text: "" }, { text: "\n    b" }])).toBe("  a\n\n\n\n    b");
+  });
+});
+
+describe("deliveredText", () => {
+  const steps = [{ text: "Checking." }, { text: "" }, { text: "Done." }];
+
+  it("is the reply on a buffered channel, whatever the policy", () => {
+    expect(deliveredText(null, false, steps, "Done.")).toBe("Done.");
+  });
+
+  it("is every step's text on a stream with no policy or with progress", () => {
+    expect(deliveredText(null, true, steps, "Done.")).toBe("Checking.\n\nDone.");
+    expect(deliveredText("progress", true, steps, "Done.")).toBe("Checking.\n\nDone.");
+  });
+
+  it("is the reply on a stream the policy filters", () => {
+    expect(deliveredText("discard", true, steps, "Done.")).toBe("Done.");
+    expect(deliveredText("reply", true, steps, "Checking.\n\nDone.")).toBe("Checking.\n\nDone.");
   });
 });
