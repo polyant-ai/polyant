@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "reflect-metadata";
-import { randomUUID } from "crypto";
 import { newTurn, runInTurn } from "./request-path/turn-scope.js";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
