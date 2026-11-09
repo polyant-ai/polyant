@@ -316,7 +316,7 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* Wide: the request path is a table with a time axis. */}
-      <SheetContent side="right" className="gap-0 overflow-hidden sm:max-w-[min(90rem,92vw)]">
+      <SheetContent side="right" size="wide" className="gap-0 overflow-hidden">
         {target && <DebugSheetBody target={target} />}
       </SheetContent>
     </Sheet>

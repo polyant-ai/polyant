@@ -65,6 +65,7 @@ const TABLES_NOT_EXPORTED: Record<string, string> = {
   pipeline_traces: "Runtime telemetry.",
   tool_audit_logs: "Runtime audit.",
   hook_executions: "Runtime audit.",
+  model_exchanges: "Raw model exchanges captured under debug, cleared after the debug retention.",
   scheduled_task_runs: "Run history of the tasks the bundle does carry.",
   event_backlog: "Events still queued against the source deployment.",
   webhook_deliveries: "Delivery keys the source deployment saw in the last day.",
