@@ -34,10 +34,15 @@ export function runInTurn<T>(scope: TurnScope, fn: () => T): T {
   return storage.run(scope, fn);
 }
 
-/** Run `fn` as the given hook or tool run of the current turn; outside a turn, just run it. */
-export function runAs<T>(origin: TurnOrigin, fn: () => T): T {
-  const scope = storage.getStore();
-  return scope ? storage.run({ ...scope, origin }, fn) : fn();
+/**
+ * Run `fn` as the given hook or tool run. The turn is the one passed, or the
+ * current one: a tool runs from inside the SDK's loop, which a streamed turn
+ * drives from the reader's context, so its caller passes the turn explicitly.
+ * Outside any turn, `fn` just runs.
+ */
+export function runAs<T>(origin: TurnOrigin, fn: () => T, turn?: Omit<TurnScope, "origin">): T {
+  const scope = turn ?? storage.getStore();
+  return scope ? storage.run({ messageId: scope.messageId, debug: scope.debug, origin }, fn) : fn();
 }
 
 export function currentTurn(): TurnScope | undefined {

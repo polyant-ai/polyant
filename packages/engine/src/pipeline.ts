@@ -8,6 +8,8 @@
 // ---------------------------------------------------------------------------
 
 import { randomUUID } from "node:crypto";
+import { currentTurn } from "./request-path/turn-scope.js";
+import { joinStepTexts, type IntermediateTextPolicy } from "./ai-gateway/intermediate-text.js";
 import type { ModelMessage } from "ai";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
@@ -140,6 +142,12 @@ const FOLD_READ_MAX = 200;
 
 export interface PipelineContext {
   pipelineStart: number;
+  /**
+   * The id the turn's assistant message is saved under, known from the start
+   * so every model call, hook run and tool run of the turn can point at it
+   * (the request path). Taken from the turn scope the handler entered.
+   */
+  messageId: string;
   instanceId: InstanceSlug;
   conversationId: string;
   conversationSummary: string | undefined;
@@ -211,6 +219,13 @@ export async function preparePipeline(
   // then the history; the config and the state meanwhile. Automated tasks
   // (e.g. Open WebUI title/tag generation) read the row without creating it.
   const instanceConfigPromise = resolveInstanceConfig(instanceId);
+  // The handler entered the turn scope; outside one (a direct caller), the id is new.
+  const scope = currentTurn();
+  const messageId = scope?.messageId ?? randomUUID();
+  // Model calls of the turn keep their raw exchanges while the agent debugs.
+  void instanceConfigPromise.then((config) => {
+    if (scope) scope.debug = config.debugEnabled;
+  }, () => undefined);
   const turnPromise = conversationStore
     .openConversationTurn(
       conversationId,
@@ -354,6 +369,7 @@ export async function preparePipeline(
 
   return {
     pipelineStart,
+    messageId,
     instanceId,
     conversationId,
     conversationSummary,
@@ -432,6 +448,7 @@ function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): H
     },
     state: ctx.stateBuffer?.api(),
     abortSignal,
+    turn: { messageId: ctx.messageId, debug: ctx.instanceConfig.debugEnabled },
   };
 }
 
@@ -815,6 +832,21 @@ export async function runPipelinePre(
 // runPipelinePost — trace recording + persistence
 // ---------------------------------------------------------------------------
 
+/**
+ * What the channel received. A buffered reply is the persisted text. A stream
+ * with no intermediate-text policy, or with `progress`, let every step's text
+ * through as it arrived, while the reply keeps only the last step's.
+ */
+export function deliveredText(
+  policy: IntermediateTextPolicy | null | undefined,
+  streamed: boolean,
+  steps: readonly StepDetail[] | undefined,
+  reply: string,
+): string {
+  if (!streamed || policy === "discard" || policy === "reply" || !steps?.length) return reply;
+  return joinStepTexts(steps);
+}
+
 export interface PipelinePostOptions {
   ctx: PipelineContext;
   contextPrepMs: number;
@@ -828,6 +860,8 @@ export interface PipelinePostOptions {
   debugPayload?: LlmDebugPayload;
   /** Pre-generated assistant message UUID (streaming path), so the persisted id matches the one echoed to the client. */
   assistantMessageId?: string;
+  /** When the reply was handed to the channel, when that is before this call (a stream). Default: now. */
+  replySentAt?: number;
   toolCallTraces?: ToolCallTrace[];
   usage: {
     promptTokens: number;
@@ -937,7 +971,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       steps: opts.steps,
       reasoning: opts.reasoning,
       debugPayload: opts.debugPayload,
-      assistantMessageId: opts.assistantMessageId,
+      assistantMessageId: opts.assistantMessageId ?? ctx.messageId,
       // Copied to the agent's bucket only when the agent opted in. The model
       // already had them inline; this decides whether they are kept.
       userAttachments: ctx.instanceConfig.attachmentStorageEnabled ? ctx.userAttachments : undefined,
@@ -957,9 +991,14 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     if (!isAutoTask(opts.messageText)) {
       const sttFields = extractSttFields(ctx.inboundMetadata);
       const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
+      const delivered = deliveredText(ctx.instanceConfig.intermediateText, opts.isStreaming, opts.steps, finalText);
       traceStore.record({
         conversationId: ctx.conversationId,
-        messageId: opts.assistantMessageId,
+        messageId: opts.assistantMessageId ?? ctx.messageId,
+        turnStartedAt: new Date(ctx.pipelineStart),
+        replySentAt: new Date(opts.replySentAt ?? Date.now()),
+        deliveredText: delivered === finalText ? null : delivered,
+        intermediateText: ctx.instanceConfig.intermediateText ?? null,
         instanceId: ctx.instanceId,
         channel: opts.channel,
         contextPrepMs: opts.contextPrepMs,

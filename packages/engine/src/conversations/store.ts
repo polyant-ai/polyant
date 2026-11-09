@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { modelExchanges } from "../request-path/exchanges.schema.js";
 import type { ModelMessage } from "ai";
 import { db, type DbTransaction } from "../database/client.js";
 import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ExactReplay, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
@@ -1520,6 +1521,10 @@ export class ConversationStore {
       await tx
         .delete(hookExecutions)
         .where(eq(hookExecutions.conversationId, conversationId));
+      // Raw model exchanges (debug): the prompts of the conversation.
+      await tx
+        .delete(modelExchanges)
+        .where(eq(modelExchanges.conversationId, conversationId));
       // Memories extracted from this conversation: drop them too, so deleting a
       // conversation leaves no derived facts behind (right-to-be-forgotten).
       await tx

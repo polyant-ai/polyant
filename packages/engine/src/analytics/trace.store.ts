@@ -44,6 +44,14 @@ export interface PipelineTraceEntry {
   parentConversationId?: string;
   /** For agent-to-agent calls: the trace ID of the calling agent's pipeline run. */
   parentTraceId?: string;
+  /** Request path: when the engine took the message up (t0). */
+  turnStartedAt?: Date;
+  /** Request path: when the reply was handed to the channel. */
+  replySentAt?: Date;
+  /** Request path: the text the channel received, when it differs from the persisted reply. */
+  deliveredText?: string | null;
+  /** The agent's intermediate-text policy for the turn; null when none was set. */
+  intermediateText?: string | null;
 }
 
 class TraceStore {

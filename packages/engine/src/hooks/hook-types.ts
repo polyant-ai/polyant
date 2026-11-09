@@ -75,6 +75,8 @@ export interface HookRunContext {
   state?: ConversationStateApi;
   /** Pipeline abort signal — remaining hooks are skipped once aborted. */
   abortSignal?: AbortSignal;
+  /** The turn the hooks run in: their runs, and what they ask the model, are filed under it (request path). */
+  turn?: { messageId: string; debug: boolean };
 }
 
 /** A hydrated `instance_hooks` row. */

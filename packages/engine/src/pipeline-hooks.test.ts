@@ -50,6 +50,7 @@ vi.mock("./hooks/hook-runner.js", () => ({
 function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
   return {
     pipelineStart: 0,
+    messageId: "00000000-0000-4000-8000-000000000001",
     instanceId: asInstanceSlug("demo"),
     conversationId: "demo:whatsapp:+39",
     conversationSummary: undefined,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ModelMessage, Tool, UserContent } from "ai";
+import { runAs } from "../../request-path/turn-scope.js";
 import { tool as aiTool } from "ai";
 import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
@@ -98,6 +99,8 @@ export interface SupervisorInput {
   toolGate?: (toolName: string) => boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
+  /** The id the turn's assistant message is saved under; the agent's model calls are filed under it (request path). */
+  messageId?: string;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
   includeHarness?: Set<string>;
   /** Attachments from the current user message (images, files, etc.). */
@@ -216,6 +219,8 @@ interface SupervisorSignals {
   replyTexts: string[];
   /** The channel's veto, asked by every tool wrapper right before the tool runs. */
   toolGate?: (toolName: string) => boolean;
+  /** The turn the tools run in, so what a tool asks the model is filed under its run (request path). */
+  turn?: { messageId: string; debug: boolean };
 }
 
 /** What the model reads for a tool the channel stopped: the turn was cut short before it ran. */
@@ -257,7 +262,7 @@ export function wrapToolWithAudit(
   return aiTool({
     description: original.description ?? "",
     inputSchema: original.inputSchema as never,
-    execute: async (params: any) => {
+    execute: async (params: any, options?: { toolCallId?: string }) => {
       const toolStart = Date.now();
       const emitToolEnd = emitToolStart({ toolName: name, args: params, conversationId, instanceSlug: instanceId });
 
@@ -270,7 +275,9 @@ export function wrapToolWithAudit(
 
       const auditCall = auditStore.beginToolCall(name, instanceId);
       try {
-        const output = await auditCall.run(() => originalExecute(params));
+        const run = () => auditCall.run(() => originalExecute(params));
+        const toolCallId = options?.toolCallId;
+        const output = await (toolCallId ? runAs({ kind: "tool", name, toolCallId }, run, signals?.turn) : run());
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
@@ -577,7 +584,12 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   }
 
   const toolCallTraces: ToolCallTrace[] = [];
-  const signals: SupervisorSignals = { replyHandled: false, replyTexts: [], ...(input.toolGate ? { toolGate: input.toolGate } : {}) };
+  const signals: SupervisorSignals = {
+    replyHandled: false,
+    replyTexts: [],
+    ...(input.toolGate ? { toolGate: input.toolGate } : {}),
+    ...(input.messageId ? { turn: { messageId: input.messageId, debug: input.debugEnabled ?? false } } : {}),
+  };
   const toolBuildStart = Date.now();
   const tools = await buildTools({
     instanceId: instanceSlug,
@@ -715,6 +727,7 @@ function buildChatArgs(
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
       agentCallMetadata: input.agentCallMetadata,
+      ...(input.messageId ? { messageId: input.messageId } : {}),
     },
   ];
 }

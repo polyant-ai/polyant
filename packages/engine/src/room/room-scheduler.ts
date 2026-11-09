@@ -90,7 +90,7 @@ class RoomScheduler {
               `${result.aiLogsDeleted} ai_logs, ${result.pipelineTracesDeleted} pipeline_traces, ` +
               `${result.toolAuditLogsDeleted} tool_audit_logs, ${result.hookExecutionsDeleted} hook_executions, ` +
               `${result.scheduledTaskRunsDeleted} scheduled_task_runs, ${result.eventBacklogDeleted} event_backlog, ` +
-              `${result.webhookDeliveriesDeleted} webhook_deliveries`,
+              `${result.webhookDeliveriesDeleted} webhook_deliveries, ${result.modelExchangesDeleted} model_exchanges`,
           );
         })
         .catch((err) => roomLog.error("Scheduler", "analytics cleanup failed", err));
