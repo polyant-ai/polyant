@@ -40,7 +40,7 @@ export function callTimeline(): CallTimeline & {
     },
     onToolExecutionEnd: ({ toolCall, toolExecutionMs }) => {
       const run = toolRuns.get(toolCall.toolCallId);
-      if (run) run.durationMs = toolExecutionMs;
+      if (run) run.durationMs = Math.round(toolExecutionMs);
     },
   };
 }

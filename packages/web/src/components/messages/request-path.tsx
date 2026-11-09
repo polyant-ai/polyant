@@ -50,7 +50,7 @@ function useClock(): TurnClock {
   return clock;
 }
 
-const GRID = "grid grid-cols-[1rem_minmax(0,1fr)_11.5rem_4.5rem_7rem_4rem_7rem_4.5rem_2.25rem] items-center gap-x-3";
+const GRID = "grid grid-cols-[1rem_minmax(0,1fr)_11.5rem_4.5rem_7rem_4rem_7rem_4.5rem_3.75rem] items-center gap-x-3";
 
 type Tone = "agent" | "hook" | "tool" | "system" | "nested" | "error";
 
