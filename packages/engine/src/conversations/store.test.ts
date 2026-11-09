@@ -557,7 +557,7 @@ describe("ConversationStore", () => {
       expect(mockReadTurnRuns).toHaveBeenCalledWith("conv-1", "11111111-1111-1111-1111-111111111111");
     });
 
-    it("has no request path for a turn recorded before it existed", async () => {
+    it("gives a turn with neither a trace nor filed runs an empty request path", async () => {
       const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
       mockReadTurnRuns.mockResolvedValueOnce({ modelCalls: [], hookRuns: [] });
       mockDb.select
@@ -565,7 +565,14 @@ describe("ConversationStore", () => {
         .mockReturnValueOnce(createChainMock([]) as any);
 
       const result = await conversationStore.getMessageDebug("conv-1", "msg-1");
-      expect(result).toEqual({ debugPayload: null, steps, content: "x", turn: null, summary: null, path: null });
+      expect(result).toEqual({
+        debugPayload: null,
+        steps,
+        content: "x",
+        turn: null,
+        summary: null,
+        path: { turnStartedAt: null, replySentAt: null, deliveredText: null, intermediateText: null, modelCalls: [], hookRuns: [] },
+      });
     });
 
     it("returns null when the message is not in the conversation", async () => {

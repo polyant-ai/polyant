@@ -519,7 +519,8 @@ export function RequestPath({
     ...[...path.modelCalls.map((c) => ms(c.startedAt)), ...path.hookRuns.map((h) => ms(h.startedAt))].filter((v): v is number => v !== null),
   );
   // t0 is when the engine took the message up; a turn whose trace was not written starts at its first run.
-  const t0 = ms(path.turnStartedAt) ?? (Number.isFinite(firstStart) ? firstStart : 0);
+  const known = ms(path.turnStartedAt) ?? (Number.isFinite(firstStart) ? firstStart : null);
+  const t0 = known ?? 0;
 
   // Calls a hook or a tool made nest under the run; the rest stand on their own.
   const nested = new Map<string, PathModelCall[]>();
@@ -557,7 +558,9 @@ export function RequestPath({
         <div className="flex items-baseline justify-between gap-4 border-t pt-3">
           <h3 className="text-sm font-medium">{t("message.debug.path.title")}</h3>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {t("message.debug.path.arrived", { time: dateTime(t0, locale), cost: fmt.currency(total) })}
+            {known !== null
+              ? t("message.debug.path.arrived", { time: dateTime(t0, locale), cost: fmt.currency(total) })
+              : t("message.debug.path.turnCost", { cost: fmt.currency(total) })}
           </span>
         </div>
         <div className={cn(GRID, "mt-2 py-1 text-xs text-muted-foreground")}>
