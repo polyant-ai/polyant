@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 
 /**
  * Who asked the model, when the agent's own loop did not: a hook run or a tool
@@ -29,6 +30,11 @@ export interface TurnScope {
 }
 
 const storage = new AsyncLocalStorage<TurnScope>();
+
+/** A new turn: a fresh id for its assistant message; the debug flag is read with the agent's configuration. */
+export function newTurn(): TurnScope {
+  return { messageId: randomUUID(), debug: false };
+}
 
 export function runInTurn<T>(scope: TurnScope, fn: () => T): T {
   return storage.run(scope, fn);

@@ -2,7 +2,7 @@
 
 import "reflect-metadata";
 import { randomUUID } from "crypto";
-import { runInTurn } from "./request-path/turn-scope.js";
+import { newTurn, runInTurn } from "./request-path/turn-scope.js";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
@@ -135,13 +135,9 @@ async function main() {
 
   // --- Message handlers (sync + streaming) ---
 
-  // Each turn runs in its own scope: the id its assistant message will be saved
-  // under, so every model call, hook run and tool run of the turn points at it
-  // (request-path/turn-scope.ts).
-  function newTurn() {
-    return { messageId: randomUUID(), debug: false };
-  }
-
+  // Each turn runs in its own scope (request-path/turn-scope.ts): the id its
+  // assistant message will be saved under, so every model call, hook run and
+  // tool run of the turn points at it.
   // 3a. Synchronous message handler
   async function handleMessage(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
     return runInTurn(newTurn(), () => handleMessageTurn(msg, abortSignal));
