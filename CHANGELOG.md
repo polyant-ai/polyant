@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
-  (migration `0118`).
+  (migration `0104`).
 - Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
   the current message on the first model step of a turn, so the next step reads
   it from cache instead of paying it at full input price and then writing it
@@ -47,6 +47,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over all of the agent's documents whatever the page. The agent's status
   checks and the first-steps card read them, so an agent with more documents
   than one page is no longer under-reported.
+- The message details show a turn's request path: every model call, hook run
+  and tool run of the turn on the turn's own clock, with duration, tokens, cost
+  and outcome, the model calls a hook or tool made nested under it, the
+  background calls (title, memory, summary) and the moment the reply was handed
+  to the channel, which opens on the exact text delivered. A step's text written
+  alongside a tool call is shown with what became of it. While the agent's debug
+  flag is on, each call also keeps the raw request sent to the provider and its
+  answer, per step and per retry, cleared with the debug payloads
+  (`DEBUG_PAYLOAD_RETENTION_DAYS`) and with their conversation. Calls are filed
+  under their message instead of matched by time window (migrations
+  `0121` and `0122`). `GET /api/conversations/:id/messages/:messageId/debug` returns
+  the summary and the path, and `.../debug/calls/:callId/exchanges` one call's
+  raw exchanges. A turn recorded before this release opens in the same layout
+  with the data it has: its hooks and background calls do not appear, and steps
+  without a recorded start show no time. Turns run by Room cycles and by
+  webhooks are not filed yet.
+- A person can star agents, from the agents list and from the agent's header.
+  Starred agents appear by name in a Favorites group at the foot of the sidebar.
+  Stars belong to the person, follow them across devices, grant no access and
+  are capped at 100 (migration `0123`, `GET /api/me/favorite-agents`,
+  `PUT` and `DELETE /api/me/favorite-agents/:agentId`).
+- Importing an agent file opens a review before anything is created: the new
+  agent's name and slug, editable and prefilled from the file, the
+  configuration it carries, and one section per kind (prompts, tools, skills,
+  MCP servers, hooks, webhooks, scheduled tasks, room, secrets) listing the
+  elements themselves.
 
 ### Changed
 
@@ -93,6 +119,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pre-model hooks run, instead of after them. A server that answered only the
   older `initialize` handshake is no longer probed with `server/discover` on
   every reconnect.
+- An agent import no longer renames a taken slug to `<slug>-imported`. It
+  imports under the slug it receives, answers 409 when another agent already
+  uses it, and validates the name and the slug.
 
 ### Removed
 
@@ -135,6 +164,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the next cycle instead of being dropped (migration `0106`), and a burst of
   fragments on WhatsApp or Telegram reaches the Room once.
 - An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
+- An agent's enabled MCP servers are read in a stable order (by slug). They
+  were read in the table's physical order, which changes whenever a row is
+  updated, so the tool list reshuffled between requests and the prompt-cache
+  prefix of an agent with several MCP servers was written again instead of read.
+- Inline code and code blocks stay readable inside coloured message bubbles:
+  their background now derives from the text colour.
+- The slug field of the create and import drawers keeps a hyphen while it is
+  typed; `support-bot` no longer became `supportbot`.
 
 ## [1.3.5] - 2026-11-02
 
