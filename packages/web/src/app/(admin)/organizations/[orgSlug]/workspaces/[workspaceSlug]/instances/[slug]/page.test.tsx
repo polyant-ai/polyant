@@ -103,6 +103,8 @@ vi.mock("@/lib/api", () => ({
     skills: { list: vi.fn(() => Promise.resolve({ skills: [] })) },
     prompts: { list: vi.fn(() => Promise.resolve({ prompts: [] })) },
     exportImport: { exportInstance: vi.fn() },
+    // The star beside the name reads the person's favorites; none here.
+    me: { favoriteAgents: vi.fn(() => Promise.resolve({ agentIds: [] })) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
