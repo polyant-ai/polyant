@@ -179,7 +179,10 @@ export function TourOverlay() {
         setSettled(true);
       } else {
         setBox((prev) => (prev ? null : prev));
-        if (Date.now() - started > TARGET_TIMEOUT_MS) setSettled(true);
+        if (Date.now() - started > TARGET_TIMEOUT_MS) {
+          if (step.skipIfMissing) next();
+          else setSettled(true);
+        }
       }
     };
     measure();
