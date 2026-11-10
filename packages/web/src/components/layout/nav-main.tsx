@@ -71,10 +71,14 @@ export function NavMain({
         <SidebarMenu>
           {items.map((item) => {
             const isActive = isNavActive(pathname, item.url, item.exact);
+            // Not the url alone: until the tenancy resolves every disabled entry
+            // links to the same placeholder "/", and duplicate keys left those
+            // rows on screen beside the live ones once the slugs arrived.
+            const key = item.tour ?? item.url;
 
             if (item.disabled) {
               return (
-                <SidebarMenuItem key={item.url}>
+                <SidebarMenuItem key={key}>
                   <SidebarMenuButton tooltip={item.title} aria-disabled="true" data-tour={item.tour}>
                     <item.icon />
                     <span>{item.title}</span>
@@ -84,7 +88,7 @@ export function NavMain({
             }
 
             return (
-              <SidebarMenuItem key={item.url}>
+              <SidebarMenuItem key={key}>
                 <SidebarMenuButton
                   asChild
                   isActive={isActive}
