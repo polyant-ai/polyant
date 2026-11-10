@@ -71,6 +71,7 @@ const TABLES_NOT_EXPORTED: Record<string, string> = {
   webhook_deliveries: "Delivery keys the source deployment saw in the last day.",
   room_activity_log: "Runtime activity.",
   oauth_states: "A single-use nonce with a minutes-long TTL.",
+  user_favorite_agents: "A person's own shortcut to the agent, not part of the agent.",
   instance_tools:
     "Carried as `manualTools` — the auto-derived rows are recomputed from skills on import.",
 };

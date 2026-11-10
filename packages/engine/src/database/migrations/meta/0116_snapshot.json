@@ -5767,6 +5767,89 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.user_favorite_agents": {
+      "name": "user_favorite_agents",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instance_id": {
+          "name": "instance_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_user_favorite_agents_instance_id": {
+          "name": "idx_user_favorite_agents_instance_id",
+          "columns": [
+            {
+              "expression": "instance_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "user_favorite_agents_user_id_users_id_fk": {
+          "name": "user_favorite_agents_user_id_users_id_fk",
+          "tableFrom": "user_favorite_agents",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_favorite_agents_instance_id_instances_id_fk": {
+          "name": "user_favorite_agents_instance_id_instances_id_fk",
+          "tableFrom": "user_favorite_agents",
+          "tableTo": "instances",
+          "columnsFrom": [
+            "instance_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "user_favorite_agents_user_id_instance_id_pk": {
+          "name": "user_favorite_agents_user_id_instance_id_pk",
+          "columns": [
+            "user_id",
+            "instance_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.event_backlog": {
       "name": "event_backlog",
       "schema": "",
@@ -6268,6 +6351,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "dff274f1-3326-4fbf-b9c6-f7a05515164e",
+  "id": "ca3831ed-01f2-4177-8fc8-4ff6cfa2ad88",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }
