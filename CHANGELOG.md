@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ai_logs.purpose` records what a background call was for (`title`,
   `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
   `sub_task`, `tool`, `hook`), so service spend can be grouped by it
-  (migration `0104`).
+  (migration `0118`).
 - Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
   the current message on the first model step of a turn, so the next step reads
   it from cache instead of paying it at full input price and then writing it
@@ -122,6 +122,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An agent import no longer renames a taken slug to `<slug>-imported`. It
   imports under the slug it receives, answers 409 when another agent already
   uses it, and validates the name and the slug.
+- Debug payloads are cleared. The request a debug-mode turn stores beside its
+  message is set to empty after `DEBUG_PAYLOAD_RETENTION_DAYS` (default 7); the
+  previous release kept it forever, so the first daily housekeeping after the
+  upgrade clears every payload older than that.
+- Statements on the main database pool are capped at
+  `POSTGRES_STATEMENT_TIMEOUT_MS` (default 60000), and a transaction left idle
+  is ended after `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` (default 60000). `0`
+  turns either off. Migrations run on their own connection without the cap.
+- A webhook request that carries an `Idempotency-Key` header is processed once
+  per source and key: a redelivery is acknowledged without running the matcher
+  again (migration `0109`). A request without the header is processed
+  every time, as before.
+- An agent API key is found through an indexed digest of its value instead of
+  decrypting every key (migrations `0101` and `0114`). A key that matches more than one
+  agent opens none of them.
 
 ### Removed
 
@@ -172,6 +187,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their background now derives from the text colour.
 - The slug field of the create and import drawers keeps a hyphen while it is
   typed; `support-bot` no longer became `supportbot`.
+- A replaced agent API key no longer opens the agent, and its new key is
+  accepted at once, also when the rotation was made by a replica of the
+  previous release.
+- Each Slack thread has its own conversation. Every mention in a channel shared
+  one history, summary and state.
 
 ## [1.3.5] - 2026-11-02
 
