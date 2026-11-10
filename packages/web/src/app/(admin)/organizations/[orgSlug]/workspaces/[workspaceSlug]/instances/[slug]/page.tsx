@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import Image from "next/image";
 import { Trash2, Download, MoreHorizontal, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { FavoriteAgentButton } from "@/components/favorite-agent-button";
+import { useFavoriteAgents } from "@/lib/nav/favorite-agents";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
@@ -100,6 +102,7 @@ function InstanceDetailContent() {
   const searchParams = useSearchParams();
   const { t } = useI18n();
   const paths = useTenantPaths();
+  const favorites = useFavoriteAgents();
 
   // ONE resolver for the address, shared with the sidebar (`lib/nav/agent-sections.ts`):
   // it falls back to the landing section, so the two can never disagree about which
@@ -245,6 +248,10 @@ function InstanceDetailContent() {
             <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
               {instance.name}
             </h1>
+            <FavoriteAgentButton
+              active={favorites.isFavorite(instance.id)}
+              onToggle={() => favorites.toggle(instance.id)}
+            />
           </div>
           <div className="flex items-center gap-2" data-testid="agent-header-meta">
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
