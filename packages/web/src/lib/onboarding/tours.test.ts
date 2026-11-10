@@ -8,10 +8,10 @@ import { AGENT_TOUR, INTERFACE_TOUR, isOnTourPage, tourHref, tourSteps } from ".
 const scope = { orgSlug: "acme", workspaceSlug: "general", agentSlug: "support bot" };
 
 describe("tour step lists", () => {
-  it("interface tour has ten steps for a Platform Admin and drops Settings for everyone else", () => {
-    expect(tourSteps("interface", true)).toHaveLength(10);
+  it("interface tour has eleven steps for a Platform Admin and drops Settings for everyone else", () => {
+    expect(tourSteps("interface", true)).toHaveLength(11);
     const others = tourSteps("interface", false).map((s) => s.id);
-    expect(others).toHaveLength(9);
+    expect(others).toHaveLength(10);
     expect(others).not.toContain("settings");
   });
 

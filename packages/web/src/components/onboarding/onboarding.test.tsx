@@ -73,25 +73,26 @@ const state = (patch: Partial<OnboardingState> = {}): OnboardingState => ({
 const SEEN = { wizard: "done", interfaceTour: "done", agentTour: "done" } as const;
 
 /** The elements a tour points at, with a size so they count as visible. */
-function Fixture() {
+function Fixture({ withStar }: { withStar: boolean }) {
   return (
     <div>
       <div data-tour="dash-tiles">tiles</div>
       <div data-tour="nav">nav</div>
       <a href="#a" data-tour="nav-instances" onClick={(e) => e.preventDefault()}>Agents link</a>
       <button data-tour="new-agent">New agent</button>
+      {withStar && <button data-tour="favorite-agent">Star</button>}
       <div data-tour="agent-overview">status</div>
       <HelpMenu />
     </div>
   );
 }
 
-function mount(isPlatformAdmin = true) {
+function mount(isPlatformAdmin = true, { withStar = true } = {}) {
   return render(
     <I18nProvider initialLocale="en">
       <OnboardingProvider isPlatformAdmin={isPlatformAdmin}>
         <SidebarProvider>
-          <Fixture />
+          <Fixture withStar={withStar} />
           <OnboardingHost />
         </SidebarProvider>
       </OnboardingProvider>
@@ -232,16 +233,16 @@ describe("the interface tour", () => {
     const user = userEvent.setup();
     mount();
     expect(await screen.findByRole("heading", { name: "The Dashboard" })).toBeInTheDocument();
-    expect(screen.getByText("1 of 10")).toBeInTheDocument();
+    expect(screen.getByText("1 of 11")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByRole("heading", { name: "The menu" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByRole("heading", { name: "The Dashboard" })).toBeInTheDocument();
   });
 
-  it("counts nine steps for someone who is not a Platform Admin", async () => {
+  it("counts ten steps for someone who is not a Platform Admin", async () => {
     mount(false);
-    expect(await screen.findByText("1 of 9")).toBeInTheDocument();
+    expect(await screen.findByText("1 of 10")).toBeInTheDocument();
   });
 
   it("waits for a click on the highlighted element, then moves to the next page", async () => {
@@ -256,6 +257,36 @@ describe("the interface tour", () => {
     await user.click(screen.getByText("Agents link"));
     expect(await screen.findByRole("heading", { name: "Create an agent" })).toBeInTheDocument();
     expect(h.push).toHaveBeenCalledWith("/organizations/acme/workspaces/general/instances");
+  });
+
+  // The break this catches: a tour that stops on «Favorite agents» with nothing to
+  // point at, or that leaves the step out even when there is a star to show.
+  it.each([
+    [true, "Favorite agents"],
+    [false, "Conversations"],
+  ])("after Create an agent, with a star on the page %s, shows %s", async (withStar, heading) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      mount(true, { withStar });
+      await screen.findByRole("heading", { name: "The Dashboard" });
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(await screen.findByRole("button", { name: "Next" }));
+      await user.click(await screen.findByText("Agents link"));
+      await screen.findByRole("heading", { name: "Create an agent" });
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      // Past the wait for the star and, when it is skipped, the wait for the next
+      // step's element too, which this fixture does not render either.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5500);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5500);
+      });
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("Exit closes it and records nothing more", async () => {

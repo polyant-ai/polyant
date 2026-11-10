@@ -813,6 +813,13 @@
       "when": 1793727500000,
       "tag": "0122_request_path_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1793727600000,
+      "tag": "0123_user_favorite_agents",
+      "breakpoints": true
     }
   ]
 }

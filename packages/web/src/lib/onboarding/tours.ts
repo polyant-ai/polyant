@@ -32,6 +32,12 @@ export interface TourStep {
   inSidebar?: boolean;
   /** Left out of the tour for anyone who is not a Platform Admin. */
   platformAdminOnly?: boolean;
+  /**
+   * The element exists only when there is something to show (the star of the first
+   * agent): when it never appears, the step is passed over instead of shown with
+   * nothing to point at.
+   */
+  skipIfMissing?: boolean;
   titleKey: TranslationKey;
   bodyKey: TranslationKey;
 }
@@ -42,6 +48,7 @@ export const INTERFACE_TOUR: readonly TourStep[] = [
   { id: "nav", page: "dashboard", target: "[data-tour=nav]", place: "right", action: "info", inSidebar: true, titleKey: "onboarding.tour.nav.title", bodyKey: "onboarding.tour.nav.body" },
   { id: "nav-agents", page: "dashboard", target: "[data-tour=nav-instances]", place: "right", action: "click", inSidebar: true, titleKey: "onboarding.tour.navAgents.title", bodyKey: "onboarding.tour.navAgents.body" },
   { id: "new-agent", page: "agents", target: "[data-tour=new-agent]", place: "bottom", action: "info", titleKey: "onboarding.tour.newAgent.title", bodyKey: "onboarding.tour.newAgent.body" },
+  { id: "favorite-agent", page: "agents", target: "[data-tour=favorite-agent]", place: "left", action: "info", skipIfMissing: true, titleKey: "onboarding.tour.favoriteAgent.title", bodyKey: "onboarding.tour.favoriteAgent.body" },
   { id: "nav-conversations", page: "agents", target: "[data-tour=nav-conversations]", place: "right", action: "click", inSidebar: true, titleKey: "onboarding.tour.navConversations.title", bodyKey: "onboarding.tour.navConversations.body" },
   { id: "conversations", page: "conversations", target: "[data-tour=conv-table]", place: "bottom", action: "info", titleKey: "onboarding.tour.conversations.title", bodyKey: "onboarding.tour.conversations.body" },
   { id: "playground", page: "playground", target: "[data-tour=chat-box]", place: "top", action: "info", titleKey: "onboarding.tour.playground.title", bodyKey: "onboarding.tour.playground.body" },

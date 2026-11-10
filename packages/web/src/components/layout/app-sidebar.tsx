@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import {
@@ -33,11 +33,15 @@ import {
   resolveDestination,
   type Destination,
 } from "@/lib/nav/destination";
-import { cn } from "@/lib/utils";
+import { cn, isSafeImageSrc } from "@/lib/utils";
 import type { NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
+import { workspacePath } from "@/lib/tenant/paths";
+import { api } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
+import { useFavoriteAgents } from "@/lib/nav/favorite-agents";
 import { useTenant } from "@/lib/tenant/tenant-context";
 import { useTourActive } from "@/lib/onboarding/onboarding-context";
 
@@ -160,6 +164,37 @@ export function AppSidebar(
   const destination = resolveDestination(pathname);
   const { key: navKey, direction } = useNavTransition(destination);
 
+  // The agents this person starred, at the foot of the daily list, by name. Only
+  // those in this workspace's agent list are shown: a star on an agent the reader
+  // cannot list here, or one since deleted, leaves no entry.
+  const favoriteIds = useFavoriteAgents().ids;
+  // Asked only while the address names this very workspace: the request takes its
+  // tenant from the URL, so on an organization or deployment page it would answer
+  // for another workspace and file the answer under this one.
+  const addressesWorkspace = !!workspaceSlug && params.workspaceSlug === workspaceSlug;
+  const { data: agentList } = useResource(
+    favoriteIds.length > 0 && addressesWorkspace && orgSlug
+      ? ["sidebar-favorite-agents", orgSlug, workspaceSlug]
+      : null,
+    () => api.instances.list(),
+  );
+  const favoriteItems: NavItem[] = useMemo(() => {
+    if (!orgSlug || !workspaceSlug || !agentList) return [];
+    const byId = new Map(agentList.instances.map((agent) => [agent.id, agent]));
+    return favoriteIds
+      .flatMap((id) => {
+        const agent = byId.get(id);
+        if (!agent) return [];
+        return [{
+          title: agent.name,
+          url: workspacePath(orgSlug, workspaceSlug, `/instances/${encodeURIComponent(agent.slug)}`),
+          icon: Bot,
+          image: agent.icon && isSafeImageSrc(agent.icon) ? agent.icon : undefined,
+        }];
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [agentList, favoriteIds, orgSlug, workspaceSlug]);
+
   const isPlatformAdmin = user?.isPlatformAdmin === true;
   const managementItems = isPlatformAdmin
     ? [...orgManagementDefs, ...platformAdminDefs]
@@ -211,6 +246,9 @@ export function AppSidebar(
               <NavMain label={t("nav.overview")} items={toNavItems(overviewDefs)} />
               {managementItems.length > 0 && (
                 <NavMain label={t("nav.management")} items={toNavItems(managementItems)} />
+              )}
+              {favoriteItems.length > 0 && (
+                <NavMain label={t("nav.group.favorites")} items={favoriteItems} />
               )}
             </>
           )}

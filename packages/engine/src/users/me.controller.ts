@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Body, Controller, Get, Inject, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put } from "@nestjs/common";
 import { UsersService } from "./users.service.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
@@ -51,6 +51,30 @@ export class MeController {
   @Patch("onboarding")
   async updateOnboarding(@CurrentUser() actor: AuthenticatedUser, @Body() body: unknown) {
     return { onboarding: await this.users.updateOwnOnboarding(actor, body) };
+  }
+
+  /**
+   * The agents the caller starred. Identity is the whole check, like onboarding:
+   * every row read or written is the authenticated user's, and the agent id in
+   * the path is the only input. A star grants nothing — the panel shows it only
+   * for an agent the caller may already list.
+   */
+  @AuthenticatedOnly()
+  @Get("favorite-agents")
+  async favoriteAgents(@CurrentUser() actor: AuthenticatedUser) {
+    return { agentIds: await this.users.listOwnFavoriteAgents(actor) };
+  }
+
+  @AuthenticatedOnly()
+  @Put("favorite-agents/:agentId")
+  async addFavoriteAgent(@CurrentUser() actor: AuthenticatedUser, @Param("agentId") agentId: string) {
+    return { agentIds: await this.users.addOwnFavoriteAgent(actor, agentId) };
+  }
+
+  @AuthenticatedOnly()
+  @Delete("favorite-agents/:agentId")
+  async removeFavoriteAgent(@CurrentUser() actor: AuthenticatedUser, @Param("agentId") agentId: string) {
+    return { agentIds: await this.users.removeOwnFavoriteAgent(actor, agentId) };
   }
 
   /**

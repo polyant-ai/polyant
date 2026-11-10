@@ -36,6 +36,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: {
       instances: { list: (...args: unknown[]) => mockList(...args), create: vi.fn() },
       exportImport: { importNew: (...args: unknown[]) => mockImportNew(...args) },
+      // The star on each row reads the person's favorites; none here.
+      me: { favoriteAgents: () => Promise.resolve({ agentIds: [] }) },
     },
   };
 });

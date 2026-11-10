@@ -39,6 +39,10 @@ import { useI18n } from "@/lib/i18n/context";
 import { instanceStatusLabel } from "@/lib/instance-status";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { useTenantPaths, type TenantPaths } from "@/lib/tenant/use-tenant-paths";
+import { useFavoriteAgents } from "@/lib/nav/favorite-agents";
+import { FavoriteAgentButton } from "@/components/favorite-agent-button";
+
+type Favorites = ReturnType<typeof useFavoriteAgents>;
 
 type ViewMode = "list" | "grid";
 const STORAGE_KEY = "instances-view-mode";
@@ -49,7 +53,7 @@ const SHOW_INACTIVE_STORAGE_KEY = "instances-show-inactive";
 const parseBool = (raw: string): boolean | undefined => (raw === "true" ? true : raw === "false" ? false : undefined);
 
 /** The same agents as cards; each card is a real link to the agent's page. */
-function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: TenantPaths }) {
+function InstanceGrid({ instances, paths, favorites }: { instances: Instance[]; paths: TenantPaths; favorites: Favorites }) {
   const { t } = useI18n();
   return (
     <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -57,8 +61,13 @@ function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: Tena
         <Link
           key={inst.id}
           href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
-          className="group flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
+          className="group relative flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
         >
+          <FavoriteAgentButton
+            className="absolute right-1 top-1"
+            active={favorites.isFavorite(inst.id)}
+            onToggle={() => favorites.toggle(inst.id)}
+          />
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
             {inst.icon && isSafeImageSrc(inst.icon) ? (
               <Image src={inst.icon} alt="" width={64} height={64} className="h-full w-full object-cover" unoptimized />
@@ -89,8 +98,9 @@ function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: Tena
  * The agents of the workspace. An agent is a destination with a page of its own,
  * so a row goes there instead of opening a drawer.
  */
-function InstanceList({ instances, t, paths }: {
+function InstanceList({ instances, t, paths, favorites }: {
   instances: Instance[];
+  favorites: Favorites;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   paths: TenantPaths;
 }) {
@@ -103,6 +113,7 @@ function InstanceList({ instances, t, paths }: {
           <ListHead className="w-48">{t("instances.table.slug")}</ListHead>
           <ListHead className="w-32">{t("instances.table.status")}</ListHead>
           <ListHead align="end" className="w-36">{t("instances.table.updated")}</ListHead>
+          <ListHead className="w-12"><span className="sr-only">{t("instances.favorite.column")}</span></ListHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -136,6 +147,12 @@ function InstanceList({ instances, t, paths }: {
                 {instanceStatusLabel(inst.status, t)}
               </ListBadgeCell>
               <ListMetaCell align="end">{fmt.relative(inst.updatedAt)}</ListMetaCell>
+              <TableCell>
+                <FavoriteAgentButton
+                  active={favorites.isFavorite(inst.id)}
+                  onToggle={() => favorites.toggle(inst.id)}
+                />
+              </TableCell>
             </ListRow>
           );
         })}
@@ -150,6 +167,7 @@ export default function InstancesPage() {
   const paths = useTenantPaths();
   const { data, error, loading, reload } = useResource(["instances", paths.workspace("")], () => api.instances.list());
   const instances: Instance[] = data?.instances ?? [];
+  const favorites = useFavoriteAgents();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = usePersistedState<ViewMode>(STORAGE_KEY, "list", parseViewMode);
@@ -299,9 +317,9 @@ export default function InstancesPage() {
           {visibleInstances.length === 0 ? (
             <ListNoResults />
           ) : viewMode === "list" ? (
-            <InstanceList instances={visibleInstances} t={t} paths={paths} />
+            <InstanceList instances={visibleInstances} t={t} paths={paths} favorites={favorites} />
           ) : (
-            <InstanceGrid instances={visibleInstances} paths={paths} />
+            <InstanceGrid instances={visibleInstances} paths={paths} favorites={favorites} />
           )}
         </div>
       )}

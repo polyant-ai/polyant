@@ -339,6 +339,12 @@ export const api = {
     /** Writes the caller's own guidance state; the engine returns the merged record. */
     updateOnboarding: (patch: OnboardingPatch) =>
       request<{ onboarding: OnboardingState }>("/api/me/onboarding", json("PATCH", patch)),
+    /** The agents the caller starred, by id; the same list comes back after a change. */
+    favoriteAgents: () => request<{ agentIds: string[] }>("/api/me/favorite-agents"),
+    addFavoriteAgent: (agentId: string) =>
+      request<{ agentIds: string[] }>(urlPath`/api/me/favorite-agents/${agentId}`, { method: "PUT" }),
+    removeFavoriteAgent: (agentId: string) =>
+      request<{ agentIds: string[] }>(urlPath`/api/me/favorite-agents/${agentId}`, { method: "DELETE" }),
   },
   members: {
     list: (orgSlug: string) =>

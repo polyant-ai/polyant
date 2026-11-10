@@ -61,6 +61,7 @@ export default defineConfig({
     "./src/room/room.schema.ts",
     "./src/audit/audit.schema.ts",
     "./src/auth/users.schema.ts",
+    "./src/users/favorite-agents.schema.ts",
     "./src/webhooks/webhooks.schema.ts",
     "./src/analytics/traces.schema.ts",
     "./src/optout/optout.schema.ts",
