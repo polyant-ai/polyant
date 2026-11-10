@@ -33,6 +33,12 @@ import { generateToken } from "../crypto/index.js";
 import { normalizeEmail } from "./email.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
 import {
+  addFavoriteAgent,
+  FAVORITE_AGENTS_LIMIT,
+  listFavoriteAgentIds,
+  removeFavoriteAgent,
+} from "./favorite-agents.store.js";
+import {
   NEW_ONBOARDING,
   parseOnboardingPatch,
   type OnboardingState,
@@ -74,6 +80,17 @@ function readPlatformAdminFlag(body: {
     return isPlatformAdminRole;
   }
   return undefined;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * An agent id from a URL. Checked before the query because Postgres rejects a
+ * malformed uuid with a 500-class error, and the caller sent a bad request.
+ */
+function parseAgentId(value: string): string {
+  if (!UUID_PATTERN.test(value)) throw new BadRequestException("agentId must be a UUID");
+  return value.toLowerCase();
 }
 
 export type PublicUser = UserRow;
@@ -222,6 +239,31 @@ export class UsersService {
     const refreshed = await getUserById(id);
     if (!refreshed) throw new NotFoundException(`User ${id} not found`);
     return { user: stripSecret(refreshed), generatedPassword: generated };
+  }
+
+  /** The agents the caller starred, oldest first. */
+  async listOwnFavoriteAgents(actor: { userId: string }): Promise<string[]> {
+    return listFavoriteAgentIds(actor.userId);
+  }
+
+  /**
+   * Star an agent for the caller and return the whole list after it. The star
+   * grants nothing: the panel shows it only beside an agent the caller may list.
+   */
+  async addOwnFavoriteAgent(actor: { userId: string }, agentId: string): Promise<string[]> {
+    const id = parseAgentId(agentId);
+    const result = await addFavoriteAgent(actor.userId, id);
+    if (result === "unknown-agent") throw new NotFoundException(`Agent ${id} not found`);
+    if (result === "limit") {
+      throw new BadRequestException(`You can star at most ${FAVORITE_AGENTS_LIMIT} agents`);
+    }
+    return listFavoriteAgentIds(actor.userId);
+  }
+
+  /** Take the caller's star off an agent; one that was never there is not an error. */
+  async removeOwnFavoriteAgent(actor: { userId: string }, agentId: string): Promise<string[]> {
+    await removeFavoriteAgent(actor.userId, parseAgentId(agentId));
+    return listFavoriteAgentIds(actor.userId);
   }
 
   /** The caller's own guidance state; a caller with no user row has not seen it. */
