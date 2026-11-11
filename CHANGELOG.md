@@ -137,6 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An agent API key is found through an indexed digest of its value instead of
   decrypting every key (migrations `0101` and `0114`). A key that matches more than one
   agent opens none of them.
+- A turn served buffered on the streaming routes, because of a `response_generated` hook that may replace the reply, now
+  streams each tool call and result as it happens, so the playground's
+  activity view follows the agent while it works. The reply is still sent only
+  once it is settled.
 
 ### Removed
 
@@ -192,6 +196,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release.
 - Each Slack thread has its own conversation. Every mention in a channel shared
   one history, summary and state.
+- After a reload, the sidebar no longer lists every overview entry twice.
 
 ## [1.3.5] - 2026-11-02
 
