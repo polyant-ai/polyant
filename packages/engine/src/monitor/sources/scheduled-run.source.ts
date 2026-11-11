@@ -5,7 +5,8 @@ import { db } from "../../database/client.js";
 import { asRows } from "../../utils/query-helpers.js";
 import { Permission } from "../../authz/permissions.js";
 import { buildOrgScopedAgentFilterFragment } from "../../authz/scope-filter.js";
-import { commonFilters, isUuid, likePattern, timeText } from "../monitor.sql.js";
+import { commonFilters, likePattern, timeText } from "../monitor.sql.js";
+import { isUuid } from "../../utils/uuid.js";
 import type { MonitorDetail, MonitorItem, MonitorOutcome, MonitorSource, MonitorSourceQuery } from "../monitor.types.js";
 
 /**

@@ -26,8 +26,8 @@ import {
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { isUuid } from "../../utils/uuid.js";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Controller("api/instances/:slug/hooks")
 export class InstanceHooksController {
@@ -60,7 +60,7 @@ export class InstanceHooksController {
   @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Patch(":id")
   async update(@Param("slug") slug: string, @Param("id") id: string, @Body() body: unknown) {
-    if (!UUID_RE.test(id)) throw new BadRequestException("Invalid hook id");
+    if (!isUuid(id)) throw new BadRequestException("Invalid hook id");
     const parsed = updateHookSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
@@ -82,7 +82,7 @@ export class InstanceHooksController {
   @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Delete(":id")
   async remove(@Param("slug") slug: string, @Param("id") id: string) {
-    if (!UUID_RE.test(id)) throw new BadRequestException("Invalid hook id");
+    if (!isUuid(id)) throw new BadRequestException("Invalid hook id");
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 

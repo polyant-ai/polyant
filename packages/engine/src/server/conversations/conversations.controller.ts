@@ -25,10 +25,10 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { readExchanges } from "../../request-path/request-path.store.js";
 
 /** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 import { type InstanceSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { isUuid } from "../../utils/uuid.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -182,7 +182,7 @@ export class ConversationsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    if (!UUID_RE.test(messageId)) throw new BadRequestException("messageId must be a UUID");
+    if (!isUuid(messageId)) throw new BadRequestException("messageId must be a UUID");
     const id = decodeURIComponent(conversationId);
     await loadConversationScoped(id, uid, await callerTenantScope(user));
 
@@ -206,8 +206,8 @@ export class ConversationsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    if (!UUID_RE.test(messageId)) throw new BadRequestException("messageId must be a UUID");
-    if (!UUID_RE.test(callId)) throw new BadRequestException("callId must be a UUID");
+    if (!isUuid(messageId)) throw new BadRequestException("messageId must be a UUID");
+    if (!isUuid(callId)) throw new BadRequestException("callId must be a UUID");
     const id = decodeURIComponent(conversationId);
     await loadConversationScoped(id, uid, await callerTenantScope(user));
     return { exchanges: await readExchanges(id, messageId, callId) };

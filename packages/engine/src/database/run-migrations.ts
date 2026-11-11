@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Sql } from "postgres";
 import { createLogger } from "../utils/create-logger.js";
+import { sqlState } from "../utils/db-errors.js";
 
 const log = createLogger();
 
@@ -282,7 +283,7 @@ async function applyInTransaction(
       // connection is gone) would only hide it.
       await conn.unsafe("ROLLBACK").catch(() => undefined);
       const delay = delays[attempt];
-      if ((err as { code?: unknown }).code !== LOCK_NOT_AVAILABLE || delay === undefined) throw err;
+      if (sqlState(err) !== LOCK_NOT_AVAILABLE || delay === undefined) throw err;
       log.warn("migrations", `${migration.tag} waited ${lockTimeoutMs} ms for a table lock, retrying in ${delay / 1000}s...`);
       await sleep(delay);
     }

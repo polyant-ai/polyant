@@ -12,20 +12,22 @@
 const UNIQUE_VIOLATION_CODE = "23505";
 const FOREIGN_KEY_VIOLATION_CODE = "23503";
 
-function hasCode(value: unknown, code: string): boolean {
-  return (
-    value != null &&
-    typeof value === "object" &&
-    "code" in value &&
-    (value as { code: unknown }).code === code
-  );
+/**
+ * The SQLSTATE of a Postgres error: read from the error itself or from the
+ * `cause` chain drizzle and postgres-js wrap it in. Undefined when the error
+ * carries none (a connection error's code, such as ECONNREFUSED, is not one).
+ */
+export function sqlState(err: unknown): string | undefined {
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 4; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 function hasSqlState(err: unknown, code: string): boolean {
-  if (!(err instanceof Error)) return false;
-  if (hasCode(err, code)) return true;
-  // postgres-js wraps the underlying PostgresError on .cause
-  return hasCode((err as Error & { cause?: unknown }).cause, code);
+  return err instanceof Error && sqlState(err) === code;
 }
 
 /** Detect a PostgreSQL unique constraint violation (SQLSTATE 23505). */

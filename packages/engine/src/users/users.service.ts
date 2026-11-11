@@ -43,6 +43,7 @@ import {
   parseOnboardingPatch,
   type OnboardingState,
 } from "./onboarding.js";
+import { isUuid } from "../utils/uuid.js";
 
 /**
  * Read the platform-admin flag out of a request body.
@@ -82,14 +83,12 @@ function readPlatformAdminFlag(body: {
   return undefined;
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * An agent id from a URL. Checked before the query because Postgres rejects a
  * malformed uuid with a 500-class error, and the caller sent a bad request.
  */
 function parseAgentId(value: string): string {
-  if (!UUID_PATTERN.test(value)) throw new BadRequestException("agentId must be a UUID");
+  if (!isUuid(value)) throw new BadRequestException("agentId must be a UUID");
   return value.toLowerCase();
 }
 

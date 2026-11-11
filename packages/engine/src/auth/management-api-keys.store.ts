@@ -8,6 +8,7 @@ import { verifyPassword } from "../users/password.util.js";
 import { managementApiKeys } from "./management-api-keys.schema.js";
 import type { ServicePrincipal } from "./auth.types.js";
 import type { PermissionKey } from "../authz/permissions.js";
+import { isUuid } from "../utils/uuid.js";
 
 const logger = createLogger();
 const LOG_PREFIX = "management-api-keys";
@@ -20,7 +21,6 @@ const LOG_PREFIX = "management-api-keys";
 const TOKEN_PREFIX = "pk_";
 const TOKEN_SEPARATOR = "_";
 /** The id is a uuid column; anything else would reach Postgres as a cast error. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ParsedManagementApiKeyToken {
   readonly id: string;
@@ -43,7 +43,7 @@ export function parseManagementApiKeyToken(
 
   const id = body.slice(0, separatorIndex);
   const secret = body.slice(separatorIndex + 1);
-  if (!UUID_RE.test(id) || !secret) return null;
+  if (!isUuid(id) || !secret) return null;
 
   return { id, secret };
 }
@@ -217,7 +217,7 @@ export async function deleteManagementApiKey(
   organizationId: string,
   id: string,
 ): Promise<boolean> {
-  if (!UUID_RE.test(id)) return false;
+  if (!isUuid(id)) return false;
   const rows = await db
     .delete(managementApiKeys)
     .where(

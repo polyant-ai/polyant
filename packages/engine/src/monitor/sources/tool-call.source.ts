@@ -5,7 +5,8 @@ import { db } from "../../database/client.js";
 import { asRows } from "../../utils/query-helpers.js";
 import { Permission } from "../../authz/permissions.js";
 import { buildOrgScopedAgentFilterFragment } from "../../authz/scope-filter.js";
-import { commonFilters, isUuid, likePattern, timeText } from "../monitor.sql.js";
+import { commonFilters, likePattern, timeText } from "../monitor.sql.js";
+import { isUuid } from "../../utils/uuid.js";
 import type { MonitorDetail, MonitorItem, MonitorSource, MonitorSourceQuery } from "../monitor.types.js";
 
 /** One audited tool call (`tool_audit_logs`), read under `audit_log:read` like `/api/audit-logs`. */

@@ -10,6 +10,7 @@ import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/type
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 import { tenantScopedAgentCondition, type TenantScope } from "../authz/scope-filter.js";
 import { completeVectorScanSetting } from "../database/vector-scan.js";
+import { sqlState } from "../utils/db-errors.js";
 
 // ---- Types ----
 
@@ -76,17 +77,7 @@ const MAX_UPSERT_RETRIES = 5;
 const RETRY_BASE_BACKOFF_MS = 20;
 
 function isSerializationFailure(err: unknown): boolean {
-  // postgres-js wraps the original error in DrizzleQueryError; the SQLSTATE
-  // lives on `err.cause.code`. Older paths still carry it on `err.code`.
-  if (!(err instanceof Error)) return false;
-  if ("code" in err && (err as Error & { code: string }).code === SERIALIZATION_FAILURE) {
-    return true;
-  }
-  const cause = (err as Error & { cause?: unknown }).cause;
-  if (cause instanceof Error && "code" in cause && (cause as Error & { code: string }).code === SERIALIZATION_FAILURE) {
-    return true;
-  }
-  return false;
+  return sqlState(err) === SERIALIZATION_FAILURE;
 }
 
 async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult> {
