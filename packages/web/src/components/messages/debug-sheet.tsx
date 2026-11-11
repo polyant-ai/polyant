@@ -22,10 +22,9 @@ import { useState } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import { api } from "@/lib/api";
 import type { MessageDebug } from "@/lib/api";
-import { Check, Copy, Cpu } from "lucide-react";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { Cpu } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import { useResource } from "@/hooks/use-resource";
-import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { JsonTree } from "./json-tree";
 import { extractTurnState } from "./turn-state";
@@ -160,29 +159,6 @@ function ModelTab({ debug, target }: { debug: MessageDebug; target: DebugSheetTa
 }
 
 /**
- * Copies the open tab's content, and says so for a moment afterwards. Disabled
- * while there is nothing to copy: the turn is loading or its payload was not
- * captured.
- */
-function CopyTabButton({ text }: { text: string | undefined }) {
-  const { t } = useI18n();
-  const { copy, copied } = useCopyToClipboard(2000, t("message.debug.copyFailed"));
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="gap-1.5"
-      disabled={text === undefined}
-      onClick={() => text !== undefined && void copy(text)}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? t("message.debug.copied") : t("common.copy")}
-    </Button>
-  );
-}
-
-/**
  * The sheet's content, mounted only while the sheet is open (the Radix content
  * unmounts on close), so each opening loads the turn afresh and none shows the
  * previous one's data while it does.
@@ -295,7 +271,14 @@ function DebugSheetBody({ target }: { target: DebugSheetTarget }) {
         className="min-h-0 flex-1 gap-4 px-4"
         listClassName="flex-wrap"
         contentClassName="-mx-4 min-h-0 flex-1 overflow-y-auto px-4 pb-8"
-        actions={copyable ? <CopyTabButton key={tab} text={copies[tab]} /> : undefined}
+        actions={copyable ? <CopyButton
+            key={tab}
+            value={copies[tab] ?? ""}
+            disabled={copies[tab] === undefined}
+            variant="outline"
+            copiedLabel={t("message.debug.copied")}
+            errorMessage={t("message.debug.copyFailed")}
+          /> : undefined}
       />
     </>
   );
