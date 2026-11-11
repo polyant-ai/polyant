@@ -43,6 +43,7 @@ import {
 } from "./pipeline.js";
 import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
+import { streamBufferedTurn } from "./buffered-turn-stream.js";
 import { runOptoutGate } from "./optout/index.js";
 import { closeMcpClientPool } from "./agents/tools/mcp/mcp-client-pool.js";
 import { createLogger } from "./utils/create-logger.js";
@@ -239,6 +240,7 @@ async function main() {
       attachments: msg.attachments,
       abortSignal,
       toolGate: msg.toolGate,
+      toolObserver: msg.toolObserver,
       agentCallDepth: agentMeta?.depth,
       agentCallMetadata: agentMeta,
       stateBuffer: ctx.stateBuffer,
@@ -394,19 +396,24 @@ async function main() {
     // declares mutatesResponse can replace the reply post-LLM, which cannot
     // coexist with streaming (tokens would already be sent). Serve the turn
     // non-streamed — runBufferedTurn supervises + applies any replaceResponse —
-    // then emit the final text as a single chunk. Reuses the computed `pre`, so
+    // then emit the final text as a single chunk, after the turn's tool calls,
+    // which stream as they happen. Reuses the computed `pre`, so
     // runPipelinePre (and its pre-LLM hooks) runs exactly once for the turn.
     if (await hasResponseMutatingHook(ctx.instanceId)) {
       // Pre-generate the persisted assistant id and thread it through so the
       // `meta` echoed in the SSE `done` event addresses the SAME row the debug
       // payload is stored on (parity with the halt + normal streaming paths).
       const bufferedMessageId = ctx.messageId;
-      const out = await runBufferedTurn(msg, pre, abortSignal, bufferedMessageId);
-      const text = out.text;
+      const buffered = await streamBufferedTurn((toolObserver) =>
+        runBufferedTurn({ ...msg, toolObserver }, pre, abortSignal, bufferedMessageId));
+      const completed = buffered.turn.then(({ text }) => ({ text, hookExecutions: [] }));
+      // A failure after the first tool reaches the caller through the streams,
+      // and a caller stopped by it never awaits `completed`.
+      completed.catch(() => undefined);
       return {
-        textStream: (async function* () { yield text; })(),
-        fullStream: (async function* () { yield { type: "text-delta", text }; })(),
-        completed: Promise.resolve({ text, hookExecutions: [] }),
+        textStream: buffered.textStream,
+        fullStream: buffered.fullStream,
+        completed,
         meta: { conversationId: ctx.conversationId, messageId: bufferedMessageId },
         hookExecutions: pre.hookExecutions,
       };

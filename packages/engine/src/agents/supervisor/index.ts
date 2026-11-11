@@ -16,7 +16,7 @@ import {
 } from "../tools/registry.js";
 import { artifactApiFor } from "../tools/artifact-store.js";
 import { agentAi } from "../../ai-gateway/agent-ai.js";
-import type { Attachment } from "../../channels/types.js";
+import type { Attachment, ToolObserver } from "../../channels/types.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { auditStore } from "../../audit/audit.store.js";
 import { createTaskTool } from "../tools/task.tool.js";
@@ -97,6 +97,8 @@ export interface SupervisorInput {
   intermediateText?: IntermediateTextPolicy | null;
   /** The channel's veto on each tool, asked right before it runs (`IncomingMessage.toolGate`). */
   toolGate?: (toolName: string) => boolean;
+  /** Told of each tool call and result as they happen (`IncomingMessage.toolObserver`). */
+  toolObserver?: ToolObserver;
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
   /** The id the turn's assistant message is saved under; the agent's model calls are filed under it (request path). */
@@ -219,6 +221,8 @@ interface SupervisorSignals {
   replyTexts: string[];
   /** The channel's veto, asked by every tool wrapper right before the tool runs. */
   toolGate?: (toolName: string) => boolean;
+  /** Told by every tool wrapper of the call and of its result. */
+  toolObserver?: ToolObserver;
   /** The turn the tools run in, so what a tool asks the model is filed under its run (request path). */
   turn?: { messageId: string; debug: boolean };
 }
@@ -259,7 +263,7 @@ export function wrapToolWithAudit(
   if (!original.execute) return builtTool;
 
   const originalExecute = original.execute;
-  return aiTool({
+  return observeTool(name, aiTool({
     description: original.description ?? "",
     inputSchema: original.inputSchema as never,
     execute: async (params: any, options?: { toolCallId?: string }) => {
@@ -302,7 +306,34 @@ export function wrapToolWithAudit(
         throw err;
       }
     },
-  });
+  }), signals?.toolObserver);
+}
+
+/**
+ * Tell `observer` of the tool's call and of what the model gets back, around
+ * whatever the tool does (the gate, the audit). A tool that throws is reported
+ * as an error result. Without an observer the tool is returned as it is.
+ */
+export function observeTool(name: string, builtTool: Tool, observer?: ToolObserver): Tool {
+  const execute = (builtTool as { execute?: (params: unknown, options?: { toolCallId?: string }) => Promise<unknown> }).execute;
+  if (!observer || !execute) return builtTool;
+  const toolName = toModelToolName(name);
+  return {
+    ...builtTool,
+    execute: async (params: unknown, options?: { toolCallId?: string }) => {
+      const toolCallId = options?.toolCallId;
+      if (!toolCallId) return execute(params, options);
+      observer.onToolCall({ toolCallId, toolName, input: params });
+      try {
+        const output = await execute(params, options);
+        observer.onToolResult({ toolCallId, output });
+        return output;
+      } catch (err) {
+        observer.onToolResult({ toolCallId, output: { error: errMsg(err) } });
+        throw err;
+      }
+    },
+  } as Tool;
 }
 
 interface BuildToolsOptions {
@@ -467,13 +498,13 @@ async function buildTools(opts: BuildToolsOptions) {
         dispatch: (input) => adapter.dispatch(input),
       });
       const handoff = synth.execute as (args: { prompt: string }) => Promise<string>;
-      tools[synth.name] = aiTool({
+      tools[synth.name] = observeTool(synth.name, aiTool({
         description: synth.description,
         inputSchema: synth.inputSchema,
         // The channel's veto covers a handoff too: the other agent can write.
         execute: async (args: { prompt: string }) =>
           signals?.toolGate && !signals.toolGate(synth.name) ? { error: TOOL_NOT_RUN, notRun: true } : handoff(args),
-      });
+      }), signals?.toolObserver);
     }
   }
 
@@ -588,6 +619,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     replyHandled: false,
     replyTexts: [],
     ...(input.toolGate ? { toolGate: input.toolGate } : {}),
+    ...(input.toolObserver ? { toolObserver: input.toolObserver } : {}),
     ...(input.messageId ? { turn: { messageId: input.messageId, debug: input.debugEnabled ?? false } } : {}),
   };
   const toolBuildStart = Date.now();
