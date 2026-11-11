@@ -19,6 +19,8 @@ paths:
 - The runner (`database/run-migrations.ts`) applies each migration in its own transaction,
   with a short `lock_timeout` and a few retries. Keep a migration that alters a large or
   busy table to catalog-only changes (no table rewrite, no backfill under ACCESS EXCLUSIVE).
+- One migration alters at most one hot table and never backfills a hot table it alters;
+  `HOT_TABLES` in `database/migration-journal.test.ts` is the list, and that test enforces it.
 - An index on a table that already holds data goes in a migration of its own, written
   `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS "name" ON ...` or
   `DROP INDEX CONCURRENTLY IF EXISTS "name"`, one statement per `--> statement-breakpoint`.
