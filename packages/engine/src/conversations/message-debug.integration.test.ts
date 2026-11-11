@@ -28,6 +28,11 @@ const AGENT_CALL = "22222222-0000-4000-8000-000000000001";
 const HOOK_CALL = "22222222-0000-4000-8000-000000000002";
 const HOOK_RUN = "33333333-0000-4000-8000-000000000001";
 
+/** A turn cost as the float sum stored it, the last digit off. */
+const NOISY_COST = JSON.stringify({
+  input: 0.000012, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0.000030000000000000004, total: 0.000042000000000000004,
+});
+
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, s)).toISOString();
 
 async function message(id: string | null, role: string, second: number) {
@@ -81,8 +86,9 @@ assistant', null)
 
     await db.execute(sql`
       INSERT INTO pipeline_traces (conversation_id, message_id, instance_id, channel, total_ms, llm_call_ms, is_streaming,
-                                   model, provider, prompt_tokens, completion_tokens, created_at)
-      VALUES (${CID}, ${OLD}, ${SLUG}, 'web', 2000, 1500, false, 'old-model', 'openai', 30, 7, ${at(3)})
+                                   model, provider, prompt_tokens, completion_tokens, cost, created_at)
+      VALUES (${CID}, ${OLD}, ${SLUG}, 'web', 2000, 1500, false, 'old-model', 'openai', 30, 7,
+              ${NOISY_COST}::jsonb, ${at(3)})
     `);
 
     // The call in the old turn's window is not taken: the agent's call comes from the trace.
@@ -91,6 +97,9 @@ assistant', null)
       [OLD, "conversation", "old-model", 30, 1500, null],
     ]);
     expect(old?.path.hookRuns).toEqual([]);
+    // The trace's cost was summed in floating point; the API returns it without the noise.
+    expect(old?.summary?.cost).toEqual({ input: 0.000012, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0.00003, total: 0.000042 });
+    expect(old?.path.modelCalls[0]?.costUsd).toBe(0.000042);
     expect(old?.path.turnStartedAt).toBe(at(1));
     expect(old?.path.replySentAt).toBe(at(3));
 

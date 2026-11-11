@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateTurnCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateTurnCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported, roundUsd } from "./config.js";
 
 describe("resolveModel", () => {
   // The gpt-4o family these used to name is in OpenAI's deprecated list; the
@@ -781,5 +781,18 @@ describe("estimateTurnCostBreakdown – fast mode", () => {
   it("keeps list price for a fast report on a model with no fast multiplier", () => {
     const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", 1_000, 100, undefined, true);
     expect(cost.total).toBeCloseTo((1_000 * 2 + 100 * 10) / 1_000_000, 12);
+  });
+});
+
+describe("roundUsd", () => {
+  it("drops the noise a floating-point sum leaves in a cost", () => {
+    expect(roundUsd(0.000012 + 0.00003)).toBe(0.000042);
+    expect(String(roundUsd(0.1 + 0.2))).toBe("0.3");
+  });
+
+  it("keeps a cost down to the nano-dollar", () => {
+    expect(roundUsd(0.000000001)).toBe(0.000000001);
+    expect(roundUsd(1.234567891)).toBe(1.234567891);
+    expect(roundUsd(0)).toBe(0);
   });
 });

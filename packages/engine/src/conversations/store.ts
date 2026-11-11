@@ -9,6 +9,7 @@ import { conversations, conversationMessages, conversationState, type Attachment
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import type { CostBreakdown } from "../ai-gateway/types.js";
 import { aiLogs } from "../ai-gateway/logger.js";
+import { roundCostBreakdown, roundUsd } from "../ai-gateway/config.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
@@ -1061,7 +1062,7 @@ export class ConversationStore {
               completionTokens: trace.completionTokens ?? 0,
               cachedInputTokens: trace.cachedInputTokens ?? 0,
               cacheCreationInputTokens: trace.cacheCreationInputTokens ?? 0,
-              costUsd: trace.cost?.total ?? 0,
+              costUsd: roundUsd(trace.cost?.total ?? 0),
               stepCount: steps?.length || 1,
               outcome: "ok",
               errorKind: null,
@@ -1097,7 +1098,7 @@ export class ConversationStore {
             cacheCreation5mInputTokens: trace.cacheCreation5mInputTokens ?? null,
             model: trace.model ?? null,
             provider: trace.provider ?? null,
-            cost: trace.cost ?? null,
+            cost: trace.cost ? roundCostBreakdown(trace.cost) : null,
             thinking: trace.thinking ?? null,
             temperature: trace.temperature ?? null,
             latency: {
@@ -1346,7 +1347,7 @@ export class ConversationStore {
           cacheCreation5mInputTokens: trace.cacheCreation5mInputTokens ?? null,
           model: trace.model ?? null,
           provider: trace.provider ?? null,
-          cost: trace.cost ?? null,
+          cost: trace.cost ? roundCostBreakdown(trace.cost) : null,
           thinking: trace.thinking ?? null,
           temperature: trace.temperature ?? null,
           latency: {
