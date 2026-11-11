@@ -654,8 +654,8 @@ export class ConversationStore {
         content: conversationMessages.content,
         createdAt: conversationMessages.createdAt,
         seq: conversationMessages.seq,
-        mark: sql<{ seq: string | number | null; at: string | null } | null>`(
-          SELECT json_build_object('seq', ${conversations.memoryThroughSeq}, 'at', ${conversations.memoryThrough})
+        mark: sql<string | number | null>`(
+          SELECT ${conversations.memoryThroughSeq}
           FROM ${conversations} WHERE ${conversations.conversationId} = ${conversationId})`,
       })
       .from(conversationMessages)
@@ -664,14 +664,9 @@ export class ConversationStore {
       .limit(options.limit + options.context);
 
     const mark = rows[0]?.mark ?? null;
-    const memoryThrough = mark?.seq == null ? null : Number(mark.seq);
-    // Before its first mark by seq, the extraction reached the created_at it kept
-    // then, read by millisecond, the precision it was taken at.
-    const legacyThrough = memoryThrough === null && mark?.at ? new Date(mark.at).getTime() : null;
+    const memoryThrough = mark == null ? null : Number(mark);
     const isFresh = (r: (typeof rows)[number]) =>
-      memoryThrough !== null
-        ? r.seq !== null && r.seq > memoryThrough
-        : legacyThrough === null || (r.createdAt !== null && r.createdAt.getTime() > legacyThrough);
+      memoryThrough === null || (r.seq !== null && r.seq > memoryThrough);
     const chronological = rows.reverse();
     const firstFresh = chronological.findIndex(isFresh);
     const freshRows = firstFresh === -1 ? [] : chronological.slice(firstFresh).filter(isFresh).slice(-options.limit);

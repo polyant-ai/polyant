@@ -18,9 +18,6 @@ export const conversations = pgTable(
     // created_at of the last message `summary` covers: the turn's history starts
     // right after it, so summary and history meet with no gap (migration 0102).
     summaryThrough: timestamp("summary_through", { withTimezone: true }),
-    // created_at of the last message memory extraction read before it was kept by
-    // seq; read only while `memoryThroughSeq` is NULL.
-    memoryThrough: timestamp("memory_through", { withTimezone: true }),
     // seq of the last message memory extraction has read (migration 0117).
     memoryThroughSeq: bigint("memory_through_seq", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

@@ -49,6 +49,10 @@ export const KNOWN_DIFFERENCES = [
     reason: "unread Room setting left out of the schema; kept until a later release drops it, so the previous version keeps working during a deploy",
   },
   {
+    key: "column-only-in-database:conversations.memory_through",
+    reason: "never-written memory watermark left out of the schema; 1.3.6 still names it, so the column is dropped in a later release, after no replica of 1.3.6 can run",
+  },
+  {
     key: "column-type:conversation_messages.seq",
     reason: "bigint whose default is a sequence the migration sets, which the database reads back as bigserial; the schema leaves the default out because the engine never writes the column and rows saved before the migration keep NULL",
   },

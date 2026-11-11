@@ -2170,12 +2170,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "memory_through": {
-          "name": "memory_through",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "memory_through_seq": {
           "name": "memory_through_seq",
           "type": "bigint",
@@ -6358,6 +6352,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "d354fec4-4051-4958-9cfb-0a23400d2f29",
+  "id": "5bcd7c7c-a603-468f-b5b0-cc0b06f44bb9",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }
