@@ -262,7 +262,10 @@ describe("DebugSheet request path", () => {
     await userEvent.click(screen.getByRole("button", { name: /message\.debug\.path\.purpose\.title/ }));
     expect(callExchanges).toHaveBeenCalledWith("conv-1", "msg-1", "call-title", "agent-1");
     expect(await screen.findByText("anthropic · claude-sonnet-5")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "message.debug.path.response" }));
+    const response = screen.getByRole("tab", { name: "message.debug.path.response" });
+    expect(response).toHaveAttribute("aria-selected", "false");
+    await userEvent.click(response);
+    expect(response).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   });
 

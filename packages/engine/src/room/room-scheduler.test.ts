@@ -15,6 +15,7 @@ const {
   mockWithLease,
   mockRequeue,
   mockQueueHumanMessage,
+  mockAppendDailyLog,
 } = vi.hoisted(() => ({
   mockListEnabledRooms: vi.fn(),
   mockCountPendingEvents: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockWithLease: vi.fn(),
   mockRequeue: vi.fn(),
   mockQueueHumanMessage: vi.fn(),
+  mockAppendDailyLog: vi.fn(),
 }));
 
 vi.mock("./room.store.js", () => ({ listEnabledRooms: mockListEnabledRooms }));
@@ -33,12 +35,13 @@ vi.mock("../webhooks/webhook-backlog.store.js", () => ({
   requeueEventsWithoutLiveLease: mockRequeue,
   queueHumanMessage: mockQueueHumanMessage,
   roomLeaseKey: (instanceId: string) => `room:${instanceId}`,
+  MAX_ROOM_EVENT_ATTEMPTS: 3,
 }));
 // The lease itself is covered against a real database in room-lease.integration.test.ts.
 vi.mock("../background/work-lease.js", () => ({ withLease: mockWithLease }));
 vi.mock("../analytics/cleanup.js", () => ({ runAnalyticsCleanup: vi.fn() }));
 vi.mock("../platform/platform-settings.store.js", () => ({ resolvePlatformSettings: vi.fn(() => new Promise(() => {})) }));
-vi.mock("./activity-log.store.js", () => ({ compactActivityLog: mockCompactActivityLog }));
+vi.mock("./activity-log.store.js", () => ({ compactActivityLog: mockCompactActivityLog, appendDailyLog: mockAppendDailyLog }));
 vi.mock("./room-engine.js", () => ({ executeRoomCycle: mockExecuteRoomCycle }));
 vi.mock("../instances/resolve-instance-id.js", () => ({
   resolveInstanceSlug: mockResolveInstanceSlug,
@@ -78,7 +81,8 @@ beforeEach(() => {
   mockCompactActivityLog.mockResolvedValue(undefined);
   mockExecuteRoomCycle.mockResolvedValue(undefined);
   mockResolveInstanceSlug.mockResolvedValue("inst-a-slug");
-  mockRequeue.mockResolvedValue(0);
+  mockRequeue.mockResolvedValue({ requeued: 0, exhausted: [] });
+  mockAppendDailyLog.mockResolvedValue(undefined);
   mockQueueHumanMessage.mockResolvedValue("msg-1");
   // No other process holds the lease: the body runs under a fixed owner.
   mockWithLease.mockImplementation(async (_key: string, _opts: unknown, body: (owner: string) => Promise<void>) => {
@@ -270,13 +274,32 @@ describe("RoomScheduler", () => {
 
     it("requeues events without a live lease on every tick, before reading the rooms", async () => {
       const order: string[] = [];
-      mockRequeue.mockImplementation(async () => { order.push("requeue"); return 2; });
+      mockRequeue.mockImplementation(async () => { order.push("requeue"); return { requeued: 2, exhausted: [] }; });
       mockListEnabledRooms.mockImplementation(async () => { order.push("rooms"); return []; });
 
       await (roomScheduler as any).tick();
       await (roomScheduler as any).tick();
 
       expect(order).toEqual(["requeue", "rooms", "requeue", "rooms"]);
+    });
+
+    it("reports the events the requeue gave up on in the engine log and in each Room's activity log", async () => {
+      mockRequeue.mockResolvedValue({
+        requeued: 0,
+        exhausted: [
+          { id: "evt-1", instanceId: "inst-a" },
+          { id: "evt-2", instanceId: "inst-a" },
+          { id: "evt-3", instanceId: "inst-b" },
+        ],
+      });
+
+      await internals.tick();
+
+      expect(mockAppendDailyLog).toHaveBeenCalledTimes(2);
+      expect(mockAppendDailyLog).toHaveBeenCalledWith("inst-a", expect.stringContaining("evt-1, evt-2"), 2);
+      expect(mockAppendDailyLog).toHaveBeenCalledWith("inst-b", expect.stringContaining("evt-3"), 1);
+      const errors = mockRoomLog.error.mock.calls.map((c) => String(c[1]));
+      expect(errors.filter((m) => m.includes("gave up"))).toHaveLength(2);
     });
 
     it("runs the daily housekeeping only under its once-a-day lease", async () => {

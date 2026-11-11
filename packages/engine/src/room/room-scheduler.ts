@@ -6,12 +6,14 @@ import {
   queueHumanMessage,
   requeueEventsWithoutLiveLease,
   roomLeaseKey,
+  MAX_ROOM_EVENT_ATTEMPTS,
+  type ExhaustedEvent,
 } from "../webhooks/webhook-backlog.store.js";
-import { compactActivityLog } from "./activity-log.store.js";
+import { appendDailyLog, compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
 import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { withLease } from "../background/work-lease.js";
 import { trackBackgroundTurn } from "../channels/background-turns.js";
@@ -23,6 +25,28 @@ const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** One lease for the whole installation: the daily housekeeping runs once, not once per replica. */
 const HOUSEKEEPING_LEASE_KEY = "housekeeping:daily";
+
+/**
+ * Report the events the requeue gave up on as a failed cycle is reported: an error
+ * in the engine log, and an entry in the Room's activity log, where the panel shows it.
+ */
+async function reportExhaustedEvents(events: ExhaustedEvent[]): Promise<void> {
+  const byInstance = new Map<InstanceUuid, string[]>();
+  for (const e of events) byInstance.set(e.instanceId, [...(byInstance.get(e.instanceId) ?? []), e.id]);
+  await Promise.all(
+    [...byInstance].map(async ([instanceId, ids]) => {
+      roomLog.error(
+        "Scheduler",
+        `room ${instanceId}: gave up on ${ids.length} event(s) after ${MAX_ROOM_EVENT_ATTEMPTS} attempts: ${ids.join(", ")}`,
+      );
+      const content = `———— ${new Date().toISOString()} | ${ids.length} event(s) | FAILED ————\n` +
+        `No cycle completed these events in ${MAX_ROOM_EVENT_ATTEMPTS} attempts: ${ids.join(", ")}`;
+      await appendDailyLog(instanceId, content, ids.length).catch((err) =>
+        roomLog.error("Scheduler", `failed to write the given-up events to the activity log of ${instanceId}`, err),
+      );
+    }),
+  );
+}
 
 class RoomScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -42,10 +66,12 @@ class RoomScheduler {
   private async tick(): Promise<void> {
     // Events a cycle claimed and no live lease backs any more (the cycle ended without
     // completing them, or its process died) go back to pending before anything is read.
-    const requeued = await requeueEventsWithoutLiveLease();
+    // An event that has used up its attempts is completed as failed instead.
+    const { requeued, exhausted } = await requeueEventsWithoutLiveLease();
     if (requeued > 0) {
       roomLog.info("Scheduler", `requeued ${requeued} event(s) left by a cycle that no longer holds its room`);
     }
+    if (exhausted.length > 0) await reportExhaustedEvents(exhausted);
 
     const [rooms, pendingCounts] = await Promise.all([
       listEnabledRooms(),

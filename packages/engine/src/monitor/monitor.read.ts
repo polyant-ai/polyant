@@ -13,6 +13,7 @@ import type {
   MonitorOutcome,
   MonitorSource,
 } from "./monitor.types.js";
+import { isUuid } from "../utils/uuid.js";
 
 export const MONITOR_DEFAULT_LIMIT = 50;
 export const MONITOR_MAX_LIMIT = 100;
@@ -73,7 +74,7 @@ export function decodeCursor(raw: string): MonitorCursor | undefined {
     const [time, id] = parsed;
     if (typeof time !== "string" || typeof id !== "string") return undefined;
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(time)) return undefined;
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return undefined;
+    if (!isUuid(id)) return undefined;
     return { time, id };
   } catch {
     return undefined;

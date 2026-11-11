@@ -37,7 +37,7 @@ vi.mock("./room-engine.js", () => ({
 }));
 // The real cleanup would purge every suite's rows on the shared database.
 vi.mock("../analytics/cleanup.js", () => ({ runAnalyticsCleanup: mockCleanup }));
-vi.mock("./activity-log.store.js", () => ({ compactActivityLog: vi.fn(async () => {}) }));
+vi.mock("./activity-log.store.js", () => ({ compactActivityLog: vi.fn(async () => {}), appendDailyLog: vi.fn(async () => {}) }));
 
 const { roomScheduler } = await import("./room-scheduler.js");
 const store = await import("../webhooks/webhook-backlog.store.js");
@@ -231,10 +231,29 @@ describe.skipIf(!DB_AVAILABLE)("room cycles across replicas (integration)", () =
     expect((await statuses()).map((r) => r.status)).toEqual(["completed", "completed"]);
   });
 
+  it("an event no cycle completes is claimed a bounded number of times, then completed as failed", async () => {
+    const [id] = await addEvents(1);
+    const claims: number[] = [];
+    for (let i = 1; i <= store.MAX_ROOM_EVENT_ATTEMPTS; i++) {
+      // Each cycle claims the event and dies without completing it: no lease backs the claim.
+      const [event] = await store.listAndMarkPendingEventsProcessing(asInstanceUuid(instanceId), `dead-owner-${i}`);
+      claims.push(event.attempts);
+      const { exhausted } = await store.requeueEventsWithoutLiveLease();
+      const mine = exhausted.filter((e) => e.id === id);
+      expect(mine).toEqual(i < store.MAX_ROOM_EVENT_ATTEMPTS ? [] : [{ id, instanceId }]);
+    }
+
+    expect(claims).toEqual(Array.from({ length: store.MAX_ROOM_EVENT_ATTEMPTS }, (_, i) => i + 1));
+    const [row] = await queryClient<Array<{ status: string; react_notes: string | null; claimed_by: string | null }>>`
+      SELECT status, react_notes, claimed_by FROM event_backlog WHERE id = ${id}`;
+    expect(row).toEqual({ status: "completed", react_notes: expect.stringMatching(/^FAILED/), claimed_by: null });
+    expect(await store.listAndMarkPendingEventsProcessing(asInstanceUuid(instanceId), "late-owner")).toEqual([]);
+  });
+
   it("a cycle that lost its claim cannot complete the events another cycle now holds", async () => {
     const ids = await addEvents(1);
     await store.listAndMarkPendingEventsProcessing(asInstanceUuid(instanceId), "stale-owner");
-    expect(await store.requeueEventsWithoutLiveLease()).toBeGreaterThanOrEqual(1);
+    expect((await store.requeueEventsWithoutLiveLease()).requeued).toBeGreaterThanOrEqual(1);
     await store.listAndMarkPendingEventsProcessing(asInstanceUuid(instanceId), "current-owner");
 
     await store.markEventsCompleted(ids, "late", asInstanceUuid(instanceId), "stale-owner");

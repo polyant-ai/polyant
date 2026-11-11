@@ -14,6 +14,7 @@ import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { trackBackgroundTurn } from "../channels/background-turns.js";
+import { keepLeaseAlive } from "../background/work-lease.js";
 import { createLogger } from "../utils/create-logger.js";
 import { errMsg } from "../utils/error.js";
 
@@ -168,22 +169,18 @@ class SchedulerService {
    */
   private async runClaimed(task: ScheduledTask, claim: Date, triggerType: TriggerType, leaseTtlMs: number): Promise<void> {
     this.running.add(task.id);
-    const heartbeat = setInterval(() => {
-      store
-        .renewRunLease(task.id, claim, leaseTtlMs)
-        .then((held) => {
-          if (!held) scheduledTaskLog.warn("SchedulerService", `task "${task.name}" (${task.id}) lost its claim while running`);
-        })
-        .catch((err) => scheduledTaskLog.warn("SchedulerService", `lease renewal failed for "${task.name}": ${errMsg(err)}`));
-    }, leaseTtlMs / 4);
-    heartbeat.unref();
+    const stopRenewing = keepLeaseAlive(leaseTtlMs, () => store.renewRunLease(task.id, claim, leaseTtlMs), {
+      scope: "SchedulerService",
+      onLost: `task "${task.name}" (${task.id}) lost its claim while running`,
+      onError: (err) => `lease renewal failed for "${task.name}": ${errMsg(err)}`,
+    });
     try {
       // Shutdown waits for it within its grace period, like an acknowledged channel turn.
       const run = this.executeClaimed(task, claim, triggerType);
       trackBackgroundTurn(run);
       await run;
     } finally {
-      clearInterval(heartbeat);
+      stopRenewing();
       this.running.delete(task.id);
     }
   }
@@ -324,7 +321,8 @@ class SchedulerService {
 
   /**
    * Per-tick recovery: runs whose lease expired, because the process running them is
-   * gone (a deploy, an OOM kill, a crash) or cannot reach the database.
+   * gone (a deploy, an OOM kill, a crash) or cannot reach the database. A run claimed
+   * by a release without leases counts as expired once it is a lease's lifetime old.
    *
    * Every replica does this on every tick, so a run interrupted during a rolling deploy
    * is recovered by the process that survives it, a lease TTL later, without waiting for
@@ -337,7 +335,7 @@ class SchedulerService {
    * this process must not start it again next to itself.
    */
   private async recoverInterruptedRuns(): Promise<void> {
-    const expired = (await store.findExpiredRunLeases()).filter((task) => !this.running.has(task.id));
+    const expired = (await store.findExpiredRunLeases(await this.leaseTtlMs())).filter((task) => !this.running.has(task.id));
     if (expired.length === 0) return;
 
     // The dangling runs are read BEFORE the markers are cleared, and each marker is

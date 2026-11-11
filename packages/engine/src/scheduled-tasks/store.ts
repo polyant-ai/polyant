@@ -418,14 +418,27 @@ export async function countStuckRunning(since: Date): Promise<number> {
 
 /**
  * Running rows whose lease has expired: the process running them stopped renewing it,
- * so it is gone (or cannot reach the database). A row claimed without a lease is left
- * to the deadline reaper.
+ * so it is gone (or cannot reach the database).
+ *
+ * A row claimed without a lease was claimed by a process of a release that had none,
+ * typically one a deploy stopped mid-run. Whether that run is still alive cannot be
+ * told, so the row counts as expired once it has been running for `orphanGraceMs`
+ * (from `updated_at`, the run's start), as long as a lease would have lasted.
  */
-export async function findExpiredRunLeases(): Promise<ScheduledTask[]> {
+export async function findExpiredRunLeases(orphanGraceMs: number): Promise<ScheduledTask[]> {
   return db
     .select()
     .from(scheduledTasks)
-    .where(and(eq(scheduledTasks.lastRunStatus, "running"), lt(scheduledTasks.leaseExpiresAt, sql`now()`)))
+    .where(and(
+      eq(scheduledTasks.lastRunStatus, "running"),
+      or(
+        lt(scheduledTasks.leaseExpiresAt, sql`now()`),
+        and(
+          isNull(scheduledTasks.leaseExpiresAt),
+          lt(scheduledTasks.updatedAt, sql`now() - ${orphanGraceMs} * interval '1 millisecond'`),
+        ),
+      ),
+    ))
     .orderBy(scheduledTasks.updatedAt);
 }
 

@@ -14,12 +14,6 @@ export function timeText(column: string): SQL {
   return sql`to_char(${sql.identifier(column)} at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
-
 /** Escape LIKE wildcards so free text is matched literally. */
 export function likePattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;

@@ -23,6 +23,7 @@ import type { MessageDebug, PathExchange, PathHookRun, PathModelCall, StepDetail
 import { useResource } from "@/hooks/use-resource";
 import { useFormat } from "@/lib/use-format";
 import { formatLatency } from "@/lib/format";
+import { ChipTabs } from "@/components/layout/chip-tabs";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { JsonTree } from "./json-tree";
@@ -183,24 +184,17 @@ function Pair({ labels, left, right, meta }: { labels: [string, string]; left: u
   const body = side === 0 ? left : right;
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1">
-        {labels.map((label, i) => (
-          <button
-            key={label}
-            type="button"
-            aria-pressed={side === i}
-            onClick={() => setSide(i as 0 | 1)}
-            className={cn(
-              "rounded px-2 py-0.5 text-xs transition-colors",
-              side === i ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        {meta && <span className="ml-2 truncate font-mono text-xs text-muted-foreground">{meta[side]}</span>}
-        <CopyButton value={typeof body === "string" ? body : JSON.stringify(body ?? null, null, 2)} label={t("common.copy")} className="ml-auto size-7" />
-      </div>
+      <ChipTabs
+        tabs={labels.map((label, i) => ({ value: String(i), label }))}
+        value={String(side)}
+        onValueChange={(v) => setSide(v === "1" ? 1 : 0)}
+        actions={
+          <div className="flex items-center gap-2">
+            {meta && <span className="truncate font-mono text-xs text-muted-foreground">{meta[side]}</span>}
+            <CopyButton value={typeof body === "string" ? body : JSON.stringify(body ?? null, null, 2)} label={t("common.copy")} className="size-7" />
+          </div>
+        }
+      />
       {body === null || body === undefined ? (
         <p className="text-sm text-muted-foreground">—</p>
       ) : typeof body === "string" ? (
@@ -233,19 +227,11 @@ function Exchanges({ call, stepIndex }: { call: PathModelCall; stepIndex: number
   return (
     <div className="flex flex-col gap-2">
       {tries.length > 1 && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          {tries.map((e) => (
-            <button
-              key={e.attempt}
-              type="button"
-              aria-pressed={e === shown}
-              onClick={() => setAttempt(e.attempt)}
-              className={cn("rounded px-2 py-0.5", e === shown ? "bg-secondary text-foreground" : "hover:text-foreground")}
-            >
-              {t("message.debug.path.attempt", { n: e.attempt })}
-            </button>
-          ))}
-        </div>
+        <ChipTabs
+          tabs={tries.map((e) => ({ value: String(e.attempt), label: t("message.debug.path.attempt", { n: e.attempt }) }))}
+          value={String(shown.attempt)}
+          onValueChange={(v) => setAttempt(Number(v))}
+        />
       )}
       <Pair
         labels={[t("message.debug.path.request"), t("message.debug.path.response")]}

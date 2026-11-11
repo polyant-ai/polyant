@@ -26,9 +26,22 @@ export interface BacklogEvent {
   completedAt: Date | null;
   reactNotes: string | null;
   createdAt: Date | null;
+  /** How many cycles have claimed the event, this one included. */
+  attempts: number;
 }
 
 const BACKLOG_CAP = 100;
+
+/**
+ * How many cycles may claim an event before it is given up. Each claim costs a
+ * model call, so an event whose cycle keeps failing after its model call is not
+ * retried every tick: the requeue completes it as failed instead.
+ */
+export const MAX_ROOM_EVENT_ATTEMPTS = 3;
+
+/** The note a given-up event is completed with; the panel's backlog shows it. */
+export const EXHAUSTED_EVENT_NOTE =
+  `FAILED: no cycle completed this event in ${MAX_ROOM_EVENT_ATTEMPTS} attempts`;
 
 /**
  * Atomically insert an event only if the pending backlog is below the cap.
@@ -71,7 +84,7 @@ export function roomLeaseKey(instanceId: InstanceUuid): string {
  * transaction with FOR UPDATE row locks, naming `owner` (the Room's lease owner) as
  * their claimant.  The atomic list+mark replaces the old separate
  * listPendingEvents() + markEventsProcessing() pair which had a TOCTOU window
- * between SELECT and UPDATE.
+ * between SELECT and UPDATE. Each claim counts an attempt.
  */
 export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUuid, owner: string): Promise<BacklogEvent[]> {
   return db.transaction(async (tx) => {
@@ -81,13 +94,18 @@ export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUui
       .where(and(eq(eventBacklog.instanceId, instanceId), eq(eventBacklog.status, BACKLOG_STATUS.PENDING)))
       .orderBy(eventBacklog.createdAt)
       .for("update");
-    const events = rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as BacklogEvent[];
+    const events = rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId), attempts: r.attempts + 1 })) as BacklogEvent[];
 
     if (events.length > 0) {
       const ids = events.map((e) => e.id);
       await tx
         .update(eventBacklog)
-        .set({ status: BACKLOG_STATUS.PROCESSING, claimedBy: owner, claimedAt: sql`now()` })
+        .set({
+          status: BACKLOG_STATUS.PROCESSING,
+          claimedBy: owner,
+          claimedAt: sql`now()`,
+          attempts: sql`${eventBacklog.attempts} + 1`,
+        })
         .where(inArray(eventBacklog.id, ids));
     }
 
@@ -137,6 +155,12 @@ export async function markEventsCompleted(
   }
 }
 
+/** An event the requeue gave up on, for the caller to report. */
+export interface ExhaustedEvent {
+  id: string;
+  instanceId: InstanceUuid;
+}
+
 /**
  * Put back to pending every event in PROCESSING whose claimant holds no live Room
  * lease: its cycle ended without completing it, or its process is gone. Runs on
@@ -144,18 +168,29 @@ export async function markEventsCompleted(
  * replica starting during a deploy does not hand another replica's work to a
  * second cycle.
  *
+ * An event already claimed `MAX_ROOM_EVENT_ATTEMPTS` times is completed with
+ * `EXHAUSTED_EVENT_NOTE` instead, and returned in `exhausted` so the caller
+ * reports it.
+ *
  * A process of the previous release claims events without an owner or a lease, so
  * whether its cycle is still running cannot be told. Such an event is stamped the
  * first time a tick sees it and put back only once it has waited a lease's
  * lifetime, which a cycle does not outlast.
  */
-export async function requeueEventsWithoutLiveLease(): Promise<number> {
+export async function requeueEventsWithoutLiveLease(): Promise<{ requeued: number; exhausted: ExhaustedEvent[] }> {
   await db.execute(sql`
     UPDATE event_backlog SET claimed_at = now()
     WHERE status = ${BACKLOG_STATUS.PROCESSING} AND claimed_by IS NULL AND claimed_at IS NULL
   `);
-  const rows = await db.execute<{ id: string }>(sql`
-    UPDATE event_backlog e SET status = ${BACKLOG_STATUS.PENDING}, claimed_by = NULL, claimed_at = NULL
+  const rows = await db.execute<{ id: string; instance_id: string; exhausted: boolean }>(sql`
+    UPDATE event_backlog e SET
+      status = CASE WHEN e.attempts >= ${MAX_ROOM_EVENT_ATTEMPTS}
+        THEN ${BACKLOG_STATUS.COMPLETED} ELSE ${BACKLOG_STATUS.PENDING} END,
+      completed_at = CASE WHEN e.attempts >= ${MAX_ROOM_EVENT_ATTEMPTS} THEN now() ELSE e.completed_at END,
+      react_notes = CASE WHEN e.attempts >= ${MAX_ROOM_EVENT_ATTEMPTS}
+        THEN ${EXHAUSTED_EVENT_NOTE} ELSE e.react_notes END,
+      claimed_by = NULL,
+      claimed_at = NULL
     WHERE e.status = ${BACKLOG_STATUS.PROCESSING}
       AND CASE WHEN e.claimed_by IS NULL
         THEN e.claimed_at < now() - make_interval(secs => ${WORK_LEASE_TTL_MS / 1000})
@@ -166,9 +201,12 @@ export async function requeueEventsWithoutLiveLease(): Promise<number> {
             AND l.expires_at > now()
         )
       END
-    RETURNING e.id
+    RETURNING e.id, e.instance_id, e.status = ${BACKLOG_STATUS.COMPLETED} AS exhausted
   `);
-  return rows.length;
+  const exhausted = rows
+    .filter((r) => r.exhausted)
+    .map((r) => ({ id: r.id, instanceId: asInstanceUuid(r.instance_id) }));
+  return { requeued: rows.length - exhausted.length, exhausted };
 }
 
 export async function countPendingByInstance(): Promise<Map<InstanceUuid, number>> {

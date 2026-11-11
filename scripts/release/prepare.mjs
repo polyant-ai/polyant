@@ -86,6 +86,42 @@ export async function applyVersion(rootDir, version, facts = releaseFacts) {
   return changed;
 }
 
+/**
+ * Set `version` on the lockfiles' own entries: the file's top level, the root
+ * package and every workspace (`packages/*`), and return the lockfiles rewritten.
+ *
+ * Textual for the same reason as the manifests, and because `npm install
+ * --package-lock-only` with whichever npm happens to be installed also rewrites
+ * fields it does not know (npm 10 drops the `libc` fields a newer npm wrote), so
+ * the release commit would carry lockfile churn that has nothing to do with the
+ * version. Dependency entries live under `node_modules/` and are never touched.
+ */
+export async function applyLockfileVersions(rootDir, version, facts = releaseFacts) {
+  const changed = [];
+  for (const lockRoot of facts.lockfileRoots) {
+    const file = path.posix.join(lockRoot === "." ? "" : lockRoot, "package-lock.json");
+    const before = await read(rootDir, file);
+    let entries = 0;
+    // The top-level name/version pair, two-space indented.
+    let after = before.replace(/^(  "version":\s*)"[^"]*"/m, (_, head) => {
+      entries += 1;
+      return `${head}"${version}"`;
+    });
+    // `packages` entries that are not dependencies: "" and the workspaces.
+    after = after.replace(
+      /^(    "(?![^"]*node_modules\/)[^"]*": \{\n      "name": "[^"]*",\n      "version": )"[^"]*"/gm,
+      (_, head) => {
+        entries += 1;
+        return `${head}"${version}"`;
+      },
+    );
+    if (entries < 2) throw new Error(`${file} has no workspace entries with a version to update.`);
+    if (after !== before) await write(rootDir, file, after);
+    changed.push(file);
+  }
+  return changed;
+}
+
 // ---------------------------------------------------------------------------
 // CHANGELOG
 // ---------------------------------------------------------------------------
@@ -121,8 +157,9 @@ function updateLinkReferences(changelog, version, previous, repositoryUrl) {
 }
 
 /**
- * Insert `## [version] - date` directly under `## [Unreleased]`, with the
- * Keep a Changelog subsections left empty for a human to fill.
+ * Move the content of `## [Unreleased]` under a new `## [version] - date`
+ * heading, leaving Unreleased empty above it. An Unreleased section with no
+ * entries gets the Keep a Changelog subsections left empty for a human to fill.
  */
 export async function ensureChangelogSection(rootDir, version, date, facts = releaseFacts) {
   const changelog = await read(rootDir, CHANGELOG);
@@ -130,25 +167,21 @@ export async function ensureChangelogSection(rootDir, version, date, facts = rel
   if (new RegExp(`^## \\[${quote(version)}\\]`, "m").test(changelog)) {
     throw new Error(`${CHANGELOG} already carries a section for ${version}.`);
   }
-  if (!changelog.includes(UNRELEASED)) {
+  const start = changelog.indexOf(`${UNRELEASED}\n`);
+  if (start === -1) {
     throw new Error(`${CHANGELOG} has no "${UNRELEASED}" heading to insert under.`);
   }
 
   const previous = previousChangelogVersion(changelog);
-  const section = [
-    UNRELEASED,
-    "",
-    `## [${version}] - ${date}`,
-    "",
-    "### Added",
-    "",
-    "### Changed",
-    "",
-    "### Fixed",
-    "",
-  ].join("\n");
+  const bodyStart = start + UNRELEASED.length + 1;
+  // The Unreleased body runs to the next release heading or to the link references.
+  const rest = changelog.slice(bodyStart);
+  const end = rest.search(/^(?:## \[|\[[^\]]+\]: )/m);
+  const body = (end === -1 ? rest : rest.slice(0, end)).trim();
+  const tail = end === -1 ? "" : rest.slice(end);
 
-  const withSection = changelog.replace(`${UNRELEASED}\n`, `${section}`);
+  const content = body === "" ? ["### Added", "", "### Changed", "", "### Fixed"].join("\n") : body;
+  const withSection = `${changelog.slice(0, bodyStart)}\n## [${version}] - ${date}\n\n${content}\n\n${tail}`;
   await write(rootDir, CHANGELOG, updateLinkReferences(withSection, version, previous, facts.repositoryUrl));
   return previous;
 }
@@ -294,13 +327,11 @@ async function main() {
   const changed = await applyVersion(rootDir, version, facts);
   console.log(`versions   ${version} in ${changed.length} file(s)`);
 
-  for (const root of facts.lockfileRoots) {
-    await shell("npm", ["install", "--package-lock-only"], { cwd: path.join(rootDir, root) });
-  }
-  console.log(`lockfiles  synced (${facts.lockfileRoots.join(", ")})`);
+  const locks = await applyLockfileVersions(rootDir, version, facts);
+  console.log(`lockfiles  ${version} in ${locks.join(", ")}`);
 
   await ensureChangelogSection(rootDir, version, date, facts);
-  console.log(`changelog  ## [${version}] - ${date} added, with empty subsections to fill`);
+  console.log(`changelog  ## [${version}] - ${date} added from Unreleased`);
 
   const note = await ensureReleaseNote(rootDir, version, facts);
   console.log(`notes      ${note.path} ${note.created ? "created" : "left alone (already written)"}`);

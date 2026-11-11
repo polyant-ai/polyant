@@ -223,6 +223,13 @@ export async function executeRoomCycle(
   if (!outcome) return;
   const { finalText, result, halted } = outcome;
 
+  // The turn is over and what it sent is sent: complete the events before any later
+  // step can fail, so a failure below does not hand them to another cycle that would
+  // pay the model call again and send its messages twice.
+  if (pendingEventIds.length > 0) {
+    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId, owner);
+  }
+
   // On halt, deliver the canned reply to the room's outbound channel — room never
   // auto-sends (the agent uses room_send_message). Best-effort.
   if (halted && room.outboundChannel && room.outboundTarget) {
@@ -234,11 +241,6 @@ export async function executeRoomCycle(
   }
 
   await persistDirectReply(conversationId, outcome);
-
-  // Mark events as completed
-  if (pendingEventIds.length > 0) {
-    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId, owner);
-  }
 
   const triggers: string[] = [];
   if (pendingEvents.length > 0) triggers.push(`${pendingEvents.length} event(s)`);

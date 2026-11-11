@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createLogger } from "./create-logger.js";
+import { sqlState } from "./db-errors.js";
 
 const log = createLogger();
 
@@ -31,16 +32,6 @@ export interface BufferedInsertQueueOptions<T> {
    * batch were written, possibly none. Defaults to one warning.
    */
   onRefused?: (rows: T[], written: number) => void;
-}
-
-/** SQLSTATE of a Postgres error, read from the error or the cause drizzle/porsager wrap it in. */
-function sqlState(err: unknown): string | undefined {
-  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 4; depth++) {
-    const code = (e as { code?: unknown }).code;
-    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
-    e = (e as { cause?: unknown }).cause;
-  }
-  return undefined;
 }
 
 /**

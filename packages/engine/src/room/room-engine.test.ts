@@ -419,6 +419,20 @@ describe("executeRoomCycle", () => {
       expect(mockMarkEventsCompleted).toHaveBeenCalledWith(["evt-1"], expect.any(String), "inst-1", OWNER);
     });
 
+    it("completes its events even when persisting the reply fails, so no later cycle repeats the turn", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([]) as never);
+      mockConversationStore.appendMessages.mockImplementation(async (_id: string, msgs: Array<{ role: string }>) => {
+        if (msgs[0]?.role === "assistant") throw new Error("database unavailable");
+      });
+
+      await expect(executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER)).rejects.toThrow("database unavailable");
+
+      expect(mockMarkEventsCompleted).toHaveBeenCalledWith(["evt-1"], expect.any(String), "inst-1", OWNER);
+    });
+
     it("should proceed when there are pending events even without human message", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { action: "test" }, matchedAt: new Date(), createdAt: new Date() },

@@ -314,6 +314,29 @@ export function estimateCostBreakdown(
   };
 }
 
+/**
+ * A cost in USD rounded to whole nano-dollars. Costs are sums of products of
+ * token counts and per-million rates, so a double carries noise in its last
+ * digits (0.000042000000000000004); a nano-dollar is far below any price a
+ * provider bills, and an integer count of them divided back gives the shortest
+ * decimal.
+ */
+export function roundUsd(value: number): number {
+  return Math.round(value * 1e9) / 1e9;
+}
+
+/** Every field of a cost breakdown rounded with `roundUsd`. */
+export function roundCostBreakdown(cost: CostBreakdown): CostBreakdown {
+  return {
+    input: roundUsd(cost.input),
+    cache: roundUsd(cost.cache),
+    cacheRead: roundUsd(cost.cacheRead),
+    cacheWrite: roundUsd(cost.cacheWrite),
+    output: roundUsd(cost.output),
+    total: roundUsd(cost.total),
+  };
+}
+
 /** The token usage of one model call: one step of a tool loop, or a whole turn. */
 export interface CallUsage extends CacheTokenUsage {
   promptTokens: number;

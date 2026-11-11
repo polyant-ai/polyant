@@ -52,22 +52,19 @@ const SHOW_INACTIVE_STORAGE_KEY = "instances-show-inactive";
 
 const parseBool = (raw: string): boolean | undefined => (raw === "true" ? true : raw === "false" ? false : undefined);
 
-/** The same agents as cards; each card is a real link to the agent's page. */
+/**
+ * The same agents as cards. The agent's name is the link, stretched over the whole card;
+ * the favorite star is a sibling of that link, above it, so the two stay separate controls.
+ */
 function InstanceGrid({ instances, paths, favorites }: { instances: Instance[]; paths: TenantPaths; favorites: Favorites }) {
   const { t } = useI18n();
   return (
     <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {instances.map((inst) => (
-        <Link
+        <div
           key={inst.id}
-          href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
-          className="group relative flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
+          className="group relative flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors focus-within:ring-2 focus-within:ring-ring hover:bg-accent/50"
         >
-          <FavoriteAgentButton
-            className="absolute right-1 top-1"
-            active={favorites.isFavorite(inst.id)}
-            onToggle={() => favorites.toggle(inst.id)}
-          />
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
             {inst.icon && isSafeImageSrc(inst.icon) ? (
               <Image src={inst.icon} alt="" width={64} height={64} className="h-full w-full object-cover" unoptimized />
@@ -76,7 +73,14 @@ function InstanceGrid({ instances, paths, favorites }: { instances: Instance[]; 
             )}
           </div>
           <div className="w-full text-center">
-            <p className="truncate text-sm font-medium group-hover:underline">{inst.name}</p>
+            <p className="truncate text-sm font-medium group-hover:underline">
+              <Link
+                href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
+                className="after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none"
+              >
+                {inst.name}
+              </Link>
+            </p>
             {inst.description && (
               <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground" title={inst.description}>
                 {inst.description}
@@ -88,7 +92,12 @@ function InstanceGrid({ instances, paths, favorites }: { instances: Instance[]; 
               </StatusBadge>
             </div>
           </div>
-        </Link>
+          <FavoriteAgentButton
+            className="absolute right-1 top-1 z-10"
+            active={favorites.isFavorite(inst.id)}
+            onToggle={() => favorites.toggle(inst.id)}
+          />
+        </div>
       ))}
     </div>
   );

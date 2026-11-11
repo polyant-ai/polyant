@@ -21,6 +21,7 @@ import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { createLogger } from "../../utils/create-logger.js";
+import { isUuid } from "../../utils/uuid.js";
 
 const log = createLogger();
 
@@ -127,9 +128,8 @@ export class InstanceScheduledTasksController {
     const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     // Validate taskId format (must be UUID) and ownership
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (taskId) {
-      if (!UUID_RE.test(taskId)) {
+      if (!isUuid(taskId)) {
         throw new BadRequestException("Invalid taskId format");
       }
       const task = await scheduledTaskStore.getById(taskId);
