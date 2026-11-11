@@ -145,6 +145,31 @@ describe("InstancesPage", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
+  it("keeps the favorite star beside the card link, so the star is not inside the anchor", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValue({ instances: [agent({ id: "1", slug: "support-bot", name: "Support Bot" })] });
+    render(<InstancesPage />);
+    await user.click(await screen.findByRole("button", { name: "instances.viewGrid" }));
+
+    const link = screen.getByRole("link", { name: /Support Bot/ });
+    const star = screen.getByRole("button", { name: "instances.favorite.add" });
+    expect(link).not.toContainElement(star);
+    expect(link.closest("a")?.querySelector("button")).toBeNull();
+
+    // Tab order: the link, then the star, as two separate stops.
+    const stops = [];
+    link.focus();
+    stops.push(document.activeElement);
+    await user.tab();
+    stops.push(document.activeElement);
+    expect(stops).toEqual([link, star]);
+
+    // Pressing the star does not open the agent.
+    mockPush.mockClear();
+    await user.click(star);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it("shows the description under the name on a card, clamped to two lines", async () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ instances: [agent({ id: "1", slug: "s", name: "Support Bot", description: "Answers tickets all day" })] });
