@@ -5923,6 +5923,13 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {
@@ -6351,6 +6358,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "ca3831ed-01f2-4177-8fc8-4ff6cfa2ad88",
+  "id": "d354fec4-4051-4958-9cfb-0a23400d2f29",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

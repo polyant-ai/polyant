@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, integer, timestamp, jsonb, unique, index, primaryKey } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
 export const eventSources = pgTable(
@@ -64,6 +64,8 @@ export const eventBacklog = pgTable(
      * naming an owner, when this release first saw it in processing.
      */
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /** How many cycles have claimed the event; bounded by `MAX_ROOM_EVENT_ATTEMPTS`. */
+    attempts: integer("attempts").notNull().default(0),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
