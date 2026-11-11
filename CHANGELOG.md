@@ -58,9 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flag is on, each call also keeps the raw request sent to the provider and its
   answer, per step and per retry, cleared with the debug payloads
   (`DEBUG_PAYLOAD_RETENTION_DAYS`) and with their conversation. Calls are filed
-  under their message instead of matched by time window (migrations
-  `0121` and `0122`). `GET /api/conversations/:id/messages/:messageId/debug` returns
-  the summary and the path, and `.../debug/calls/:callId/exchanges` one call's
+  under their message instead of matched by time window (migrations `0121` and
+  `0122`). `GET /api/conversations/:id/messages/:messageId/debug` returns the
+  summary and the path, and `.../debug/calls/:callId/exchanges` one call's
   raw exchanges. A turn recorded before this release opens in the same layout
   with the data it has: its hooks and background calls do not appear, and steps
   without a recorded start show no time. Turns run by Room cycles and by
@@ -137,12 +137,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   again (migration `0109`). A request without the header is processed
   every time, as before.
 - An agent API key is found through an indexed digest of its value instead of
-  decrypting every key (migrations `0101` and `0114`). A key that matches more than one
-  agent opens none of them.
+  decrypting every key (migrations `0101` and `0114`). A key that matches more
+  than one agent opens none of them.
 - A turn served buffered on the streaming routes, because of a
   `response_generated` hook that may replace the reply, now streams each tool
   call and result as it happens, so the playground's activity view follows the
   agent while it works. The reply is still sent only once it is settled.
+- Request bodies are validated before anything is read. The agent `PATCH`, the
+  agent tools and skills `PATCH` and the skill env `PUT` answer 400 for a field
+  of the wrong JSON type, an unknown value or an unknown key, instead of storing
+  it. The web channel's `chat/stream` and the playground's stream take the
+  `/v1/chat/completions` body: text content only, at most 100 messages. The
+  playground sends only the most recent hundred.
+- A channel saved through one engine process reaches the others: the saving
+  process notifies them through Postgres and they restart their adapter.
+  Switching an agent's Web channel off closes its public endpoints on every
+  replica at once instead of within 30 seconds.
+- The reply is sent once the turn is saved, without waiting for the
+  `response_sent` hooks or the upload of the contact's attachments.
+- `getKnowledge` returns a long document a page at a time.
 
 ### Removed
 
@@ -199,6 +212,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each Slack thread has its own conversation. Every mention in a channel shared
   one history, summary and state.
 - After a reload, the sidebar no longer lists every overview entry twice.
+- An enabled core tool that the running release does not know (after a
+  rollback, or while an older replica restarts during a deploy) keeps its agent
+  enablements and skill links, and saving the agent's tools no longer answers
+  400 or switches it off.
+- WhatsApp: a reply that Twilio failed to take (429, 5xx, unreachable) is sent
+  again; an answer that may come after Twilio queued the message is not, so no
+  reply arrives twice. A reminder campaign's replies are no longer refused with
+  429.
+- Knowledge: keyword search answers natural-language questions (it required
+  every word, stopwords included); uploads and imports take documents up to the
+  10 MB the store accepts, so an exported agent imports back; every chunk stays
+  within the chunk size and a document is indexed once.
+- Memory: each message is extracted once instead of on every turn; an agent
+  gets every memory it asks for and duplicates are found across a shared index;
+  the extraction prompt dates "tomorrow" in the agent's timezone.
+- The history folds into the summary once it outgrows a size, not only a
+  message count, so a few large tool results no longer make every next turn of
+  the conversation fail.
+- Deleting an agent that fails part-way no longer leaves it in place without its
+  conversations, memories or documents.
+- A tool call's audit row records that call's own output and duration; two
+  conversations calling the same tool used to swap them.
+- Speech-to-text requests stop at their deadline and when the caller aborts.
+- A server error on a request without a body answers 500 instead of
+  "Invalid request body".
+
+### Security
+
+- The agent `PATCH` read `confirmWipe: "false"` as a confirmation and deleted
+  every memory and knowledge document; a skill env `PUT` without `sensitive`
+  stored the secret in clear. Both bodies are now validated.
+- The chat stream routes no longer accept image or file parts, which made the
+  engine download the URL they carried.
+- A WhatsApp attachment is read as a stream and abandoned past 20 MB, and the
+  `curl` and `httpRequest` tools stop with the turn and read a bounded response;
+  either could hold any amount of engine memory.
 
 ## [1.3.5] - 2026-11-02
 
