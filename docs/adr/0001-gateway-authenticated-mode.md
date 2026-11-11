@@ -3,7 +3,6 @@
 - **Status**: Superseded (2026-09-09) — the mechanism below is no longer in the code
 - **Date**: 2026-04-27
 - **Deciders**: @freegenie, @paolovalletta-exelab
-- **Related**: PR #92 (initial implementation), issue #115 (JWT signature verification follow-up)
 
 > **Reverted.** `AUTH_MODE`, `auth/alb-oidc.service.ts` and the gateway branch of
 > `auth.guard.ts` are deleted. The mode had already been unusable since RBAC
@@ -40,7 +39,7 @@ Introduce a `AUTH_MODE` environment variable as the umbrella dispatch:
 
 In a gateway-authenticated mode, **the engine does not verify the JWT signature**. It relies on **network isolation** — specifically, that only traffic routed through the authenticating gateway can reach the engine. On AWS this is enforced by the ECS security group (`polyant-ecs-sg-dev` accepts ingress only from the ALB security group).
 
-Adding signature verification is a tracked follow-up (see linked issue) and is expected to be implemented per gateway, because each cloud uses different signing keys and discovery endpoints. The umbrella decision stays the same; only the per-mode parser gains a verify step.
+Adding signature verification is a tracked follow-up (see Follow-ups) and is expected to be implemented per gateway, because each cloud uses different signing keys and discovery endpoints. The umbrella decision stays the same; only the per-mode parser gains a verify step.
 
 ### Web container behaviour
 
@@ -90,5 +89,5 @@ Make `AuthGuard` abstract and have `AlbOidcAuthGuard`, `GcpIapAuthGuard`, etc. e
 
 ## Follow-ups
 
-- **JWT signature verification per gateway mode** — [issue #115](https://github.com/exelab/agent-builder/issues/115). Applies to ALB OIDC and every future gateway. Status: open.
+- **JWT signature verification per gateway mode** — applies to ALB OIDC and every future gateway. Status: open.
 - **Revisit on second cloud template** — when GCP IAP, Cloudflare Access, or Azure Easy Auth lands, re-read this ADR. If the abstraction held up, no change. If it cracked under a new constraint, supersede with a follow-up ADR.

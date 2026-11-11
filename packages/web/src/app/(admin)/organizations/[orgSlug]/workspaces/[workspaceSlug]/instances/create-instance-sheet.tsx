@@ -20,13 +20,22 @@ interface Props {
   onCreated: () => void;
 }
 
-function toSlug(name: string): string {
-  return name
+/**
+ * A slug field's value while it is being typed. The trailing hyphen stays, or
+ * typing the hyphen of `support-bot` would erase it at once; {@link toSlug}
+ * trims it when the slug is used.
+ */
+export function typingSlug(value: string): string {
+  return value
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/^-/, "");
+}
+
+export function toSlug(name: string): string {
+  return typingSlug(name).replace(/-$/, "");
 }
 
 export function CreateInstanceSheet({ open, onOpenChange, onCreated }: Props) {
@@ -47,10 +56,10 @@ export function CreateInstanceSheet({ open, onOpenChange, onCreated }: Props) {
 
   const handleSlugChange = (value: string) => {
     setSlugEdited(true);
-    setSlug(toSlug(value));
+    setSlug(typingSlug(value));
   };
 
-  const isValid = name.trim().length > 0 && slug.length > 0;
+  const isValid = name.trim().length > 0 && toSlug(slug).length > 0;
 
   const handleCreate = async () => {
     if (!isValid) return;
@@ -95,7 +104,10 @@ export function CreateInstanceSheet({ open, onOpenChange, onCreated }: Props) {
       id="create-instance-form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (isValid) setStep(2);
+        if (!isValid) return;
+        // The review shows, and the create sends, the slug as it is stored.
+        setSlug(toSlug(slug));
+        setStep(2);
       }}
       className="space-y-4"
     >

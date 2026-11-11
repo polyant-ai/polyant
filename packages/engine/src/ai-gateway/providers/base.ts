@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
+import { APICallError, DownloadError, type Experimental_DownloadFunction, type Instructions, type LanguageModelMiddleware, type ModelMessage, isStepCount, wrapLanguageModel } from "ai";
 import { toJsonSchema } from "@polyant-ai/plugin-sdk";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
 import { applyIntermediateTextPolicy, replyTextFor, textDeltas } from "../intermediate-text.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
+import type { StepMarkerInput } from "./prompt-caching.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import { createLogger } from "../../utils/create-logger.js";
+import { classifyProviderError } from "../logger.js";
+import { callTimeline, exchangeRecorder, type CallTimeline, type ExchangeRecorder } from "./call-trace.js";
 
 const log = createLogger();
 
-type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
+/** A provider model object (never a bare model id), so the gateway can wrap it. */
+type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => Parameters<typeof wrapLanguageModel>[0]["model"];
 
 /**
  * Serialize the tool definitions sent to the model for debug capture.
@@ -135,6 +139,8 @@ interface SdkStep {
   usage?: MappedUsage;
   /** The provider reported that this step's model call ran in fast mode. */
   fast?: boolean;
+  /** How long the step waited for the model (SDK `performance.responseTimeMs`). */
+  responseTimeMs?: number;
 }
 
 /**
@@ -170,24 +176,111 @@ interface MappedUsage {
  * only after its tools have run, so a turn aborted while a tool was running —
  * the message coordinator's cancel-and-restart, typically — had an answered,
  * billed model call that no step ever reported.
+ *
+ * A call that had started and not answered when the turn failed is pinned too,
+ * as `inFlight`, with an estimate of its prompt: aborted in flight, it had
+ * reached the provider, which processes and bills the prompt whether or not
+ * anyone reads the answer. No provider reports more for it; see
+ * {@link estimatePromptTokens}.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
-/** The summed usage of the completed steps, and each step's own (`calls`). */
-type UsageBeforeFailure = Required<MappedUsage> & { calls: (Required<MappedUsage> & { fast: boolean })[] };
+/** The summed usage of the completed steps, each step's own (`calls`), and the call still in flight, if any. */
+type UsageBeforeFailure = Required<MappedUsage> & {
+  calls: (Required<MappedUsage> & { fast: boolean })[];
+  inFlight?: { promptTokens: number };
+};
 
-/** The usage of the model calls a failed or aborted turn completed, or null when none had answered. */
+/** The usage of the model calls a failed or aborted turn had made, or null when none had started. */
 export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** Sums each answered model call's usage (`onLanguageModelCallEnd`) and pins it to the turn's error. */
+/**
+ * What one attached image or file is counted as. Providers bill an image by
+ * its pixels after scaling it down, not by its bytes: Anthropic scales an image
+ * to about 1.15 megapixels, about 1,600 tokens, and OpenAI's high detail lands
+ * in the same range. A document's cost depends on its pages, which only the
+ * provider counts, so it is counted as one such image: an order of magnitude,
+ * where its bytes would be off by a thousandfold.
+ */
+const ATTACHMENT_PROMPT_TOKENS = 1_600;
+
+/** The part types that carry an image or a file, in a message or a tool result, at the SDK and at the provider level. */
+const ATTACHMENT_PARTS = new Set(["image", "file", "media", "image-data", "file-data", "image-url", "file-url"]);
+
+/**
+ * The prompt tokens a model call sent: about one per four characters of its
+ * text (instructions, messages, tools), plus {@link ATTACHMENT_PROMPT_TOKENS}
+ * per attachment, whose bytes are never read. Called only when a turn fails
+ * with the call in flight.
+ */
+function estimatePromptTokens(call: unknown): number {
+  let chars = 0;
+  let attachments = 0;
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      chars += value.length;
+      return;
+    }
+    if (value === null || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.type === "string" && ATTACHMENT_PARTS.has(record.type)) {
+      attachments += 1;
+      return;
+    }
+    for (const [key, item] of Object.entries(record)) {
+      chars += key.length;
+      visit(item);
+    }
+  };
+  visit(call);
+  return Math.ceil(chars / 4) + attachments * ATTACHMENT_PROMPT_TOKENS;
+}
+
+/** What the model-request middleware tells the usage collector about each request it sends. */
+interface RequestObserver {
+  /** A request (the first of a call, or a retry) is sent with this prompt and these tools. */
+  requestStarted(request: { prompt: unknown; tools?: unknown }): void;
+  /** The request failed with `err`, and the SDK may retry it. */
+  requestFailed(err: unknown): void;
+}
+
+/**
+ * Sums each answered model call's usage (`onLanguageModelCallEnd`), tracks the
+ * request in flight (through the model middleware, which sees every retry),
+ * and pins both to the turn's error.
+ *
+ * A request the provider answered with an error (a 429, a 529) was refused,
+ * not billed: it is no longer in flight, including while the SDK waits to
+ * retry it. A request that failed without an answer (aborted, timed out, a
+ * dropped connection) had reached the provider and stays in flight.
+ */
 function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: UsageBeforeFailure["calls"] = [];
+  // What the request in flight sent, kept by reference: it is estimated only if the turn fails.
+  let inFlight: { prompt: unknown; tools?: unknown } | undefined;
+  const requests: RequestObserver = {
+    requestStarted: (request) => {
+      inFlight = { prompt: request.prompt, tools: request.tools };
+    },
+    requestFailed: (err) => {
+      if (APICallError.isInstance(err) && err.statusCode !== undefined) inFlight = undefined;
+    },
+  };
   return {
+    requests,
     onLanguageModelCallEnd: (event: { usage?: unknown; providerMetadata?: unknown }) => {
+      inFlight = undefined;
       const usage = mapUsage(event.usage);
       const call = {
         promptTokens: usage.promptTokens ?? 0,
@@ -200,7 +293,13 @@ function completedCallsUsage() {
       calls.push({ ...call, fast: ranFast(event.providerMetadata) });
     },
     pinTo(err: unknown): void {
-      if (calls.length > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total, calls: [...calls] });
+      if ((calls.length > 0 || inFlight) && err !== null && typeof err === "object") {
+        usageBeforeFailure.set(err, {
+          ...total,
+          calls: [...calls],
+          ...(inFlight ? { inFlight: { promptTokens: estimatePromptTokens(inFlight) } } : {}),
+        });
+      }
     },
   };
 }
@@ -294,6 +393,20 @@ async function finalStepReasoningAsync(result: unknown): Promise<unknown[] | und
   return final?.reasoning ?? (r.reasoning ? await r.reasoning : undefined);
 }
 
+/**
+ * The turn's response messages, across every step. v7 exposes them as
+ * `responseMessages` (a Promise on the streamed result) and deprecates the
+ * final step's `response.messages`, which v6 accumulated the same way.
+ */
+async function responseMessagesOf(result: unknown): Promise<ModelMessage[] | undefined> {
+  const r = (result ?? {}) as {
+    responseMessages?: ModelMessage[] | PromiseLike<ModelMessage[]>;
+    response?: { messages?: ModelMessage[] } | PromiseLike<{ messages?: ModelMessage[] }>;
+  };
+  const messages = (await r.responseMessages) ?? (await r.response)?.messages;
+  return Array.isArray(messages) && messages.length > 0 ? messages : undefined;
+}
+
 function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
   if (!Array.isArray(rawSteps)) return [];
   return rawSteps.map((raw): SdkStep => {
@@ -320,6 +433,9 @@ function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
       finishReason: typeof s.finishReason === "string" ? s.finishReason : undefined,
       usage: mapUsage(s.usage),
       ...(ranFast(s.providerMetadata) ? { fast: true } : {}),
+      ...(typeof (s.performance as { responseTimeMs?: unknown } | undefined)?.responseTimeMs === "number"
+        ? { responseTimeMs: (s.performance as { responseTimeMs: number }).responseTimeMs }
+        : {}),
     };
   });
 }
@@ -375,9 +491,10 @@ function normaliseReasoningDetails(details: unknown[] | undefined): ReasoningDet
  * proportionally across steps (the SDK does not expose per-step timing in
  * v4); for single-step responses this collapses to the full duration.
  */
-export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetail[] {
+export function buildSteps(steps: SdkStep[], totalDurationMs: number, timeline?: CallTimeline): StepDetail[] {
   if (steps.length === 0) return [];
   const perStepDuration = Math.max(0, Math.floor(totalDurationMs / steps.length));
+  const iso = (ms: number | undefined) => (ms === undefined ? undefined : new Date(ms).toISOString());
 
   return steps.map((s, i) => {
     const reasoning = normaliseReasoningDetails(s.reasoningDetails);
@@ -385,13 +502,21 @@ export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetai
       index: i,
       stepType: (s.stepType as StepDetail["stepType"]) ?? "initial",
       text: s.text ?? "",
-      toolCalls: (s.toolCalls ?? []).map((tc) => ({
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        args: tc.args as Record<string, unknown>,
-      })),
+      toolCalls: (s.toolCalls ?? []).map((tc) => {
+        const run = timeline?.toolRuns.get(tc.toolCallId);
+        return {
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args as Record<string, unknown>,
+          ...(run ? { startedAt: iso(run.startedAt) } : {}),
+          ...(run?.durationMs !== undefined ? { durationMs: run.durationMs } : {}),
+        };
+      }),
       finishReason: s.finishReason ?? "stop",
-      durationMs: perStepDuration,
+      // The SDK's own measure of the model request when it reports one; the
+      // even share of the call's time otherwise (older SDKs, tests).
+      durationMs: s.responseTimeMs !== undefined ? Math.round(s.responseTimeMs) : perStepDuration,
+      ...(timeline?.stepStarts[i] !== undefined ? { startedAt: iso(timeline.stepStarts[i]) } : {}),
     };
     if (s.toolResults && s.toolResults.length > 0) {
       detail.toolResults = s.toolResults.map((tr) => ({
@@ -428,8 +553,9 @@ function buildChatResponse(
   durationMs: number,
   modelId: string,
   providerName: string,
+  timeline?: CallTimeline,
 ): ChatResponse {
-  const steps = buildSteps(rawSteps, durationMs);
+  const steps = buildSteps(rawSteps, durationMs, timeline);
   const { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens, cacheCreation5mInputTokens } =
     buildUsage(usage, rawSteps);
 
@@ -463,30 +589,44 @@ function buildChatResponse(
 }
 
 /**
- * Fold any `role: "system"` entries sitting inside the `messages` array into the
- * top-level `system` string. Some histories carry a persisted system message
- * mid-conversation (e.g. a webhook trigger stores its rendered context prompt as
- * a system row so it survives multi-turn — see webhook-engine.ts). On a later
- * inbound turn that row is replayed inside `messages`, producing two system
- * blocks separated by user/assistant turns. Bedrock's convertToBedrockChatMessages
- * rejects that outright (AI_UnsupportedFunctionalityError); OpenAI/Anthropic only
- * warn. Merging is semantically identical — system context is position-independent
- * — and clears the AI SDK warning for every provider, so we normalise here once.
+ * Lift any `role: "system"` entries sitting inside the `messages` array out of
+ * it. Some histories carry a persisted system message mid-conversation (e.g. a
+ * webhook trigger stores its rendered context prompt as a system row so it
+ * survives multi-turn — see webhook-engine.ts), and a pre-LLM hook's one-shot
+ * context arrives the same way. Bedrock's convertToBedrockChatMessages rejects
+ * a system message among the turns outright (AI_UnsupportedFunctionalityError);
+ * OpenAI/Anthropic only warn. System context is position-independent, so they
+ * are lifted here once for every provider.
+ *
+ * They are kept apart from the request's own `system` (`systemTail`, in their
+ * original order) because the two are cached differently: `system` is the
+ * agent's prompt, identical for every conversation, while this text belongs to
+ * one conversation. A provider that marks a cache breakpoint puts the marker
+ * after `system` and sends this text after it; every other provider receives
+ * the one string `joinSystemText` makes of the two.
  */
 function foldSystemMessages(
   system: string | undefined,
   messages: ModelMessage[],
-): { system: string | undefined; messages: ModelMessage[] } {
+): { system: string | undefined; systemTail?: string; messages: ModelMessage[] } {
   const inline = messages.filter(
     (m): m is ModelMessage & { role: "system"; content: string } => m.role === "system",
   );
   if (inline.length === 0) return { system, messages };
 
-  const merged = [system, ...inline.map((m) => m.content)].filter(Boolean).join("\n\n");
+  const tail = inline.map((m) => m.content).filter(Boolean).join("\n\n");
   return {
-    system: merged.length > 0 ? merged : undefined,
+    system,
+    ...(tail.length > 0 ? { systemTail: tail } : {}),
     messages: messages.filter((m) => m.role !== "system"),
   };
+}
+
+/** The agent's system prompt and the conversation's own system text as one string, for a provider that marks no cache breakpoint. */
+export function joinSystemText(system: string | undefined, systemTail: string | undefined): string | undefined {
+  if (!systemTail) return system;
+  const merged = [system, systemTail].filter(Boolean).join("\n\n");
+  return merged.length > 0 ? merged : undefined;
 }
 
 /** Content parts of a message as an array (empty string → no parts) — used to
@@ -540,6 +680,8 @@ export function normalizeStrictConversation(messages: ModelMessage[]): ModelMess
  */
 export type PrepareMessages = (input: {
   system: string | undefined;
+  /** System text that belongs to this conversation only (see `foldSystemMessages`); never inside a cached block. */
+  systemTail?: string;
   messages: ModelMessage[];
   modelId: string;
   /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
@@ -569,7 +711,7 @@ export interface ProviderHooks {
    * so the tool messages that accumulate within one agentic turn become
    * incrementally cacheable step-to-step. See `makeStepMarker` in prompt-caching.ts.
    */
-  stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
+  stepMarker?: (input: StepMarkerInput) => { messages?: ModelMessage[] };
   /**
    * When true, the folded messages are run through `normalizeStrictConversation`
    * before the call — for providers hosting strict chat templates (Nebius,
@@ -581,13 +723,13 @@ export interface ProviderHooks {
 /**
  * Adapt a provider's `stepMarker` hook to the AI SDK `prepareStep` signature,
  * binding the concrete `modelId` (the SDK's `prepareStep` gives a model object,
- * not its id). Returns undefined when the provider supplies no marker, so
- * OpenAI/Nebius calls stay byte-identical.
+ * not its id) and the instance's `cacheConfig.userTurn`. Returns undefined when
+ * the provider supplies no marker, so OpenAI/Nebius calls stay byte-identical.
  */
-function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
+function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string, userTurn: boolean | undefined) {
   if (!hooks?.stepMarker) return undefined;
   return (o: { stepNumber: number; messages: ModelMessage[] }) =>
-    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId });
+    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId, userTurn });
 }
 
 /**
@@ -655,12 +797,30 @@ function errorBodyReason(body: string): string | null {
   }
 }
 
+/** The folded request a failed call sent, and the caller's signal. */
+type CallContext = { system: Instructions | undefined; messages: ModelMessage[]; abortSignal?: AbortSignal };
+
+/**
+ * Whether the caller cancelled the call: its signal is aborted for a reason
+ * other than its own deadline (`AbortSignal.timeout` carries a `TimeoutError`).
+ * The message coordinator does this every time a follow-up message preempts a
+ * turn, so it is a routine path and not a provider failure — the same
+ * distinction the gateway makes when it records the call.
+ */
+function cancelledByCaller(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name !== "TimeoutError";
+}
+
 function logProviderError(
   providerName: string,
   modelId: string,
   err: unknown,
-  ctx?: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx?: CallContext,
 ): void {
+  if (cancelledByCaller(ctx?.abortSignal)) {
+    log.debug("ai-gateway", `${providerName}/${modelId} call cancelled by its caller`);
+    return;
+  }
   const e = err as {
     name?: unknown;
     statusCode?: unknown;
@@ -708,7 +868,7 @@ function logProviderError(
 async function withProviderErrorLog<T>(
   providerName: string,
   modelId: string,
-  ctx: { system: Instructions | undefined; messages: ModelMessage[] },
+  ctx: CallContext,
   run: () => T | Promise<T>,
 ): Promise<Awaited<T>> {
   try {
@@ -740,6 +900,93 @@ function temperatureCallParam(
     : {};
 }
 
+/**
+ * The middleware around each model request a call makes (its first and each
+ * retry, since the SDK retries inside one model call).
+ *
+ * It logs every retry: neither the SDK's callbacks nor `ai_logs` see one, and
+ * each can add seconds to a turn. A request that starts after the previous
+ * request of the same call failed is a retry: a failure the SDK does not retry
+ * ends the call. It tells `observer` what each request sent and how it failed,
+ * and runs `deadline` while a request waits for the provider to start
+ * answering: the whole answer, or a stream's first bytes.
+ */
+function requestMiddleware(
+  providerName: string,
+  modelId: string,
+  observer: RequestObserver,
+  deadline: RequestDeadline | undefined,
+  exchanges?: ExchangeRecorder,
+): LanguageModelMiddleware {
+  let lastFailure: unknown;
+  const attempt = async <T>(params: { prompt: unknown; tools?: unknown }, run: () => PromiseLike<T>): Promise<T> => {
+    if (lastFailure !== undefined) {
+      log.warn("ai-gateway", `${providerName}/${modelId} retry after ${classifyProviderError(lastFailure)}`);
+    }
+    observer.requestStarted(params);
+    exchanges?.begin(lastFailure !== undefined, params);
+    deadline?.start();
+    try {
+      const result = await run();
+      lastFailure = undefined;
+      exchanges?.answered(result);
+      return result;
+    } catch (err) {
+      lastFailure = err;
+      observer.requestFailed(err);
+      exchanges?.failed(err);
+      throw err;
+    } finally {
+      deadline?.stop();
+    }
+  };
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: ({ doGenerate, params }) => attempt(params, doGenerate),
+    wrapStream: ({ doStream, params }) => attempt(params, doStream),
+  };
+}
+
+/**
+ * The bound on each model request of one call. Its signal is the call's, so a
+ * request that runs out of time ends the call with a `TimeoutError`, as the
+ * SDK's own bounds do; it runs only while a request waits for the provider,
+ * and never while the call's tools run.
+ */
+interface RequestDeadline {
+  signal: AbortSignal;
+  start(): void;
+  stop(): void;
+}
+
+function requestDeadline(timeoutMs: number): RequestDeadline {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    signal: controller.signal,
+    start: () => {
+      timer = setTimeout(() => controller.abort(new DOMException("The model request timed out.", "TimeoutError")), timeoutMs);
+    },
+    stop: () => clearTimeout(timer),
+  };
+}
+
+/**
+ * The AI SDK's download step, replaced so the engine never fetches a URL found
+ * in a message. By default the SDK downloads every image or file URL the
+ * provider does not take by reference — outside `utils/safe-http.ts`, with no
+ * time limit, up to 2 GiB each, all parts at once — and a client-supplied
+ * history can carry any number of them. The engine's own attachments arrive as
+ * bytes (channel media, uploads) and never need it; a data URL is inline data
+ * and never reaches this step. A URL the provider fetches itself is passed on
+ * untouched; any other is refused, which fails the call.
+ */
+export const refuseUrlDownloads: Experimental_DownloadFunction = async (requests) =>
+  requests.map(({ url, isUrlSupportedByModel }) => {
+    if (isUrlSupportedByModel) return null;
+    throw new DownloadError({ url: url.toString(), message: "A URL in a message part is not downloaded by the engine; send the content inline." });
+  });
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -754,12 +1001,12 @@ export function createProvider(
     // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
     // a no-op for well-formed conversations, so the cached prefix is unchanged.
     const prepared = hooks?.strictTemplate
-      ? { system: folded.system, messages: normalizeStrictConversation(folded.messages) }
+      ? { ...folded, messages: normalizeStrictConversation(folded.messages) }
       : folded;
     // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
     // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
     if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) {
-      return { instructions: prepared.system, messages: prepared.messages };
+      return { instructions: joinSystemText(prepared.system, prepared.systemTail), messages: prepared.messages };
     }
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
@@ -771,22 +1018,38 @@ export function createProvider(
    */
   const callSetup = (request: ChatRequest, modelId: string) => {
     const { instructions, messages } = prepare(request, modelId);
-    const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+    const prepareStep =
+      request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId, request.cacheConfig?.userTurn);
     const completed = completedCallsUsage();
+    const timeline = callTimeline();
+    // Only while the agent's debug flag is on: the request is the prompt.
+    const exchanges = request.captureExchanges ? exchangeRecorder() : undefined;
+    const deadline = request.requestTimeoutMs !== undefined ? requestDeadline(request.requestTimeoutMs) : undefined;
+    const abortSignal = deadline && request.abortSignal ? AbortSignal.any([request.abortSignal, deadline.signal]) : (deadline?.signal ?? request.abortSignal);
     // A function: the model is built inside the error-logging wrapper, as before.
     const args = () => ({
-      model: createModel(modelId, request.apiKeys),
+      model: wrapLanguageModel({
+        model: createModel(modelId, request.apiKeys),
+        middleware: requestMiddleware(providerName, modelId, completed.requests, deadline, exchanges),
+      }),
       instructions,
       messages,
       tools: request.tools,
       stopWhen: isStepCount(request.maxSteps ?? 1),
-      abortSignal: request.abortSignal,
+      abortSignal,
+      experimental_download: refuseUrlDownloads,
+      ...(request.timeout ? { timeout: request.timeout } : {}),
+      ...(request.maxRetries !== undefined ? { maxRetries: request.maxRetries } : {}),
+      ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
       onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
+      onStepStart: timeline.onStepStart,
+      onToolExecutionStart: timeline.onToolExecutionStart,
+      onToolExecutionEnd: timeline.onToolExecutionEnd,
       ...(prepareStep ? { prepareStep } : {}),
       ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
       ...temperatureCallParam(providerName, modelId, request),
     });
-    return { instructions, messages, completed, args };
+    return { instructions, messages, completed, timeline, exchanges, args };
   };
 
   return {
@@ -795,11 +1058,12 @@ export function createProvider(
     async chat(request: ChatRequest, modelId: string): Promise<ChatResponse> {
       const start = Date.now();
 
-      const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const { instructions, messages, completed, timeline, exchanges, args } = callSetup(request, modelId);
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
+        exchanges?.pinTo(err);
         throw err;
       });
 
@@ -816,8 +1080,12 @@ export function createProvider(
         Date.now() - start,
         modelId,
         providerName,
+        timeline,
       );
       if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+      if (exchanges) response.exchanges = exchanges.list;
+      const responseMessages = await responseMessagesOf(result);
+      if (responseMessages) response.responseMessages = responseMessages;
       return response;
     },
 
@@ -827,8 +1095,8 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { instructions, messages, completed, args } = callSetup(request, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
+      const { instructions, messages, completed, timeline, exchanges, args } = callSetup(request, modelId);
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages, abortSignal: request.abortSignal }, () =>
         tracedStreamText(args()),
       );
 
@@ -847,7 +1115,8 @@ export function createProvider(
           try {
             const finalText = await result.text;
             const finalUsage = await cumulativeUsage(result);
-            const steps = normalizeSdkSteps(await result.steps);
+            const sdkSteps = await result.steps;
+            const steps = normalizeSdkSteps(sdkSteps);
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
             const topReasoning = await finalStepReasoningAsync(result);
             const response = buildChatResponse(
@@ -858,13 +1127,21 @@ export function createProvider(
               Date.now() - start,
               modelId,
               providerName,
+              timeline,
             );
             if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+            if (exchanges) {
+              exchanges.fillFromSteps(sdkSteps);
+              response.exchanges = exchanges.list;
+            }
+            const responseMessages = await responseMessagesOf(result);
+            if (responseMessages) response.responseMessages = responseMessages;
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
-            logProviderError(providerName, modelId, err, { system: instructions, messages });
+            logProviderError(providerName, modelId, err, { system: instructions, messages, abortSignal: request.abortSignal });
             completed.pinTo(err);
+            exchanges?.pinTo(err);
             throw err;
           }
         })(),

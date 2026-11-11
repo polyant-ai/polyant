@@ -1,0 +1,2 @@
+-- The `purpose` column of `ai_logs` is added by 0118. Kept so the numbering of
+-- the release does not move.

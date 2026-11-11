@@ -1,6 +1,6 @@
 {
   "name": "polyant",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "private": true,
   "description": "Polyant is an enterprise AI platform by Exelab for putting agents to work in business processes, at scale.",
   "license": "AGPL-3.0-or-later",
@@ -25,6 +25,7 @@
     "build:web": "npm run build -w @polyant/web",
     "start": "npm run start -w @polyant/engine",
     "db:generate": "npm run db:generate -w @polyant/engine",
+    "db:snapshot": "npm run db:snapshot -w @polyant/engine",
     "db:migrate": "npm run db:migrate -w @polyant/engine",
     "db:studio": "npm run db:studio -w @polyant/engine",
     "lint": "npm run lint --workspaces --if-present",

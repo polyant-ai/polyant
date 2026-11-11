@@ -3,6 +3,7 @@
 import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { timingSafeEqual } from "crypto";
 import { findInstanceBySlug } from "../../instances/store.js";
+import { resolveInstanceUuid } from "../../instances/instance-meta.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { isWebChannelEnabled } from "../../instances/channels.store.js";
@@ -54,10 +55,12 @@ export async function validateInstanceApiKey(
   webTurn?: WebTurn,
 ): Promise<void> {
   const slug = asInstanceSlug(instanceSlug);
-  const instance = await findInstanceBySlug(slug);
+  // The cached id; an agent the cache does not know (it may be minutes old) is
+  // read from its row, so "unknown" is always the database's answer.
+  const instanceId = (await resolveInstanceUuid(slug)) ?? (await findInstanceBySlug(slug))?.id;
   if (webTurn) {
-    if (!instance || !(await isWebChannelEnabled(instance.id))) throw new NotFoundException("Unknown model");
-  } else if (!instance) {
+    if (!instanceId || !(await isWebChannelEnabled(instanceId))) throw new NotFoundException("Unknown model");
+  } else if (!instanceId) {
     throw new UnauthorizedException("Unknown model");
   }
 

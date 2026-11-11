@@ -13,6 +13,7 @@ vi.mock("twilio", () => {
   };
   const Twilio = vi.fn(() => client);
   (Twilio as any).validateRequest = mockValidateRequest;
+  Object.assign(Twilio, { RequestClient: class { request = vi.fn(); } });
   return { default: Twilio, Twilio };
 });
 
@@ -234,7 +235,7 @@ describe("TwilioWhatsAppClient", () => {
       expect(Twilio).toHaveBeenCalledWith(
         "SK00000000000000000000000000000002",
         "secret-value",
-        { accountSid: "AC00000000000000000000000000000001" },
+        expect.objectContaining({ accountSid: "AC00000000000000000000000000000001" }),
       );
     });
 

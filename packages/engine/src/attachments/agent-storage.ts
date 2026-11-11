@@ -15,6 +15,7 @@ import {
   type AgentS3Config,
 } from "./agent-s3.js";
 import { createLogger } from "../utils/create-logger.js";
+import { TtlCache } from "../utils/ttl-cache.js";
 
 const attachmentsLog = createLogger();
 
@@ -36,8 +37,14 @@ const attachmentsLog = createLogger();
  * model inline. This decides only whether the file can be reopened afterwards.
  */
 
-/** Resolved per agent, cached: the client is stateless and the secrets are read per turn otherwise. */
-const clients = new Map<string, AgentS3Config>();
+/**
+ * Resolved per agent, cached: the client is stateless and the secrets are read
+ * per attachment otherwise. An agent without storage is cached too (as `null`),
+ * so it does not reread its secrets and warn on every attachment. The TTL is
+ * what lets a change made on another replica arrive here: `invalidateAgentS3`
+ * reaches only this process.
+ */
+const clients = new TtlCache<InstanceSlug, AgentS3Config | null>({ maxSize: 200, ttlMs: 5 * 60_000 });
 
 /** Drop a cached client. Called when an agent's secrets change. */
 export function invalidateAgentS3(instanceId: InstanceSlug): void {
@@ -46,7 +53,7 @@ export function invalidateAgentS3(instanceId: InstanceSlug): void {
 
 async function resolveFor(instanceId: InstanceSlug): Promise<AgentS3Config | null> {
   const cached = clients.get(instanceId);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
   const resolution = resolveAgentS3(await getAllSecrets(instanceId));
   if (!resolution.ok) {
@@ -61,6 +68,7 @@ async function resolveFor(instanceId: InstanceSlug): Promise<AgentS3Config | nul
       "Storage",
       `${instanceId}: attachments will not be stored — ${describeAgentS3Failure(resolution)}`,
     );
+    clients.set(instanceId, null);
     return null;
   }
   clients.set(instanceId, resolution.config);

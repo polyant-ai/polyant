@@ -195,3 +195,51 @@ describe("Anthropic cache breakpoints across a multi-step turn", () => {
     expect(messages.slice(2, -1).filter((m) => cacheControlOf(m) !== undefined)).toHaveLength(0);
   });
 });
+
+describe("Anthropic step marker with cacheConfig.userTurn on", () => {
+  const modelId = "claude-sonnet-4-6";
+
+  it("marks the current user turn on step 0 at the 5m within-turn TTL", () => {
+    const messages: ModelMessage[] = [{ role: "user", content: "large current turn" }];
+    const out = anthropicStepMarker({ stepNumber: 0, messages, modelId, userTurn: true }).messages;
+    expect(cacheControlOf(out![0])).toEqual(STEP_EPHEMERAL);
+  });
+
+  // Anthropic answers 400 above four cache_control blocks. With history present the
+  // option adds the user turn as a third fixed breakpoint, so every step from 1 on
+  // must sit exactly at the limit: instructions, history, user turn, moving marker.
+  it("keeps instructions, history, user turn and the latest step marked, never above four, from step 0 to 3", () => {
+    const first = applyAnthropicPromptCaching({
+      modelId,
+      system: "SYSTEM",
+      messages: [
+        { role: "user", content: "turn 1" },
+        { role: "assistant", content: "reply 1" },
+        { role: "user", content: "turn 2 (current)" },
+      ],
+    });
+    const total = (messages: ModelMessage[]) =>
+      (cacheControlOf(first.instructions) ? 1 : 0) + messages.filter((m) => cacheControlOf(m) !== undefined).length;
+
+    let messages = anthropicStepMarker({ stepNumber: 0, messages: first.messages, modelId, userTurn: true }).messages!;
+    expect(total(messages)).toBe(3);
+    for (let step = 1; step <= 3; step++) {
+      messages = [
+        ...messages,
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: `t${step}`, toolName: "lookup", input: {} }] },
+        {
+          role: "tool",
+          content: [
+            { type: "tool-result", toolCallId: `t${step}`, toolName: "lookup", output: { type: "text", value: "ok" } },
+          ],
+        },
+      ];
+      messages = anthropicStepMarker({ stepNumber: step, messages, modelId, userTurn: true }).messages!;
+      expect(total(messages)).toBe(4);
+    }
+    expect(cacheControlOf(messages[1])).toEqual(EPHEMERAL);
+    expect(cacheControlOf(messages[2])).toEqual(STEP_EPHEMERAL);
+    expect(cacheControlOf(messages[messages.length - 1])).toEqual(STEP_EPHEMERAL);
+    expect(messages.slice(3, -1).filter((m) => cacheControlOf(m) !== undefined)).toHaveLength(0);
+  });
+});

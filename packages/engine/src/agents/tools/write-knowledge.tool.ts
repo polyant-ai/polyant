@@ -94,13 +94,16 @@ export default defineTool({
           });
         }
 
-        // Fire-and-forget reindex: drop old chunks, re-chunk + embed, mark "ready".
+        // Fire-and-forget reindex: re-chunk + embed, replace the chunks, mark
+        // "ready". Unchanged text on an indexed document keeps its chunks.
         const { docId, rawContent } = result;
-        setImmediate(() => {
-          processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
-            log.error("write-knowledge", `reindex failed for doc ${docId}`, err);
+        if (result.reindex) {
+          setImmediate(() => {
+            processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
+              log.error("write-knowledge", `reindex failed for doc ${docId}`, err);
+            });
           });
-        });
+        }
 
         ctx.audit.log({
           action: "knowledge.write",
@@ -118,7 +121,7 @@ export default defineTool({
           filename,
           docId: result.docId,
           created: result.created,
-          reindexScheduled: true,
+          reindexScheduled: result.reindex,
           sizeBytes: result.sizeBytes,
         };
       } catch (err) {

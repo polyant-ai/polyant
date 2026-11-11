@@ -50,10 +50,24 @@ export const pipelineTraces = pgTable(
     parentConversationId: text("parent_conversation_id"),
     /** Set when this trace is the child of an agent-to-agent call. Links to the caller's LangSmith run id. */
     parentTraceId: uuid("parent_trace_id"),
+    /** When the engine took the message up: t0 of the request path. */
+    turnStartedAt: timestamp("turn_started_at", { withTimezone: true }),
+    /** When the reply was handed to the channel. */
+    replySentAt: timestamp("reply_sent_at", { withTimezone: true }),
+    /**
+     * The text handed to the channel, when it differs from the persisted reply:
+     * a stream that let through text the reply does not keep. Null when the
+     * channel received the persisted reply.
+     */
+    deliveredText: text("delivered_text"),
+    /** The agent's intermediate-text policy for the turn; null when none was set. */
+    intermediateText: text("intermediate_text"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index("idx_traces_instance_created").on(table.instanceId, table.createdAt),
     index("idx_traces_created").on(table.createdAt),
+    // A conversation's traces: its detail view and its deletion.
+    index("idx_traces_conversation").on(table.conversationId),
   ],
 );

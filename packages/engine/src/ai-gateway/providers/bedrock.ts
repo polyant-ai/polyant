@@ -3,7 +3,7 @@
 import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import { claudeThinkingBudget, createProvider, type PrepareMessages } from "./base.js";
+import { claudeThinkingBudget, createProvider, joinSystemText, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
 import type { ReasoningToggle } from "../model-catalog.js";
@@ -60,7 +60,7 @@ const markBedrockFor =
  */
 export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   if (!cacheSupported("bedrock", input.modelId)) {
-    return { instructions: input.system, messages: input.messages };
+    return { instructions: joinSystemText(input.system, input.systemTail), messages: input.messages };
   }
   return injectCacheBreakpoints(input, markBedrockFor(input.modelId));
 };
@@ -79,6 +79,14 @@ export const bedrockStepMarker = makeStepMarker({
   clearMarker: (message) => withoutProviderCacheMarker(message, "bedrock", "cachePoint"),
   isCacheCapable: (modelId) => cacheSupported("bedrock", modelId),
 });
+
+/**
+ * The AWS default credential chain, built once: it resolves credentials from
+ * files and metadata endpoints and memoizes them until they expire, which a
+ * chain built per call never gets to do.
+ */
+let defaultCredentialChain: ReturnType<typeof fromNodeProviderChain> | undefined;
+const defaultCredentials = () => (defaultCredentialChain ??= fromNodeProviderChain());
 
 export const BedrockProvider = createProvider(
   "bedrock",
@@ -120,7 +128,7 @@ export const BedrockProvider = createProvider(
 
     return createAmazonBedrock({
       region,
-      credentialProvider: fromNodeProviderChain(),
+      credentialProvider: defaultCredentials(),
     })(modelId);
   },
   { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker, strictTemplate: true },

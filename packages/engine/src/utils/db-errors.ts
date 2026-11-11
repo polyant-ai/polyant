@@ -10,6 +10,7 @@
  */
 
 const UNIQUE_VIOLATION_CODE = "23505";
+const FOREIGN_KEY_VIOLATION_CODE = "23503";
 
 function hasCode(value: unknown, code: string): boolean {
   return (
@@ -20,12 +21,19 @@ function hasCode(value: unknown, code: string): boolean {
   );
 }
 
+function hasSqlState(err: unknown, code: string): boolean {
+  if (!(err instanceof Error)) return false;
+  if (hasCode(err, code)) return true;
+  // postgres-js wraps the underlying PostgresError on .cause
+  return hasCode((err as Error & { cause?: unknown }).cause, code);
+}
+
 /** Detect a PostgreSQL unique constraint violation (SQLSTATE 23505). */
 export function isUniqueViolation(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (hasCode(err, UNIQUE_VIOLATION_CODE)) return true;
-  // postgres-js wraps the underlying PostgresError on .cause
-  const cause = (err as Error & { cause?: unknown }).cause;
-  if (hasCode(cause, UNIQUE_VIOLATION_CODE)) return true;
-  return false;
+  return hasSqlState(err, UNIQUE_VIOLATION_CODE);
+}
+
+/** Detect a PostgreSQL foreign key violation (SQLSTATE 23503): the referenced row does not exist. */
+export function isForeignKeyViolation(err: unknown): boolean {
+  return hasSqlState(err, FOREIGN_KEY_VIOLATION_CODE);
 }

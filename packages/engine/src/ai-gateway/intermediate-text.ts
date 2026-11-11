@@ -146,3 +146,18 @@ export async function* textDeltas(source: AsyncIterable<unknown>): AsyncGenerato
     if (part.type === "text-delta" && part.text) yield part.text;
   }
 }
+
+/**
+ * What the channel received. A buffered reply is the persisted text. A stream
+ * with no intermediate-text policy, or with `progress`, let every step's text
+ * through as it arrived, while the reply keeps only the last step's.
+ */
+export function deliveredText(
+  policy: IntermediateTextPolicy | null | undefined,
+  streamed: boolean,
+  steps: readonly { text?: unknown }[] | undefined,
+  reply: string,
+): string {
+  if (!streamed || policy === "discard" || policy === "reply" || !steps?.length) return reply;
+  return joinStepTexts(steps);
+}

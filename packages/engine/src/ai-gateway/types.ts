@@ -2,10 +2,27 @@
 
 import type { ModelMessage, Tool } from "ai";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import type { ModelExchange } from "./providers/call-trace.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { IntermediateTextPolicy } from "./intermediate-text.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
+
+/**
+ * What a service call is for, recorded on its `ai_logs` row so service spend
+ * can be told apart: titles, summaries and memory share tier, model and
+ * conversation, and nothing else separates them.
+ */
+export type ServicePurpose =
+  | "title"
+  | "summary"
+  | "memory"
+  | "webhook_match"
+  | "prompt_rewrite"
+  | "room_compaction"
+  | "sub_task"
+  | "tool"
+  | "hook";
 
 /** Cross-turn prompt-cache TTL (Anthropic). Bedrock always uses its default 5m; OpenAI/Nebius ignore it. */
 export type CacheTtl = "5m" | "1h";
@@ -63,19 +80,51 @@ export interface ChatRequest {
   /** Cancellation signal propagated to Vercel AI SDK (generateText/streamText). */
   abortSignal?: AbortSignal;
   /**
+   * Bounds on the call, in the AI SDK's terms: `totalMs` for the whole call,
+   * `firstChunkMs` for the wait for a streamed answer's first chunk once the
+   * provider has started answering, `chunkMs` for the longest silence between
+   * two chunks after it. A call that exceeds one fails with a `TimeoutError`.
+   * Unset, the gateway applies its per-call-type default (`config.llm`).
+   */
+  timeout?: { totalMs?: number; firstChunkMs?: number; chunkMs?: number };
+  /**
+   * Bound on each model request until the provider starts answering: the whole
+   * answer when not streamed, its first bytes when streamed. Each retry gets
+   * its own, and tools are not counted, so a call that runs tools for minutes
+   * is not cut. Exceeded, the call fails with a `TimeoutError`. Unset, the
+   * gateway applies `config.llm.modelRequestTimeoutMs` to a call with no total bound.
+   */
+  requestTimeoutMs?: number;
+  /** How many times a failed model request is retried. Unset, the gateway applies `config.llm.maxRetries`. */
+  maxRetries?: number;
+  /**
+   * Cap on the tokens the model may generate per step. On a model that reasons,
+   * the reasoning counts against it too, so a cap sized for the answer alone
+   * can cut the call off before the answer. Unset = the provider's default.
+   */
+  maxOutputTokens?: number;
+  /**
    * When true, the provider captures the exact request payload (system + messages
    * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
    * instance `debug_enabled` flag — heavy, opt-in, persisted for analysis/debug.
    */
   captureDebug?: boolean;
   /**
+   * When true, the provider keeps every request it sends and what came back
+   * (`ChatResponse.exchanges`). The gateway sets it while the agent's debug
+   * flag is on; the bodies hold the prompt.
+   */
+  captureExchanges?: boolean;
+  /**
    * Per-instance prompt-cache control. `enabled: false` skips ALL cache markers
    * (Anthropic `cacheControl` / Bedrock `cachePoint`), so the provider never pays
    * a cache write; `ttl` selects the cross-turn Anthropic breakpoint TTL. Undefined
-   * = enabled + 1h (backward compatible). No effect on OpenAI (automatic caching,
-   * no marker) or Nebius (no cache API).
+   * = enabled + 1h (backward compatible). `userTurn` also marks the current user
+   * turn on the first step of a multi-step turn (undefined = off; see
+   * `makeStepMarker`). No effect on OpenAI (automatic caching, no marker) or
+   * Nebius (no cache API).
    */
-  cacheConfig?: { enabled: boolean; ttl: CacheTtl };
+  cacheConfig?: { enabled: boolean; ttl: CacheTtl; userTurn?: boolean };
   /**
    * What becomes of text written in a step that also calls a tool (see
    * `intermediate-text.ts`). Undefined = the reply is the last step's text and a
@@ -85,6 +134,8 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
+  /** Each request the call sent the provider and its answer; only with `captureExchanges`. */
+  exchanges?: ModelExchange[];
   text: string;
   /**
    * Multi-step tool loop. Empty array → no tools were used. Each step records
@@ -119,6 +170,12 @@ export interface ChatResponse {
    * persisted on the assistant message row (`conversation_messages.debug_payload`).
    */
   debugPayload?: LlmDebugPayload;
+  /**
+   * The assistant and tool messages the turn produced, step by step, as the SDK
+   * fed them back to the model between steps (reasoning parts and whole tool
+   * outputs included). Kept by agents that replay their history exactly.
+   */
+  responseMessages?: ModelMessage[];
 }
 
 /**
@@ -206,7 +263,17 @@ export interface AILogEntry {
    * count all three; call counts and response times keep to model calls.
    */
   callType?: "conversation" | "service" | "embedding";
+  /** What a service call was for (see {@link ServicePurpose}). Absent on other calls. */
+  purpose?: ServicePurpose;
   createdAt?: Date;
+  /** The assistant message of the turn the call belongs to (request path). */
+  messageId?: string;
+  /** When the call started. */
+  startedAt?: Date;
+  /** For a call a hook or a tool made: the hook function or tool name. */
+  originName?: string;
+  /** For a call a hook or a tool made: the hook run id or the tool call id. */
+  parentRef?: string;
   /**
    * Whether the provider call returned ("ok"), died before returning ("error"),
    * or was preempted by its caller after some model calls had been billed
@@ -214,7 +281,11 @@ export interface AILogEntry {
    * calls keep to "ok".
    */
   outcome?: "ok" | "error" | "aborted";
-  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null unless outcome is "error". */
+  /**
+   * The CLASS of a provider failure (never its message — see classifyProviderError).
+   * On an "aborted" row, "in_flight" when its tokens include the estimate of a
+   * model call aborted before it answered. Null otherwise.
+   */
   errorKind?: string | null;
 }
 

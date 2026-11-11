@@ -2,7 +2,7 @@
 
 import { App, isValidSlackRequest } from "@slack/bolt";
 import type { ChannelAdapter, IncomingMessage, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
-import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
+import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
@@ -71,12 +71,8 @@ export class SlackAdapter implements ChannelAdapter {
         instanceId: this.instanceId,
         userName,
         text,
-        metadata: {
-          ts,
-          threadTs,
-          // DM = single ongoing 1:1 conversation, keyed on channel only.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: contactConversationId(this.instanceId, "slack", channel),
-        },
+        // A DM is one ongoing 1:1 conversation, keyed on the channel alone (the default).
+        metadata: { ts, threadTs },
       };
 
       const response = await onMessage(incoming);
@@ -92,7 +88,7 @@ export class SlackAdapter implements ChannelAdapter {
     //
     // Reply behavior: post at top level (no thread_ts on say), so the answer
     // appears in the main channel feed. Conversation segmentation still uses
-    // the mention's thread root in conversationIdOverride below.
+    // the mention's thread root in conversationId below.
     this.app.event("app_mention", async ({ event, say, client }) => {
       if (event.bot_id) return;
       if (!event.text) return;
@@ -106,16 +102,13 @@ export class SlackAdapter implements ChannelAdapter {
       const incoming: IncomingMessage = {
         channelType: "slack",
         channelId: event.channel,
+        // One conversation per thread, so different mentions in the same
+        // channel don't collapse into a single mixed history.
+        conversationId: contactConversationId(this.instanceId, "slack", `${event.channel}:${threadTs}`),
         instanceId: this.instanceId,
         userName,
         text: cleanText,
-        metadata: {
-          ts: event.ts,
-          threadTs,
-          // One conversation per thread, so different mentions in the same
-          // channel don't collapse into a single mixed history.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: contactConversationId(this.instanceId, "slack", `${event.channel}:${threadTs}`),
-        },
+        metadata: { ts: event.ts, threadTs },
       };
 
       const response = await onMessage(incoming);

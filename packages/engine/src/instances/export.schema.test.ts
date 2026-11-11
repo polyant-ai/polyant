@@ -48,6 +48,25 @@ function legacyV1Bundle() {
   };
 }
 
+describe("instanceBundleSchema sttProvider", () => {
+  it("reads a transcription provider the runtime does not know as off, as the runtime does", () => {
+    // An older release stored any value it was sent; such an agent ran with transcription off.
+    const bundle = legacyV1Bundle() as { instance: Record<string, unknown> };
+    bundle.instance.sttProvider = "openia";
+
+    expect(instanceBundleSchema.parse(bundle).instance.sttProvider).toBe("disabled");
+  });
+
+  it("accepts every setting the runtime reads", () => {
+    for (const sttProvider of ["openai", "aws", "deepgram", "disabled"]) {
+      const bundle = legacyV1Bundle() as { instance: Record<string, unknown> };
+      bundle.instance.sttProvider = sttProvider;
+
+      expect(instanceBundleSchema.parse(bundle).instance.sttProvider).toBe(sttProvider);
+    }
+  });
+});
+
 describe("instanceBundleSchema back-compat", () => {
   it("should_parse_a_legacy_1.0_bundle_and_default_the_new_fields", () => {
     const parsed = instanceBundleSchema.parse(legacyV1Bundle());
@@ -185,3 +204,31 @@ it("preserves a custom scheduled-task deadline and defaults older bundles to nul
 
 // stripSensitiveKeys now has its own module + test file: see
 // channel-config-sanitize.ts / channel-config-sanitize.test.ts.
+
+describe("scheduled task schedule in a bundle", () => {
+  const task = (schedule: unknown) => ({
+    name: "poll",
+    description: null,
+    enabled: true,
+    schedule,
+    prompt: "Check",
+    outboundChannel: null,
+    outboundTarget: null,
+    keepHistory: false,
+    deleteAfterRun: false,
+    maxRetries: 3,
+    createdBy: null,
+  });
+
+  it("accepts an interval shorter than new schedules may declare, as one already stored", () => {
+    // Earlier releases accepted any interval: an agent exported from one must import again.
+    expect(exportScheduledTaskSchema.parse(task({ type: "interval", everyMs: 30_000 })).schedule)
+      .toEqual({ type: "interval", everyMs: 30_000 });
+  });
+
+  it("refuses an interval that never advances", () => {
+    for (const everyMs of [0, -1_000, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(exportScheduledTaskSchema.safeParse(task({ type: "interval", everyMs })).success).toBe(false);
+    }
+  });
+});

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index, primaryKey } from "drizzle-orm/pg-core";
 import { instances } from "../instances/schema.js";
 
 export const eventSources = pgTable(
@@ -48,16 +49,46 @@ export const eventBacklog = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
-    eventDefinitionId: uuid("event_definition_id").notNull().references(() => eventDefinitions.id, { onDelete: "cascade" }),
+    /** Null for a message from the Room's contact, queued with its text as the payload. */
+    eventDefinitionId: uuid("event_definition_id").references(() => eventDefinitions.id, { onDelete: "cascade" }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     reactNotes: text("react_notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Room lease owner that claimed the event while it is processing. */
+    claimedBy: text("claimed_by"),
+    /**
+     * When the event was claimed, or, for one a previous release claimed without
+     * naming an owner, when this release first saw it in processing.
+     */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (table) => [
     index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
+    index("idx_event_backlog_processing").on(table.instanceId).where(sql`${table.status} = 'processing'`),
+    // The cleanup deletes completed events by age.
+    index("idx_event_backlog_completed_created").on(table.createdAt).where(sql`${table.status} = 'completed'`),
+  ],
+);
+
+/**
+ * One row per `Idempotency-Key` a webhook sender presented, so a redelivered
+ * event is acknowledged without being processed again on any process. The key
+ * is stored as a digest; rows older than a day are dropped by the daily housekeeping.
+ */
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    eventSourceId: uuid("event_source_id").notNull().references(() => eventSources.id, { onDelete: "cascade" }),
+    keyDigest: varchar("key_digest", { length: 64 }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventSourceId, table.keyDigest] }),
+    // The daily housekeeping drops the expired keys of every source by age.
+    index("idx_webhook_deliveries_received").on(table.receivedAt),
   ],
 );

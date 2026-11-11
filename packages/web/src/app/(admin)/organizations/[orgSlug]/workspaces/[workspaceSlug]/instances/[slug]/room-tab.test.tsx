@@ -65,7 +65,6 @@ const CONFIGURED_ROOM = {
   prompt: "",
   outboundChannel: "slack",
   outboundTarget: "#general",
-  evalIntervalMinutes: 5,
 };
 
 describe("RoomTab", () => {

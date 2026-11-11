@@ -12,7 +12,9 @@ export const instanceRoom = pgTable(
     prompt: text("prompt").notNull().default(""),
     outboundChannel: varchar("outbound_channel", { length: 50 }),
     outboundTarget: text("outbound_target"),
-    evalIntervalMinutes: integer("eval_interval_minutes").notNull().default(5),
+    // The table still has `eval_interval_minutes`, which nothing ever read: the Room
+    // cycles on every tick with pending work. It stays until a later release drops it,
+    // so a process of the previous version keeps reading the table during a deploy.
     conversationId: text("conversation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

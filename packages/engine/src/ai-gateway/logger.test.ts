@@ -187,11 +187,15 @@ describe("AILogger", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it("does nothing when db is not set", async () => {
-      logger.log(makeEntry());
-      // No initialize called — db is null
+    it("keeps the entries until a database is set, then writes them", async () => {
+      logger.log(makeEntry({ model: "before-db" }));
       await logger.flush();
-      // Should not throw
+
+      const valuesFn = vi.fn().mockResolvedValue(undefined);
+      logger.initialize({ insert: vi.fn().mockReturnValue({ values: valuesFn }) });
+      await logger.flush();
+
+      expect(valuesFn).toHaveBeenCalledWith([expect.objectContaining({ model: "before-db" })]);
     });
 
     it("inserts entries into database", async () => {

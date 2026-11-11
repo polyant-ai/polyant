@@ -5,6 +5,7 @@ import { extname } from "path";
 import { eq, and, desc, sql, inArray, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
+import { completeVectorScanSetting } from "../database/vector-scan.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -83,12 +84,26 @@ export async function createDocument(input: {
   return doc as KnowledgeDocument;
 }
 
+/**
+ * The document's stored text still hashes to `textHash`. Computed from
+ * `raw_content` itself, so it holds for rows whose `content_hash` predates the
+ * column or was written by another path.
+ */
+function storedTextIs(textHash: string) {
+  return sql`encode(sha256(convert_to(${knowledgeDocuments.rawContent}, 'UTF8')), 'hex') = ${textHash}`;
+}
+
+/**
+ * Set a document's status. With `textHash`, only while the document still holds
+ * the text with that hash: an indexing pass for text that has since been
+ * replaced must not report on the document. Returns whether a row changed.
+ */
 export async function updateDocumentStatus(
   docId: string,
   status: "uploading" | "processing" | "ready" | "error",
-  extra?: { chunkCount?: number; errorMessage?: string },
-): Promise<void> {
-  await db
+  extra?: { chunkCount?: number; errorMessage?: string; textHash?: string },
+): Promise<boolean> {
+  const rows = await db
     .update(knowledgeDocuments)
     .set({
       status,
@@ -96,11 +111,19 @@ export async function updateDocumentStatus(
       errorMessage: extra?.errorMessage ?? undefined,
       updatedAt: sql`now()`,
     })
-    .where(eq(knowledgeDocuments.id, docId));
+    .where(and(eq(knowledgeDocuments.id, docId), extra?.textHash ? storedTextIs(extra.textHash) : undefined))
+    .returning({ id: knowledgeDocuments.id });
+  return rows.length > 0;
 }
 
-/** List documents (without rawContent for performance). */
-export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
+/**
+ * One page of an agent's documents, newest first, without rawContent.
+ * `nextOffset` is where the next page starts, or null after the last one.
+ */
+export async function listDocuments(
+  instanceId: InstanceSlug,
+  page: { limit: number; offset: number },
+): Promise<{ documents: Omit<KnowledgeDocument, "rawContent">[]; nextOffset: number | null }> {
   const rows = await db
     .select({
       id: knowledgeDocuments.id,
@@ -119,8 +142,15 @@ export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<Know
     })
     .from(knowledgeDocuments)
     .where(eq(knowledgeDocuments.instanceId, instanceId))
-    .orderBy(desc(knowledgeDocuments.createdAt));
-  return rows as Omit<KnowledgeDocument, "rawContent">[];
+    .orderBy(desc(knowledgeDocuments.createdAt), desc(knowledgeDocuments.id))
+    // One row past the page says whether another page follows.
+    .limit(page.limit + 1)
+    .offset(page.offset);
+  const more = rows.length > page.limit;
+  return {
+    documents: (more ? rows.slice(0, page.limit) : rows) as Omit<KnowledgeDocument, "rawContent">[],
+    nextOffset: more ? page.offset + page.limit : null,
+  };
 }
 
 /**
@@ -146,14 +176,27 @@ export async function getDocument(docId: string): Promise<KnowledgeDocument | un
   return doc as KnowledgeDocument | undefined;
 }
 
-/** Delete document + all its chunks (CASCADE via FK, but explicit for safety). */
-export async function deleteDocument(docId: string): Promise<boolean> {
-  await db.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, docId));
-  const result = await db
-    .delete(knowledgeDocuments)
+/** A document's filename, without reading its content. */
+export async function getDocumentFilename(docId: string): Promise<string | undefined> {
+  const [doc] = await db
+    .select({ filename: knowledgeDocuments.filename })
+    .from(knowledgeDocuments)
     .where(eq(knowledgeDocuments.id, docId))
-    .returning();
-  return result.length > 0;
+    .limit(1);
+  return doc?.filename;
+}
+
+/**
+ * Delete a document of this agent; its chunks go with it (the foreign key
+ * cascades). Scoped to the agent: a document of another agent is not found.
+ * Returns whether it existed.
+ */
+export async function deleteDocument(docId: string, instanceId: InstanceSlug): Promise<boolean> {
+  const deleted = await db
+    .delete(knowledgeDocuments)
+    .where(and(eq(knowledgeDocuments.id, docId), eq(knowledgeDocuments.instanceId, instanceId)))
+    .returning({ id: knowledgeDocuments.id });
+  return deleted.length > 0;
 }
 
 /**
@@ -264,6 +307,8 @@ export interface AgentWriteResult {
   created: boolean;
   sizeBytes: number;
   rawContent: string;
+  /** False when the text is unchanged on a document already indexed: its chunks stand. */
+  reindex: boolean;
 }
 
 type AgentWriteInput = {
@@ -281,6 +326,10 @@ type AgentWriteInput = {
  * existing text and the input with a separator, and creates the document
  * without one when absent. SELECT ... FOR UPDATE serializes concurrent writes
  * on the same row.
+ *
+ * A write that leaves the text of a ready document as it is (a plugin syncing
+ * the same catalogue, a repeated write) keeps the document ready and asks for
+ * no reindex: re-embedding identical text costs provider time for no change.
  */
 async function writeAgentDocument(
   input: AgentWriteInput,
@@ -303,6 +352,8 @@ async function writeAgentDocument(
       .select({
         id: knowledgeDocuments.id,
         rawContent: mode === "append" ? knowledgeDocuments.rawContent : sql<null>`null`,
+        contentHash: knowledgeDocuments.contentHash,
+        status: knowledgeDocuments.status,
       })
       .from(knowledgeDocuments)
       .where(
@@ -325,19 +376,25 @@ async function writeAgentDocument(
           `Appending would grow document past ${MAX_DOCUMENT_BYTES} bytes (would be ${mergedBytes}).`,
         );
       }
-      await tx
-        .update(knowledgeDocuments)
-        .set({
-          ...(mode === "overwrite" ? { mimeType } : {}),
-          rawContent: merged,
-          contentHash: hashContent(merged),
-          sizeBytes: mergedBytes,
-          status: "processing",
-          errorMessage: null,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(knowledgeDocuments.id, existing.id));
-      return { docId: existing.id, created: false, sizeBytes: mergedBytes, rawContent: merged };
+      const mergedHash = hashContent(merged);
+      const reindex = !(existing.status === "ready" && existing.contentHash === mergedHash);
+      if (reindex) {
+        await tx
+          .update(knowledgeDocuments)
+          .set({
+            ...(mode === "overwrite" ? { mimeType } : {}),
+            rawContent: merged,
+            contentHash: mergedHash,
+            sizeBytes: mergedBytes,
+            status: "processing",
+            errorMessage: null,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(knowledgeDocuments.id, existing.id));
+      } else if (mode === "overwrite") {
+        await tx.update(knowledgeDocuments).set({ mimeType }).where(eq(knowledgeDocuments.id, existing.id));
+      }
+      return { docId: existing.id, created: false, sizeBytes: mergedBytes, rawContent: merged, reindex };
     }
 
     const [inserted] = await tx
@@ -353,7 +410,7 @@ async function writeAgentDocument(
         status: "processing",
       })
       .returning({ id: knowledgeDocuments.id });
-    return { docId: inserted.id, created: true, sizeBytes: inputBytes, rawContent: content };
+    return { docId: inserted.id, created: true, sizeBytes: inputBytes, rawContent: content, reindex: true };
   });
 }
 
@@ -371,15 +428,6 @@ export function upsertAgentDocument(input: AgentWriteInput): Promise<AgentWriteR
  */
 export function appendAgentDocument(input: AgentWriteInput): Promise<AgentWriteResult> {
   return writeAgentDocument(input, "append");
-}
-
-/** Delete all chunks belonging to a document (used before reindexing). */
-export async function deleteChunksByDocumentId(docId: string): Promise<number> {
-  const deleted = await db
-    .delete(knowledgeChunks)
-    .where(eq(knowledgeChunks.documentId, docId))
-    .returning({ id: knowledgeChunks.id });
-  return deleted.length;
 }
 
 /**
@@ -450,38 +498,44 @@ function chunkRowValues(c: InsertChunkInput, dimensions: EmbeddingDim, provider:
   };
 }
 
-export async function insertChunks(
-  chunks: InsertChunkInput[],
-  dimensions: EmbeddingDim,
-  provider: EmbeddingProvider,
-): Promise<number> {
-  if (chunks.length === 0) return 0;
-
-  await db.insert(knowledgeChunks).values(
-    chunks.map((c) => chunkRowValues(c, dimensions, provider)),
-  );
-  return chunks.length;
-}
+/** Chunks per INSERT statement when a document's chunks are stored. */
+const INSERT_BLOCK_SIZE = 500;
 
 /**
- * Insert chunks and update document status atomically in a transaction.
- * If chunk insertion fails, the document status is NOT updated to "ready".
+ * Replace a document's chunks and mark it ready, in one transaction, if the
+ * document still holds the text the chunks were made from (`textHash`).
+ *
+ * Two passes can index one document at once (two agent writes in a row, an
+ * upload while the agent writes). The row lock taken here, and by the agent
+ * writes, orders them: a pass for replaced text writes nothing, and a pass for
+ * the current text swaps the whole set, so the chunks are never doubled or
+ * mixed. Until the swap the previous chunks stay searchable. Returns the chunk
+ * count, or null when the text was replaced and nothing was written. If the
+ * insert fails, nothing changes and the document is NOT marked "ready".
  */
 export async function insertChunksAndFinalize(
   docId: string,
   chunks: InsertChunkInput[],
   dimensions: EmbeddingDim,
   provider: EmbeddingProvider,
-): Promise<number> {
-  if (chunks.length === 0) {
-    await updateDocumentStatus(docId, "ready", { chunkCount: 0 });
-    return 0;
-  }
-
+  textHash: string,
+): Promise<number | null> {
   return await db.transaction(async (tx) => {
-    await tx.insert(knowledgeChunks).values(
-      chunks.map((c) => chunkRowValues(c, dimensions, provider)),
-    );
+    const [current] = await tx
+      .select({ id: knowledgeDocuments.id })
+      .from(knowledgeDocuments)
+      .where(and(eq(knowledgeDocuments.id, docId), storedTextIs(textHash)))
+      .for("update");
+    if (!current) return null;
+
+    await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, docId));
+    // In blocks: one statement for a whole large document holds every vector,
+    // as text, in memory at once.
+    for (let i = 0; i < chunks.length; i += INSERT_BLOCK_SIZE) {
+      await tx.insert(knowledgeChunks).values(
+        chunks.slice(i, i + INSERT_BLOCK_SIZE).map((c) => chunkRowValues(c, dimensions, provider)),
+      );
+    }
 
     await tx
       .update(knowledgeDocuments)
@@ -501,6 +555,16 @@ export async function insertChunksAndFinalize(
 /**
  * Semantic search: find nearest chunks and return with parent document filename.
  * Used as one of the two backends fused by `searchKnowledge()` in search.ts.
+ *
+ * The 1024-dim column has one HNSW index for the whole table, and the planner
+ * picks it once an agent holds thousands of chunks. The index returns its
+ * `hnsw.ef_search` (40) nearest rows of every agent and the agent filter runs
+ * after it, so an agent owning a fraction of those rows got that fraction of
+ * `limit`. The query therefore runs in a transaction that keeps it complete:
+ * with `iterative_scan = strict_order` the index keeps scanning, in distance
+ * order, until `limit` rows pass the filter (or `hnsw.max_scan_tuples`, 20,000
+ * by default, have been visited); on a pgvector without it the index is off
+ * for the query and the agent's chunks are scanned exactly.
  */
 export async function searchByVector(
   queryEmbedding: number[],
@@ -510,23 +574,27 @@ export async function searchByVector(
 ): Promise<KnowledgeSearchResult[]> {
   const activeCol = activeKnowledgeChunkColumn(dimensions);
   const distance = cosineDistance(activeCol, queryEmbedding);
+  const completeScan = await completeVectorScanSetting();
 
-  const rows = await db
-    .select({
-      id: knowledgeChunks.id,
-      content: knowledgeChunks.content,
-      chunkIndex: knowledgeChunks.chunkIndex,
-      filename: knowledgeDocuments.filename,
-      distance: sql<number>`${distance}`,
-    })
-    .from(knowledgeChunks)
-    .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-    // Exclude rows whose active vector column is NULL: their cosine distance is
-    // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
-    // knowledge search results when fewer than `limit` rows match.
-    .where(and(eq(knowledgeChunks.instanceId, instanceId), eq(knowledgeDocuments.enabled, true), isNotNull(activeCol)))
-    .orderBy(distance)
-    .limit(limit);
+  const rows = await db.transaction(async (tx) => {
+    await tx.execute(completeScan);
+    return await tx
+      .select({
+        id: knowledgeChunks.id,
+        content: knowledgeChunks.content,
+        chunkIndex: knowledgeChunks.chunkIndex,
+        filename: knowledgeDocuments.filename,
+        distance: sql<number>`${distance}`,
+      })
+      .from(knowledgeChunks)
+      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+      // Exclude rows whose active vector column is NULL: their cosine distance is
+      // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
+      // knowledge search results when fewer than `limit` rows match.
+      .where(and(eq(knowledgeChunks.instanceId, instanceId), eq(knowledgeDocuments.enabled, true), isNotNull(activeCol)))
+      .orderBy(distance)
+      .limit(limit);
+  });
 
   return rows.map((r) => ({
     id: r.id,
@@ -538,28 +606,41 @@ export async function searchByVector(
 }
 
 /**
- * Keyword search: PostgreSQL FTS over the chunk content, ranked by ts_rank.
- * Uses `simple` config (no language stemming) for multilingual coherence with
- * the rest of the project (see CLAUDE.md). `websearch_to_tsquery` accepts the
- * raw user query — no manual escaping needed.
+ * Keyword search: PostgreSQL FTS over the chunk content, ranked by cover density.
+ *
+ * A chunk matches when it holds ANY word of the question; chunks holding more
+ * of them, closer together, rank higher. The words come from the
+ * `knowledge_query` configuration, which reads them like the chunks' `simple`
+ * index (no stemming, for multilingual coherence) and drops Italian and English
+ * stopwords. Requiring every word, stopwords included, made a question in
+ * natural language ("what are the opening hours?") match nothing. A question
+ * with no word left matches nothing.
+ *
+ * The tsquery is assembled from the lexemes, each quoted (quotes and
+ * backslashes doubled) and joined with OR, so the raw question needs no
+ * escaping and an empty question yields NULL instead of a server notice.
  */
 export async function searchByKeyword(
   query: string,
   instanceId: InstanceSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
+  const anyWord = sql`(
+    SELECT string_agg($q$'$q$ || replace(replace(lexeme, $q$\\$q$, $q$\\\\$q$), $q$'$q$, $q$''$q$) || $q$'$q$, ' | ')::tsquery
+    FROM unnest(to_tsvector('knowledge_query', ${query}))
+  )`;
   const rows = await db.execute(sql`
     SELECT
       kc.id,
       kc.content,
       kc.chunk_index,
       kd.filename,
-      ts_rank(kc.content_tsv, websearch_to_tsquery('simple', ${query})) AS rank
+      ts_rank_cd(kc.content_tsv, ${anyWord}) AS rank
     FROM knowledge_chunks kc
     INNER JOIN knowledge_documents kd ON kd.id = kc.document_id
     WHERE kc.instance_id = ${instanceId}
       AND kd.enabled
-      AND kc.content_tsv @@ websearch_to_tsquery('simple', ${query})
+      AND kc.content_tsv @@ ${anyWord}
     ORDER BY rank DESC
     LIMIT ${limit}
   `);
@@ -579,6 +660,18 @@ export async function countChunks(instanceId: InstanceSlug): Promise<number> {
     .from(knowledgeChunks)
     .where(eq(knowledgeChunks.instanceId, instanceId));
   return Number(row.count);
+}
+
+/** How many documents an agent holds, and how many of them failed to index. */
+export async function countDocumentOutcomes(instanceId: InstanceSlug): Promise<{ total: number; failed: number }> {
+  const [row] = await db
+    .select({
+      total: drizzleCount(),
+      failed: sql<number>`count(*) filter (where ${knowledgeDocuments.status} = 'error')`.mapWith(Number),
+    })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.instanceId, instanceId));
+  return { total: Number(row.total), failed: row.failed };
 }
 
 /** Count knowledge documents owned by an instance (used to enforce the per-instance cap). */

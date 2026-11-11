@@ -64,6 +64,9 @@ vi.mock("./providers/base.js", async (importActual) => ({
     (err !== null && typeof err === "object" ? pinnedUsage.get(err) : null) ?? null,
 }));
 
+const mockRecordExchanges = vi.hoisted(() => vi.fn());
+vi.mock("../request-path/exchange.store.js", () => ({ recordExchanges: mockRecordExchanges }));
+
 vi.mock("./logger.js", async (importActual) => {
   // `classifyProviderError` stays REAL: the point of the failure tests below is
   // that the class written to ai_logs is derived from the actual error shape.
@@ -117,6 +120,7 @@ import { buildLangSmithProviderOptions } from "./langsmith.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import type { ChatRequest } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
+import { runAs, runInTurn } from "../request-path/turn-scope.js";
 
 const mockFindInstanceBySlug = vi.mocked(findInstanceBySlug);
 
@@ -225,7 +229,7 @@ describe("AI Gateway", () => {
     it("passes callType 'service' to logger when specified", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service", purpose: "title" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-6.1-terra", "standard", false,
@@ -238,6 +242,34 @@ describe("AI Gateway", () => {
         "service",
         0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
+    });
+
+    it("files the call under its turn's message, with its start, its row id up front, and the run that made it", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+
+      await runAs(
+        { kind: "tool", name: "lookupOrder", toolCallId: "tc-1" },
+        () => chat(makeRequest(), { conversationId: "conv-1", callType: "service", purpose: "tool" }),
+        { messageId: "msg-1", debug: false },
+      );
+
+      const row = vi.mocked(aiLogger.log).mock.calls.at(-1)?.[0];
+      expect(row).toMatchObject({ messageId: "msg-1", originName: "lookupOrder", parentRef: "tc-1", purpose: "tool" });
+      expect(row?.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(row?.startedAt).toBeInstanceOf(Date);
+    });
+
+    it("asks the provider for the raw exchanges only while the turn debugs, and keeps them under the call's row", async () => {
+      const exchanges = [{ stepIndex: 0, attempt: 1, status: 200, request: { a: 1 }, response: { b: 2 } }];
+      mockProviderChat.mockResolvedValue(makeChatResponse({ exchanges }));
+
+      await chat(makeRequest(), { conversationId: "conv-1" });
+      expect(mockProviderChat.mock.calls.at(-1)?.[0]).toMatchObject({ captureExchanges: false });
+
+      await runInTurn({ messageId: "msg-2", debug: true }, () => chat(makeRequest(), { conversationId: "conv-1" }));
+      expect(mockProviderChat.mock.calls.at(-1)?.[0]).toMatchObject({ captureExchanges: true });
+      const rowId = vi.mocked(aiLogger.log).mock.calls.at(-1)?.[0].id;
+      expect(mockRecordExchanges).toHaveBeenLastCalledWith(rowId, expect.objectContaining({ messageId: "msg-2", conversationId: "conv-1" }), exchanges);
     });
 
     it("returns full response from provider", async () => {
@@ -270,7 +302,7 @@ describe("AI Gateway", () => {
         id: "uuid-1",
         slug: "acme",
         name: "Acme",
-        icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAE",
+        hasIcon: true,
         updatedAt: new Date(1700000000000),
       } as unknown as Awaited<ReturnType<typeof findInstanceBySlug>>);
       mockProviderChat.mockResolvedValue(makeChatResponse());
@@ -419,18 +451,30 @@ describe("AI Gateway", () => {
         expect(sent).not.toHaveProperty("effort");
       });
 
-      it("sends nothing to a model that has no off-switch at all", async () => {
-        // gpt-6-astra publishes no `none` effort: it reasons on every call, so a
-        // payload claiming to switch it off would be a parameter it rejects and a
-        // debug capture that lies about what the gateway did.
+      // A model with no off-switch reasons on every call. Sending nothing left
+      // it at its own default effort, so "off" ran at medium on every service
+      // call; off now means the lowest effort the model accepts.
+      it("runs an OpenAI model with no off-switch at its lowest effort", async () => {
         mockProviderChat.mockResolvedValue(makeChatResponse());
 
         await chat(makeRequest({ provider: "openai", model: "gpt-6-astra", thinking: false }));
 
-        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).not.toHaveProperty(
-          "reasoningEffort",
-        );
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).toMatchObject({ reasoningEffort: "low" });
       });
+
+      it("runs an always-reasoning Claude at its lowest adaptive effort", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-opus-5-5", thinking: false }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({
+          thinking: { type: "adaptive" },
+          effort: "low",
+        });
+      });
+
 
       it("leaves a model whose default is already off alone", async () => {
         // gpt-5.4 goes to zero reasoning tokens with thinking off (live-verified),
@@ -474,7 +518,7 @@ describe("AI Gateway", () => {
       expect(opts).not.toHaveProperty("chat_template_kwargs");
     });
 
-    it("omits the disable kwarg for gpt-oss when thinking is off (it has no true off)", async () => {
+    it("runs gpt-oss at its lowest effort when thinking is off (it has no true off)", async () => {
       mockNebiusChat.mockResolvedValue(makeChatResponse());
 
       await chat(
@@ -482,13 +526,8 @@ describe("AI Gateway", () => {
       );
 
       // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
-      // sending it just masks the truth. The gateway must send nothing and let
-      // the model fall back to its own reasoning default. "Nothing" is now the
-      // absent namespace rather than an empty one — an empty object reached the
-      // wire identically, but showed up in a captured debug payload as if the
-      // gateway had configured something.
-      const opts = mockNebiusChat.mock.calls[0][0].providerOptions?.nebius;
-      expect(opts ?? {}).toEqual({});
+      // that kwarg is never sent; the effort is what it honours.
+      expect(mockNebiusChat.mock.calls[0][0].providerOptions?.nebius).toEqual({ reasoningEffort: "low" });
     });
 
     it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
@@ -527,15 +566,16 @@ describe("AI Gateway", () => {
       expect(cfg).not.toHaveProperty("budgetTokens");
     });
 
-    it("omits Bedrock reasoningConfig when thinking is off", async () => {
+    it("runs gpt-oss on Bedrock, which cannot stop reasoning, at its lowest effort when thinking is off", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
       await chat(
         makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: false }),
       );
 
-      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
-      expect(opts?.bedrock).toBeUndefined();
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions.bedrock).toEqual({
+        reasoningConfig: { type: "enabled", maxReasoningEffort: "low" },
+      });
     });
 
     it.each([
@@ -554,12 +594,14 @@ describe("AI Gateway", () => {
       expect(bedrockOpts).toEqual({ additionalModelRequestFields: { thinking: { type } } });
     });
 
-    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one", async () => {
+    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one, and runs it at its lowest effort", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
       await chat(makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-opus-5-5", thinking: false }));
 
-      expect(mockBedrockChat.mock.calls[0][0].providerOptions?.bedrock).toBeUndefined();
+      const sent = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock;
+      expect(sent).not.toHaveProperty("additionalModelRequestFields");
+      expect(sent.reasoningConfig).toMatchObject({ type: "adaptive", maxReasoningEffort: "low" });
     });
 
     it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {
@@ -610,7 +652,7 @@ describe("AI Gateway", () => {
         response: Promise.resolve(makeChatResponse()),
       });
 
-      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service", purpose: "title" });
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
@@ -650,6 +692,115 @@ describe("AI Gateway", () => {
         }),
         expect.any(String),
       );
+    });
+  });
+
+  describe("what a service call is for", () => {
+    it("records the purpose of a service call on its row, so service spend can be grouped by it", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { conversationId: "conv-1", callType: "service", purpose: "title" });
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).toMatchObject({ purpose: "title" });
+    });
+
+    it("records it on a failed service call's row too", async () => {
+      mockProviderChat.mockRejectedValue(Object.assign(new Error("no"), { statusCode: 500 }));
+      await expect(chat(makeRequest(), { callType: "service", purpose: "memory" })).rejects.toThrow();
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).toMatchObject({ purpose: "memory" });
+    });
+
+    it("passes it to the trace metadata", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ langsmith: { apiKey: "k", project: "p" } }), { callType: "service", purpose: "summary" });
+
+      expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ callType: "service", purpose: "summary" }),
+      );
+    });
+
+    it("leaves a conversation turn's row without a purpose", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest());
+
+      expect(vi.mocked(aiLogger.log).mock.calls.at(-1)![0]).not.toHaveProperty("purpose");
+    });
+  });
+
+  describe("prompt cache lifetime of a service call", () => {
+    // A service call's prefix is rarely read again an hour later: writing it
+    // at the one-hour lifetime costs 2× input against 1.25× at five minutes.
+    it("asks for the five-minute cache on a service call that names no cache setting", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { callType: "service", purpose: "sub_task" });
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).cacheConfig).toEqual({ enabled: true, ttl: "5m" });
+    });
+
+    it("keeps a service call's own cache setting, and leaves a conversation turn's alone", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ cacheConfig: { enabled: false, ttl: "1h" } }), { callType: "service", purpose: "title" });
+      await chat(makeRequest());
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).cacheConfig).toEqual({ enabled: false, ttl: "1h" });
+      expect((mockProviderChat.mock.calls[1][0] as ChatRequest).cacheConfig).toBeUndefined();
+    });
+  });
+
+  describe("bounds on every model call", () => {
+    // Defaults from the process configuration (none of these variables is set in tests).
+    const SERVICE_TOTAL_MS = 300_000;
+    const STREAM_CHUNK_MS = 120_000;
+    const STREAM_FIRST_CHUNK_MS = 300_000;
+    const MODEL_REQUEST_MS = 300_000;
+    const MAX_RETRIES = 2;
+
+    it("bounds a service call's total time and states its retries", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest(), { callType: "service", purpose: "title" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ totalMs: SERVICE_TOTAL_MS });
+      expect(sent.requestTimeoutMs).toBeUndefined();
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("sets no total time on a service call that runs tools over several steps", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ maxSteps: 10 }), { callType: "service", purpose: "sub_task" });
+
+      expect((mockProviderChat.mock.calls[0][0] as ChatRequest).timeout).toBeUndefined();
+    });
+
+    it("sets no total time on a conversation turn, whose tools may run long, and bounds each of its model requests", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ maxSteps: 10 }), { callType: "conversation" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toBeUndefined();
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("bounds the wait for a streamed answer's first chunk and the silence between two chunks", async () => {
+      mockProviderChatStream.mockReturnValue({ textStream: (async function* () {})(), response: Promise.resolve(makeChatResponse()) });
+      const stream = await chatStream(makeRequest());
+      await stream.response;
+
+      const sent = mockProviderChatStream.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ firstChunkMs: STREAM_FIRST_CHUNK_MS, chunkMs: STREAM_CHUNK_MS });
+      expect(sent.requestTimeoutMs).toBe(MODEL_REQUEST_MS);
+      expect(sent.maxRetries).toBe(MAX_RETRIES);
+    });
+
+    it("keeps the bounds a caller sets itself", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest({ timeout: { totalMs: 15_000 }, maxRetries: 0 }), { callType: "service", purpose: "title" });
+
+      const sent = mockProviderChat.mock.calls[0][0] as ChatRequest;
+      expect(sent.timeout).toEqual({ totalMs: 15_000 });
+      expect(sent.maxRetries).toBe(0);
     });
   });
 
@@ -739,7 +890,76 @@ describe("AI Gateway", () => {
       expect(entry.costUsd).toBeGreaterThan(0);
     });
 
-    it("writes NOTHING when the turn was preempted before any model call answered", async () => {
+    // An abort with a model call in flight: the provider had the prompt and
+    // billed it, but no usage came back. The row carries the provider's
+    // estimate of that prompt, marked as such.
+    it("logs a call preempted in flight as `aborted` / `in_flight`, with its estimated prompt", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      mockProviderChat.mockRejectedValue(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-cold" })).rejects.toBe(err);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("aborted");
+      expect(entry.errorKind).toBe("in_flight");
+      expect(entry.promptTokens).toBe(30_000);
+      expect(entry.costUsd).toBeGreaterThan(0);
+      // Nothing earlier in this conversation says what the cache held.
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(0);
+    });
+
+    it("counts as read from cache what the conversation's previous call left there", async () => {
+      // The previous call read 20,000 cached tokens and wrote 5,000 more: the
+      // next call of the conversation starts with that 25,000-token prefix.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 26_000, completionTokens: 50, totalTokens: 26_050, cachedInputTokens: 20_000, cacheCreationInputTokens: 5_000 },
+      }));
+      await chat(makeRequest(), { conversationId: "conv-in-flight-warm" });
+      const cold = new Error("aborted cold");
+      const warm = new Error("aborted warm");
+      for (const err of [cold, warm]) {
+        pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      }
+      const controller = new AbortController();
+      controller.abort();
+
+      mockProviderChat.mockRejectedValueOnce(cold);
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-other" })).rejects.toBe(cold);
+      const coldCost = loggedEntry().costUsd as number;
+      mockProviderChat.mockRejectedValueOnce(warm);
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-warm" })).rejects.toBe(warm);
+
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(25_000);
+      expect(loggedEntry().costUsd as number).toBeLessThan(coldCost);
+    });
+
+    it("keeps the turn's cached prefix when a service call of the same conversation runs after it", async () => {
+      // The turn leaves 25,000 tokens in the cache.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 26_000, completionTokens: 50, totalTokens: 26_050, cachedInputTokens: 20_000, cacheCreationInputTokens: 5_000 },
+      }));
+      await chat(makeRequest(), { conversationId: "conv-in-flight-service" });
+      // The memory extraction after the turn: a small prompt, nothing cached.
+      mockProviderChat.mockResolvedValueOnce(makeChatResponse({
+        usage: { promptTokens: 600, completionTokens: 40, totalTokens: 640, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
+      }));
+      await chat(makeRequest({ tier: "fast" }), { conversationId: "conv-in-flight-service", callType: "service", purpose: "memory" });
+      // The next turn is preempted in flight.
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      const controller = new AbortController();
+      controller.abort();
+      mockProviderChat.mockRejectedValueOnce(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }), { conversationId: "conv-in-flight-service" })).rejects.toBe(err);
+
+      expect(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)![14]).toBe(25_000);
+    });
+
+    it("writes NOTHING when the turn was preempted before any model call started", async () => {
       // cancel-and-restart is the routine path — it fires whenever a user sends a
       // second message before the first reply lands. A turn it stopped before
       // anything was billed has no cost to record and is no failure.
@@ -784,6 +1004,21 @@ describe("AI Gateway", () => {
       const entry = loggedEntry();
       expect(entry.outcome).toBe("error");
       expect(entry.errorKind).toBe("timeout");
+    });
+
+    // A call the provider was still answering when its timeout closed it was
+    // billed like a preempted one: the row carries the estimate of its prompt.
+    it("adds the estimate of the call in flight to a timeout row", async () => {
+      const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      pinnedUsage.set(timeout, { promptTokens: 1_000, completionTokens: 20, cachedInputTokens: 0, cacheCreationInputTokens: 0, calls: [], inFlight: { promptTokens: 30_000 } });
+      mockProviderChat.mockRejectedValue(timeout);
+
+      await expect(chat(makeRequest())).rejects.toBe(timeout);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("error");
+      expect(entry.errorKind).toBe("timeout");
+      expect(entry.promptTokens).toBe(31_000);
     });
 
     it("writes exactly one row when a stream fails after being established", async () => {

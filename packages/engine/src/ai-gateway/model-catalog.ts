@@ -312,9 +312,15 @@ export const providerConfigs: Record<string, ProviderConfig> = {
   },
   anthropic: {
     wireDialect: "anthropic",
+    // `standard` is claude-sonnet-5 since 2026-11-03: two thirds of Sonnet 4.6's
+    // input, output and cache prices, and already the model of production agents
+    // running tool turns with thinking switched off through `disabled`. Sonnet
+    // 5.5 costs the same with a cheaper cache read, but it has not been verified
+    // on tool turns here and cannot switch thinking off (`between_tools` keeps it
+    // reasoning between tool calls).
     tiers: {
       fast: "claude-haiku-5-5",
-      standard: "claude-sonnet-4-6",
+      standard: "claude-sonnet-5",
       heavy: "claude-opus-4-8",
     },
     models: {

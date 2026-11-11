@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "reflect-metadata";
-import { randomUUID } from "crypto";
+import { newTurn, runInTurn } from "./request-path/turn-scope.js";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
 import { config } from "./config.js";
 import { retiredEnvironmentWarnings } from "./config-retired.js";
-import { db } from "./database/client.js";
+import { db, queryClient } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
-import { resetStuckProcessingEvents } from "./webhooks/webhook-backlog.store.js";
 import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
@@ -44,6 +43,7 @@ import {
 } from "./pipeline.js";
 import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
+import { streamBufferedTurn } from "./buffered-turn-stream.js";
 import { runOptoutGate } from "./optout/index.js";
 import { closeMcpClientPool } from "./agents/tools/mcp/mcp-client-pool.js";
 import { createLogger } from "./utils/create-logger.js";
@@ -128,21 +128,22 @@ async function main() {
     // Fail knowledge documents whose ingestion died with its process, now and
     // periodically after.
     startStuckDocumentSweep(),
-    // Recover webhook events stuck in "processing" — see follow-up to #81. A fresh
-    // boot has no in-flight room cycle, so anything in PROCESSING is a zombie from a
-    // prior crash that has to be requeued.
-    nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
-      const resetEvents = await resetStuckProcessingEvents();
-      if (resetEvents > 0) {
-        log.info("webhooks", `Reset ${resetEvents} stale processing event(s) to pending`);
-      }
-    }),
+    // Room events a dead process left in processing have no boot step: another
+    // replica may be running their cycle right now. The room tick requeues them once
+    // their lease has expired.
   ]);
 
   // --- Message handlers (sync + streaming) ---
 
+  // Each turn runs in its own scope (request-path/turn-scope.ts): the id its
+  // assistant message will be saved under, so every model call, hook run and
+  // tool run of the turn points at it.
   // 3a. Synchronous message handler
   async function handleMessage(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
+    return runInTurn(newTurn(), () => handleMessageTurn(msg, abortSignal));
+  }
+
+  async function handleMessageTurn(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
     // GDPR opt-out gate (deterministic, pre-LLM, before Room/task routing so
     // STOP/START are always honored first). Returns a short-circuit reply
     // (possibly empty = no outbound) or proceeds to the normal pipeline.
@@ -164,16 +165,18 @@ async function main() {
         roomCheck.outboundChannel === msg.channelType &&
         roomCheck.outboundTarget === msg.channelId
       ) {
-        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text);
+        // The cycle sends by itself; the channel's tool gate keeps a burst from queuing twice.
+        await roomScheduler.triggerImmediate(roomCheck, effectiveInstanceId, msg.text, msg.toolGate);
         return { text: "" };
       }
     }
 
-    // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, undefined, abortSignal);
-    // Pre-generate the assistant message id so the pipeline trace can be linked
-    // to the persisted message by id (not fragile ordinal matching).
-    return runBufferedTurn(msg, pre, abortSignal, randomUUID());
+    // Phase 1: Context preparation. A reply to a webhook-triggered message
+    // continues the trigger's conversation, which holds its context.
+    const pre = await runPipelinePre(msg, activeTrigger, abortSignal);
+    // The turn's message id, so the pipeline trace links to the persisted
+    // message by id (not fragile ordinal matching).
+    return runBufferedTurn(msg, pre, abortSignal, pre.ctx.messageId);
   }
 
   /**
@@ -237,6 +240,7 @@ async function main() {
       attachments: msg.attachments,
       abortSignal,
       toolGate: msg.toolGate,
+      toolObserver: msg.toolObserver,
       agentCallDepth: agentMeta?.depth,
       agentCallMetadata: agentMeta,
       stateBuffer: ctx.stateBuffer,
@@ -246,9 +250,11 @@ async function main() {
       cacheConfig: ctx.instanceConfig.cacheConfig,
       intermediateText: ctx.instanceConfig.intermediateText,
       debugEnabled: ctx.instanceConfig.debugEnabled,
+      messageId: ctx.messageId,
       // Conversational entry point: a real user behind a stable, reused
       // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
       allowOAuth: true,
+      mcpServers: pre.mcpServers,
       optoutHint:
         ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
           ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -302,6 +308,7 @@ async function main() {
       steps: result.steps,
       reasoning: result.reasoning,
       debugPayload: result.debugPayload,
+      exactTurn: result.exactTurn,
       assistantMessageId,
       toolCallTraces: result.toolCallTraces,
       // Spend fields are the SUM across replay passes; content fields (steps, tools,
@@ -333,6 +340,10 @@ async function main() {
 
   // 3b. Streaming message handler (for OpenAI-compatible SSE)
   async function handleMessageStream(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
+    return runInTurn(newTurn(), () => handleMessageStreamTurn(msg, abortSignal));
+  }
+
+  async function handleMessageStreamTurn(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
     // GDPR opt-out gate — same deterministic short-circuit as the sync path,
     // wrapped as a single-chunk stream (reusing the missing-key pattern below).
     const optoutGate = await runOptoutGate(msg);
@@ -355,7 +366,7 @@ async function main() {
     // persist it via runPipelinePost (post-LLM hooks + memory/summary run).
     if (pre.shortCircuit) {
       const canned = pre.shortCircuit.text;
-      const haltMessageId = randomUUID();
+      const haltMessageId = ctx.messageId;
       const completed = runPipelinePost({
         ctx,
         contextPrepMs,
@@ -385,19 +396,24 @@ async function main() {
     // declares mutatesResponse can replace the reply post-LLM, which cannot
     // coexist with streaming (tokens would already be sent). Serve the turn
     // non-streamed — runBufferedTurn supervises + applies any replaceResponse —
-    // then emit the final text as a single chunk. Reuses the computed `pre`, so
+    // then emit the final text as a single chunk, after the turn's tool calls,
+    // which stream as they happen. Reuses the computed `pre`, so
     // runPipelinePre (and its pre-LLM hooks) runs exactly once for the turn.
     if (await hasResponseMutatingHook(ctx.instanceId)) {
       // Pre-generate the persisted assistant id and thread it through so the
       // `meta` echoed in the SSE `done` event addresses the SAME row the debug
       // payload is stored on (parity with the halt + normal streaming paths).
-      const bufferedMessageId = randomUUID();
-      const out = await runBufferedTurn(msg, pre, abortSignal, bufferedMessageId);
-      const text = out.text;
+      const bufferedMessageId = ctx.messageId;
+      const buffered = await streamBufferedTurn((toolObserver) =>
+        runBufferedTurn({ ...msg, toolObserver }, pre, abortSignal, bufferedMessageId));
+      const completed = buffered.turn.then(({ text }) => ({ text, hookExecutions: [] }));
+      // A failure after the first tool reaches the caller through the streams,
+      // and a caller stopped by it never awaits `completed`.
+      completed.catch(() => undefined);
       return {
-        textStream: (async function* () { yield text; })(),
-        fullStream: (async function* () { yield { type: "text-delta", text }; })(),
-        completed: Promise.resolve({ text, hookExecutions: [] }),
+        textStream: buffered.textStream,
+        fullStream: buffered.fullStream,
+        completed,
         meta: { conversationId: ctx.conversationId, messageId: bufferedMessageId },
         hookExecutions: pre.hookExecutions,
       };
@@ -438,9 +454,11 @@ async function main() {
         cacheConfig: ctx.instanceConfig.cacheConfig,
         intermediateText: ctx.instanceConfig.intermediateText,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        messageId: ctx.messageId,
         // Conversational entry point: a real user behind a stable, reused
         // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
         allowOAuth: true,
+        mcpServers: pre.mcpServers,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
             ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -457,11 +475,14 @@ async function main() {
     // Pre-generate the assistant message id so first-party SSE consumers can
     // echo it (with the conversationId) before persistence completes — used to
     // fetch the per-message debug payload without ordinal-matching.
-    const assistantMessageId = randomUUID();
+    const assistantMessageId = ctx.messageId;
 
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
+      // The stream has ended: its last text is with the client.
+      const replySentAt = Date.now();
       const { finalText, hookExecutions } = await runPipelinePost({
+        replySentAt,
         ctx,
         contextPrepMs,
         messageText,
@@ -470,6 +491,7 @@ async function main() {
         steps: result.steps,
           reasoning: result.reasoning,
         debugPayload: result.debugPayload,
+        exactTurn: result.exactTurn,
         assistantMessageId,
         toolCallTraces: result.toolCallTraces,
         usage: result.usage,
@@ -500,8 +522,10 @@ async function main() {
   // 4. Start NestJS HTTP server (OpenAI-compatible API)
   const nestApp = await startServer(handleMessage, handleMessageStream);
 
-  // 5. Start per-instance channel adapters from DB
+  // 5. Start per-instance channel adapters from DB, following saves made
+  // through another process from before the configs are read.
   channelManager.setMessageHandler(handleMessage);
+  await channelManager.listenForChanges(queryClient);
 
   const allInstances = await listAllInstances();
   for (const inst of allInstances) {
@@ -560,8 +584,10 @@ async function main() {
           // shutdowns below always run before the platform kills the process.
           // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
           // webhooks) are no longer open requests, and their sender will not retry
-          // them: wait for those within the same grace period.
-          name: "HTTP server and acknowledged turns",
+          // them; Room cycles and scheduled-task runs already started have no request
+          // at all. Wait for those within the same grace period. One still running
+          // after it is cut, and its lease lets another replica take it up.
+          name: "HTTP server and background turns",
           run: async () => {
             const streams = closeActivityStreams();
             const [{ forced }, background] = await Promise.all([
@@ -570,7 +596,7 @@ async function main() {
             ]);
             log.info("boot", `HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
             if (background.pending > 0) {
-              log.warn("boot", `${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+              log.warn("boot", `${background.pending} background turn(s) still running after the grace period; they are cut off`);
             }
           },
         },

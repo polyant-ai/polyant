@@ -16,14 +16,19 @@
  * NOT included, deliberately: `conversation_messages`, `memories` and the
  * knowledge tables. Those are product data, not telemetry — ageing them out
  * would change what the product does, which is a decision for an operator and
- * not for a housekeeping job.
+ * not for a housekeeping job. The one exception is the request a debug-mode
+ * turn stores beside its message (`debug_payload`), cleared after its own short
+ * window (`config.retention.debugPayloadDays`): it is diagnostic, and it copies
+ * the whole prompt and conversation at every turn.
  *
  * Pure functions, no scheduling and no side-state: they are wired into the
  * existing daily branch of `RoomScheduler` so there is no second timer.
  */
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../database/client.js";
+import { config } from "../config.js";
+import { DELIVERY_KEY_TTL } from "../webhooks/webhook-deliveries.store.js";
 
 export interface AnalyticsCleanupResult {
   aiLogsDeleted: number;
@@ -32,6 +37,9 @@ export interface AnalyticsCleanupResult {
   hookExecutionsDeleted: number;
   scheduledTaskRunsDeleted: number;
   eventBacklogDeleted: number;
+  debugPayloadsCleared: number;
+  modelExchangesDeleted: number;
+  webhookDeliveriesDeleted: number;
   cutoff: Date;
 }
 
@@ -41,25 +49,38 @@ export function computeCutoff(retentionDays: number, now: Date = new Date()): Da
   return new Date(now.getTime() - ms);
 }
 
+/** Rows deleted per statement: each statement stays far under the main pool's per-statement cap. */
+const DELETE_BATCH = 5000;
+
 /**
- * Delete rows older than `cutoff` and report how many, WITHOUT materialising
- * their ids.
+ * Delete the rows `where` selects, a batch per statement, and report how many,
+ * WITHOUT materialising their ids.
  *
- * The previous shape was `.returning({ id })` and `rows.length`, which pulls
- * every deleted id into Node — on the first pass over a table that has never
- * been trimmed, that is the whole backlog in memory, in a job whose entire
- * purpose is a large delete. `db.execute` reports the row count from the driver
- * instead.
+ * One statement over the whole backlog meets the per-statement cap of the main
+ * pool on a large installation (a shortened retention, a table never trimmed),
+ * and rolls back everything it did: the next try, a day later, has more to do.
+ * Batches commit as they go, so a run that stops still leaves less behind.
  */
+async function deleteInBatches(table: string, where: SQL): Promise<number> {
+  const target = sql.identifier(table);
+  let deleted = 0;
+  for (;;) {
+    const result = await db.execute(sql`
+      delete from ${target} where ctid = any(array(
+        select ctid from ${target} where ${where} limit ${DELETE_BATCH}
+      ))`);
+    const count = (result as unknown as { count?: number }).count ?? 0;
+    deleted += count;
+    if (count < DELETE_BATCH) return deleted;
+  }
+}
+
 async function deleteOlderThan(table: string, column: string, cutoff: Date): Promise<number> {
   // The cutoff goes in as an ISO STRING with an explicit cast, not as a Date.
   // Drizzle's typed builder knows a column is `timestamptz` and serializes for
   // you; raw SQL does not, and postgres.js rejects a Date parameter outright
   // ("The 'string' argument must be ... Received an instance of Date").
-  const result = await db.execute(
-    sql`delete from ${sql.identifier(table)} where ${sql.identifier(column)} < ${cutoff.toISOString()}::timestamptz`,
-  );
-  return (result as unknown as { count?: number }).count ?? 0;
+  return deleteInBatches(table, sql`${sql.identifier(column)} < ${cutoff.toISOString()}::timestamptz`);
 }
 
 export const deleteOldAiLogs = (cutoff: Date): Promise<number> =>
@@ -83,15 +104,41 @@ export const deleteOldScheduledTaskRuns = (cutoff: Date): Promise<number> =>
  * Only COMPLETED backlog events age out.
  *
  * `pending` is work still queued, and `processing` may be a zombie from a prior
- * crash that `resetStuckProcessingEvents()` recovers at boot — deleting either
+ * crash that the Room tick requeues once its lease expires — deleting either
  * by age would silently drop events the system still owes an answer for.
  */
-export async function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
-  const result = await db.execute(
-    sql`delete from event_backlog where status = 'completed' and created_at < ${cutoff.toISOString()}::timestamptz`,
-  );
-  return (result as unknown as { count?: number }).count ?? 0;
+export function deleteOldCompletedBacklog(cutoff: Date): Promise<number> {
+  return deleteInBatches("event_backlog", sql`status = 'completed' and created_at < ${cutoff.toISOString()}::timestamptz`);
 }
+
+/** Forget the webhook delivery keys past their window, for every source, a batch per statement. */
+export function deleteExpiredWebhookDeliveries(): Promise<number> {
+  return deleteInBatches("webhook_deliveries", sql`received_at < now() - ${DELIVERY_KEY_TTL}::interval`);
+}
+
+/** Debug payloads cleared per statement: each one is the whole request of a turn. */
+const DEBUG_PAYLOAD_BATCH = 1000;
+
+/** Clear the debug payload of messages older than `cutoff`, a batch per statement; the messages stay. */
+export async function clearOldDebugPayloads(cutoff: Date): Promise<number> {
+  let cleared = 0;
+  for (;;) {
+    const result = await db.execute(sql`
+      update conversation_messages set debug_payload = null
+      where id in (
+        select id from conversation_messages
+        where debug_payload is not null and created_at < ${cutoff.toISOString()}::timestamptz
+        limit ${DEBUG_PAYLOAD_BATCH}
+      )`);
+    const count = (result as unknown as { count?: number }).count ?? 0;
+    cleared += count;
+    if (count < DEBUG_PAYLOAD_BATCH) return cleared;
+  }
+}
+
+/** Raw model exchanges hold the prompt, like the debug payloads: they go with them. */
+export const deleteOldModelExchanges = (cutoff: Date): Promise<number> =>
+  deleteOlderThan("model_exchanges", "created_at", cutoff);
 
 /** Run a full cleanup pass. Safe to call repeatedly (idempotent). */
 export async function runAnalyticsCleanup(retentionDays: number): Promise<AnalyticsCleanupResult> {
@@ -103,6 +150,9 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
+    debugPayloadsCleared,
+    modelExchangesDeleted,
+    webhookDeliveriesDeleted,
   ] = await Promise.all([
     deleteOldAiLogs(cutoff),
     deleteOldPipelineTraces(cutoff),
@@ -110,6 +160,9 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     deleteOldHookExecutions(cutoff),
     deleteOldScheduledTaskRuns(cutoff),
     deleteOldCompletedBacklog(cutoff),
+    clearOldDebugPayloads(computeCutoff(config.retention.debugPayloadDays)),
+    deleteOldModelExchanges(computeCutoff(config.retention.debugPayloadDays)),
+    deleteExpiredWebhookDeliveries(),
   ]);
   return {
     aiLogsDeleted,
@@ -118,6 +171,9 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
+    debugPayloadsCleared,
+    modelExchangesDeleted,
+    webhookDeliveriesDeleted,
     cutoff,
   };
 }

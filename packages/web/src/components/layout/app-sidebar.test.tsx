@@ -1,19 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { I18nProvider } from "@/lib/i18n/context";
 import { AppSidebar } from "./app-sidebar";
 import type { TenantContextValue } from "@/lib/tenant/tenant-context";
+import type { Instance } from "@/lib/api";
+import { forgetFavoriteAgents } from "@/lib/nav/favorite-agents";
 
-const { mockPathname } = vi.hoisted(() => ({ mockPathname: { value: "/" } }));
+const { mockPathname, mockParams, mockApi } = vi.hoisted(() => ({
+  mockPathname: { value: "/" },
+  mockParams: { value: {} as { orgSlug?: string; workspaceSlug?: string } },
+  mockApi: {
+    favoriteAgents: vi.fn(),
+    listInstances: vi.fn(),
+  },
+}));
+
+// The engine boundary: the person's stars and the workspace's agent list.
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      me: { ...actual.api.me, favoriteAgents: mockApi.favoriteAgents },
+      instances: { ...actual.api.instances, list: mockApi.listInstances },
+    },
+  };
+});
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname.value,
   // The nav builds every href from the URL's tenancy — see `resolveNavScope`.
-  // No slug here: this test's subject is the footer, so the default workspace
-  // the stubbed tenant carries is exactly the scope it should resolve to.
-  useParams: () => ({}),
+  // No slug unless a test sets one: the default workspace the stubbed tenant
+  // carries is then exactly the scope it should resolve to.
+  useParams: () => mockParams.value,
   // `NavDestination` reads `?tab=` — the agent's sections share one pathname, so
   // the tab is what marks the active row. No test here asserts a specific tab.
   useSearchParams: () => new URLSearchParams(),
@@ -35,6 +57,15 @@ vi.mock("@/lib/tenant/tenant-context", async () => {
       "@/lib/tenant/tenant-context",
     );
   return { ...actual, useTenant: () => READY };
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  forgetFavoriteAgents();
+  mockParams.value = {};
+  mockPathname.value = "/";
+  mockApi.favoriteAgents.mockResolvedValue({ agentIds: [] });
+  mockApi.listInstances.mockResolvedValue({ instances: [] });
 });
 
 beforeAll(() => {
@@ -178,5 +209,57 @@ describe("AppSidebar — the Polyant mark", () => {
 
     const header = document.querySelector<HTMLElement>('[data-sidebar="header"]')!;
     expect(within(header).getByRole("link", { name: "Polyant" }).getAttribute("href")).toBe("/");
+  });
+});
+
+// The person's starred agents, one click away at the foot of the daily list.
+describe("AppSidebar — Favorites", () => {
+  const agent = (id: string, name: string, slug: string): Instance =>
+    ({ id, name, slug, icon: null, status: "active" }) as Instance;
+
+  const renderSidebar = () =>
+    render(
+      <I18nProvider initialLocale="en">
+        <SidebarProvider>
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin: false }} />
+        </SidebarProvider>
+      </I18nProvider>,
+    );
+
+  it("lists the starred agents of this workspace by name, leaving out a star with no agent here", async () => {
+    mockParams.value = { orgSlug: "default", workspaceSlug: "general" };
+    mockPathname.value = "/organizations/default/workspaces/general/conversations";
+    mockApi.favoriteAgents.mockResolvedValue({ agentIds: ["id-zeta", "id-gone", "id-alpha"] });
+    mockApi.listInstances.mockResolvedValue({
+      instances: [agent("id-alpha", "Alpha", "alpha"), agent("id-zeta", "Zeta", "zeta"), agent("id-other", "Other", "other")],
+    });
+
+    renderSidebar();
+
+    const group = (await screen.findByText("Favorites")).closest<HTMLElement>('[data-sidebar="group"]')!;
+    const links = within(group).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(["Alpha", "Zeta"]);
+    expect(links[0].getAttribute("href")).toBe("/organizations/default/workspaces/general/instances/alpha");
+  });
+
+  it("asks for no agent list when there is no star", async () => {
+    mockParams.value = { orgSlug: "default", workspaceSlug: "general" };
+    renderSidebar();
+    await waitFor(() => expect(mockApi.favoriteAgents).toHaveBeenCalled());
+    expect(mockApi.listInstances).not.toHaveBeenCalled();
+    expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
+  });
+
+  // The request takes its tenant from the URL: on a page outside a workspace it
+  // would answer for another workspace and file the answer under this one.
+  it("asks for no agent list while the address names no workspace", async () => {
+    mockPathname.value = "/organizations/default";
+    mockApi.favoriteAgents.mockResolvedValue({ agentIds: ["id-alpha"] });
+    renderSidebar();
+    await waitFor(() => expect(mockApi.favoriteAgents).toHaveBeenCalled());
+    // Let a fetch the stars would trigger have its turn.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockApi.listInstances).not.toHaveBeenCalled();
+    expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
   });
 });

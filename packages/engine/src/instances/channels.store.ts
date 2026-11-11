@@ -14,6 +14,7 @@ import {
   WHATSAPP_AUTH_MODE_API_KEY,
 } from "./whatsapp-channel-config.js";
 import { createLogger } from "../utils/create-logger.js";
+import { TtlCache } from "../utils/ttl-cache.js";
 
 const log = createLogger();
 
@@ -295,7 +296,9 @@ export async function setChannelConfig(
     });
   }
   if (channelType !== WHATSAPP_CHANNEL_TYPE) {
-    return persistChannelConfig(db, instanceId, channelType, config, enabled, false);
+    const result = await persistChannelConfig(db, instanceId, channelType, config, enabled, false);
+    if (channelType === WEB_CHANNEL_TYPE) invalidateWebChannelState(instanceId);
+    return result;
   }
 
   const { pruned, mode } = pruneAndResolveWhatsAppConfig(config);
@@ -438,6 +441,7 @@ export async function disableChannel(instanceSlug: InstanceSlug, channelType: st
     .update(instanceChannels)
     .set({ enabled: false, updatedAt: new Date() })
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));
+  invalidateWebChannelState(instanceId);
 }
 
 /** Delete a channel config by instance UUID + channel type. */
@@ -445,6 +449,20 @@ export async function deleteChannelConfig(instanceId: InstanceUuid, channelType:
   await db
     .delete(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));
+  invalidateWebChannelState(instanceId);
+}
+
+/**
+ * The web switch per agent, in-process. Every web turn asks before its pipeline
+ * starts; the writes in this module drop the entry, and an import drops it once
+ * its transaction commits. Another replica drops it on the channel change signal
+ * (`ChannelManager.listenForChanges`), or at the latest when the TTL ends.
+ */
+const webChannelState = new TtlCache<InstanceUuid, boolean>({ maxSize: 2000, ttlMs: 30_000 });
+
+/** Forget the cached web switch of one agent, after a write that may have changed it. */
+export function invalidateWebChannelState(instanceId: InstanceUuid): void {
+  webChannelState.delete(instanceId);
 }
 
 /**
@@ -452,10 +470,14 @@ export async function deleteChannelConfig(instanceId: InstanceUuid, channelType:
  * so an agent is never reachable over HTTP until someone switched Web on.
  */
 export async function isWebChannelEnabled(instanceId: InstanceUuid): Promise<boolean> {
+  const cached = webChannelState.get(instanceId);
+  if (cached !== undefined) return cached;
   const rows = await db
     .select({ enabled: instanceChannels.enabled })
     .from(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, WEB_CHANNEL_TYPE)))
     .limit(1);
-  return rows[0]?.enabled === true;
+  const enabled = rows[0]?.enabled === true;
+  webChannelState.set(instanceId, enabled);
+  return enabled;
 }

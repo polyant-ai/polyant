@@ -37,7 +37,10 @@ export type {
   CostBreakdown,
   MessageLatency,
   MessageDebug,
-  TurnModelCall,
+  PathModelCall,
+  PathHookRun,
+  PathExchange,
+  TurnSummary,
   LlmDebugPayload,
   ReasoningDetail,
   StepDetail,
@@ -113,6 +116,7 @@ import type {
   ConversationListItem,
   ConversationMessage,
   MessageDebug,
+  PathExchange,
   Memory,
   KnowledgeDocument,
   KnowledgeDocumentDetail,
@@ -335,6 +339,12 @@ export const api = {
     /** Writes the caller's own guidance state; the engine returns the merged record. */
     updateOnboarding: (patch: OnboardingPatch) =>
       request<{ onboarding: OnboardingState }>("/api/me/onboarding", json("PATCH", patch)),
+    /** The agents the caller starred, by id; the same list comes back after a change. */
+    favoriteAgents: () => request<{ agentIds: string[] }>("/api/me/favorite-agents"),
+    addFavoriteAgent: (agentId: string) =>
+      request<{ agentIds: string[] }>(urlPath`/api/me/favorite-agents/${agentId}`, { method: "PUT" }),
+    removeFavoriteAgent: (agentId: string) =>
+      request<{ agentIds: string[] }>(urlPath`/api/me/favorite-agents/${agentId}`, { method: "DELETE" }),
   },
   members: {
     list: (orgSlug: string) =>
@@ -404,10 +414,12 @@ export const api = {
         messageMaxRestarts?: number | null;
         cacheEnabled?: boolean;
         cacheTtl?: string;
+        cacheUserTurn?: boolean;
         // null clears the policy, handing every channel back its own behaviour.
         intermediateText?: IntermediateTextPolicy | null;
         a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
+        toolHistoryReplay?: "compact" | "exact";
         debugEnabled?: boolean;
         attachmentStorageEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
@@ -561,8 +573,14 @@ export const api = {
       ),
   },
   knowledge: {
-    list: (slug: string) =>
-      request<{ documents: KnowledgeDocument[] }>(urlPath`/api/instances/${slug}/knowledge`),
+    /**
+     * One page of the agent's documents; `nextOffset` names the next page, null
+     * after the last. `total` and `failed` count all of the agent's documents.
+     */
+    list: (slug: string, page?: { limit?: number; offset?: number }) =>
+      request<{ documents: KnowledgeDocument[]; nextOffset?: number | null; total: number; failed: number }>(
+        withQuery(urlPath`/api/instances/${slug}/knowledge`, page ?? {}),
+      ),
     get: (slug: string, docId: string) =>
       request<{ document: KnowledgeDocumentDetail }>(
         urlPath`/api/instances/${slug}/knowledge/${docId}`,
@@ -652,6 +670,11 @@ export const api = {
     messageDebug: (conversationId: string, messageId: string, instanceId: string) =>
       request<MessageDebug>(
         urlPath`/api/conversations/${conversationId}/messages/${messageId}/debug?instanceId=${instanceId}`,
+      ),
+    /** The raw requests one model call of the turn sent the provider, with the answers (kept under debug). */
+    callExchanges: (conversationId: string, messageId: string, callId: string, instanceId: string) =>
+      request<{ exchanges: PathExchange[] }>(
+        urlPath`/api/conversations/${conversationId}/messages/${messageId}/debug/calls/${callId}/exchanges?instanceId=${instanceId}`,
       ),
     /** The conversation state store snapshot (latest; includes the `_channel` identity). */
     state: (conversationId: string, instanceId: string) =>
@@ -879,7 +902,6 @@ export const api = {
       prompt?: string;
       outboundChannel?: string | null;
       outboundTarget?: string | null;
-      evalIntervalMinutes?: number;
     }) =>
       request(urlPath`/api/instances/${slug}/room`, json("PUT", data)),
     delete: (slug: string) =>

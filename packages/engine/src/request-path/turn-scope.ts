@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+
+/**
+ * Who asked the model, when the agent's own loop did not: a hook run or a tool
+ * run. The gateway records it on the call's `ai_logs` row so the request path
+ * can nest the call under the run that made it.
+ */
+export type TurnOrigin =
+  | { kind: "hook"; name: string; runId: string }
+  | { kind: "tool"; name: string; toolCallId: string };
+
+/**
+ * The turn a piece of work belongs to: the id of the assistant message the turn
+ * persists, whether the agent captures raw model exchanges, and the hook or
+ * tool run in progress, if any.
+ *
+ * It is entered only at boundaries the engine controls (the message handlers,
+ * a hook run, a tool run, the post-response tail), never relied on across a
+ * stream a caller consumes: the agent's own model calls carry the message id
+ * explicitly.
+ */
+export interface TurnScope {
+  messageId: string;
+  /** The agent's debug flag, known once its configuration is read. */
+  debug: boolean;
+  origin?: TurnOrigin;
+}
+
+const storage = new AsyncLocalStorage<TurnScope>();
+
+/** A new turn: a fresh id for its assistant message; the debug flag is read with the agent's configuration. */
+export function newTurn(): TurnScope {
+  return { messageId: randomUUID(), debug: false };
+}
+
+export function runInTurn<T>(scope: TurnScope, fn: () => T): T {
+  return storage.run(scope, fn);
+}
+
+/**
+ * Run `fn` as the given hook or tool run. The turn is the one passed, or the
+ * current one: a tool runs from inside the SDK's loop, which a streamed turn
+ * drives from the reader's context, so its caller passes the turn explicitly.
+ * Outside any turn, `fn` just runs.
+ */
+export function runAs<T>(origin: TurnOrigin, fn: () => T, turn?: Omit<TurnScope, "origin">): T {
+  const scope = turn ?? storage.getStore();
+  return scope ? storage.run({ messageId: scope.messageId, debug: scope.debug, origin }, fn) : fn();
+}
+
+export function currentTurn(): TurnScope | undefined {
+  return storage.getStore();
+}

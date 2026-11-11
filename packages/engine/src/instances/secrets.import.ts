@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { instanceSecrets } from "./secrets.schema.js";
-import { encrypt } from "../crypto/index.js";
+import { secretColumns } from "./secrets.store.js";
 import { readableSecretKeys } from "./readable-secret-keys.js";
 import type { ExportInstanceData } from "./export.schema.js";
 import type { ImportWarning, TxClient } from "./import.types.js";
@@ -45,13 +45,13 @@ export async function importSecrets(
       continue;
     }
 
-    const value = encrypt(secret.value);
+    const columns = secretColumns(secret.key, secret.value);
     await tx
       .insert(instanceSecrets)
-      .values({ instanceId, key: secret.key, value })
+      .values({ instanceId, key: secret.key, ...columns })
       .onConflictDoUpdate({
         target: [instanceSecrets.instanceId, instanceSecrets.key],
-        set: { value, updatedAt: new Date() },
+        set: { ...columns, updatedAt: new Date() },
       });
   }
 

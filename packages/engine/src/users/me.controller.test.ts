@@ -55,6 +55,28 @@ describe("MeController", () => {
     expect(metadataOf(REQUIRE_PERMISSION_KEY, "updateOnboarding")).toBeUndefined();
   });
 
+  it("declares authenticated-only, with no permission, on the three favorite-agents routes", () => {
+    for (const handler of ["favoriteAgents", "addFavoriteAgent", "removeFavoriteAgent"] as const) {
+      expect(metadataOf(AUTHENTICATED_ONLY_KEY, handler)).toBe(true);
+      expect(metadataOf(REQUIRE_PERMISSION_KEY, handler)).toBeUndefined();
+    }
+  });
+
+  it("answers every favorite-agents route with the caller's list after the change", async () => {
+    const users = {
+      listOwnFavoriteAgents: vi.fn().mockResolvedValue(["a"]),
+      addOwnFavoriteAgent: vi.fn().mockResolvedValue(["a", "b"]),
+      removeOwnFavoriteAgent: vi.fn().mockResolvedValue([]),
+    };
+    const controller = new MeController(users as never, {} as never);
+
+    await expect(controller.favoriteAgents(actor)).resolves.toEqual({ agentIds: ["a"] });
+    await expect(controller.addFavoriteAgent(actor, "b")).resolves.toEqual({ agentIds: ["a", "b"] });
+    expect(users.addOwnFavoriteAgent).toHaveBeenCalledWith(actor, "b");
+    await expect(controller.removeFavoriteAgent(actor, "a")).resolves.toEqual({ agentIds: [] });
+    expect(users.removeOwnFavoriteAgent).toHaveBeenCalledWith(actor, "a");
+  });
+
   it("returns the caller's own onboarding beside the tenancy, and writes only the caller's row", async () => {
     const state = { wizard: "new", interfaceTour: "new", agentTour: "new", steps: {} };
     const users = {

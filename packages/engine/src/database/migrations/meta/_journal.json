@@ -645,6 +645,181 @@
       "when": 1793264300000,
       "tag": "0098_instance_intermediate_text",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793264400000,
+      "tag": "0099_instance_cache_user_turn",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793725200000,
+      "tag": "0100_exact_tool_history_replay",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793725300000,
+      "tag": "0101_instance_secret_lookup_digest",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793725400000,
+      "tag": "0102_conversation_watermarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793725500000,
+      "tag": "0103_knowledge_query_stopwords",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793725600000,
+      "tag": "0104_ai_logs_purpose",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793725700000,
+      "tag": "0105_work_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793725800000,
+      "tag": "0106_room_human_message_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1793725900000,
+      "tag": "0107_scheduled_task_run_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793726000000,
+      "tag": "0108_conversation_messages_user_created",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1793726100000,
+      "tag": "0109_webhook_deliveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793726200000,
+      "tag": "0110_conversation_list_page_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793726300000,
+      "tag": "0111_log_table_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1793726400000,
+      "tag": "0112_conversation_lookup_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1793726500000,
+      "tag": "0113_debug_payload_cleanup_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793726600000,
+      "tag": "0114_instance_secret_digest_follows_value",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1793726700000,
+      "tag": "0115_event_backlog_claimed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1793726800000,
+      "tag": "0116_webhook_deliveries_received_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1793727000000,
+      "tag": "0117_conversation_message_seq",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1793727100000,
+      "tag": "0118_lock_hot_tables_last",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1793727200000,
+      "tag": "0119_drop_replaced_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1793727300000,
+      "tag": "0120_event_backlog_processing_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1793727400000,
+      "tag": "0121_request_path",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1793727500000,
+      "tag": "0122_request_path_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1793727600000,
+      "tag": "0123_user_favorite_agents",
+      "breakpoints": true
     }
   ]
 }

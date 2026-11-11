@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, text, timestamp, jsonb, index, primaryKey, integer } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, timestamp, json, jsonb, index, primaryKey, integer, bigint } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
   "conversations",
@@ -14,6 +15,14 @@ export const conversations = pgTable(
     source: text("source").default("user"),
     userIdentifier: text("user_identifier"),
     contextPrompt: text("context_prompt"),
+    // created_at of the last message `summary` covers: the turn's history starts
+    // right after it, so summary and history meet with no gap (migration 0102).
+    summaryThrough: timestamp("summary_through", { withTimezone: true }),
+    // created_at of the last message memory extraction read before it was kept by
+    // seq; read only while `memoryThroughSeq` is NULL.
+    memoryThrough: timestamp("memory_through", { withTimezone: true }),
+    // seq of the last message memory extraction has read (migration 0117).
+    memoryThroughSeq: bigint("memory_through_seq", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     // Kept by ConversationStore.appendMessages in the statement that bumps
@@ -25,8 +34,8 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
-    // Conversation list filters by instance_id and orders by updated_at DESC.
-    index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
+    // Conversation list: each agent's page, in the list's order (id breaks ties).
+    index("idx_conversations_instance_updated_id").on(table.instanceId, table.updatedAt.desc().nullsLast(), table.id.desc()),
     // Message-level analytics: the tenant's conversations active in a window.
     index("idx_conversations_instance_last_message").on(table.instanceId, table.lastMessageAt),
   ],
@@ -71,7 +80,8 @@ export interface StepDetail {
   index: number;
   stepType: "initial" | "continue" | "tool-result";
   text: string;
-  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  /** Each tool call, with when its run started and how long it took (request path; absent on older rows). */
+  toolCalls: { toolCallId: string; toolName: string; args: unknown; startedAt?: string; durationMs?: number }[];
   toolResults?: { toolCallId: string; result: unknown }[];
   reasoning?: ReasoningDetail[];
   finishReason: string;
@@ -88,6 +98,8 @@ export interface StepDetail {
   /** The provider reported that this step's model call ran in fast mode. */
   fast?: boolean;
   durationMs: number;
+  /** When the step's model request started (ISO); absent on rows written before the request path. */
+  startedAt?: string;
   legacy?: boolean;
 }
 
@@ -104,6 +116,24 @@ export interface LlmDebugPayload {
   messages: unknown[];
   /** Tool definitions sent to the model (best-effort name + description + JSON schema). */
   tools: { name: string; description?: string; parameters?: unknown }[];
+}
+
+/**
+ * The messages one row contributed to a model request, exactly as they were
+ * sent, kept for agents that replay their history exactly (`tool_history_replay
+ * = 'exact'`). A user row holds the user message with its content parts (the
+ * volatile `<context>` tail included); an assistant row holds the turn's
+ * step-by-step assistant and tool messages (the AI SDK's response messages).
+ */
+export interface ExactReplay {
+  /** AI SDK `ModelMessage`s, in the order they were sent. */
+  messages: unknown[];
+  /**
+   * Assistant rows: a fingerprint of the system prompt, tool set and model the
+   * turn ran with. A replayed thinking block is bound to that prefix, so its
+   * reasoning is dropped once the fingerprint no longer matches the request.
+   */
+  prefixKey?: string;
 }
 
 export const conversationMessages = pgTable(
@@ -136,13 +166,31 @@ export const conversationMessages = pgTable(
      * fetched on-demand via the per-message debug endpoint.
      */
     debugPayload: jsonb("debug_payload").$type<LlmDebugPayload>(),
+    /**
+     * The row's messages as sent to the model (see `ExactReplay`). NULL unless the
+     * agent replays its history exactly. `json`, not `jsonb`: jsonb reorders object
+     * keys, and a tool input re-serialized in another key order is another prefix.
+     */
+    exactReplay: json("exact_replay").$type<ExactReplay>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    /**
+     * The order the rows were saved in, which created_at (a message's arrival)
+     * is not when two turns overlap. Filled by the database from the sequence
+     * migration 0117 sets as the column default; never written by the engine.
+     * NULL on rows saved before that migration.
+     */
+    seq: bigint("seq", { mode: "number" }),
   },
   (table) => [
-    index("idx_conversation_messages_conversation_id").on(table.conversationId),
     index("idx_conversation_messages_created_at").on(table.createdAt),
     // One conversation's messages in time order (history reads, windowed scans).
     index("idx_conversation_messages_conversation_created").on(table.conversationId, table.createdAt),
+    // The messages people sent, answered from the index (the weekday-and-hour distribution).
+    index("idx_conversation_messages_user_created")
+      .on(table.conversationId, table.createdAt)
+      .where(sql`${table.role} = 'user'`),
+    // The daily cleanup clears old debug payloads (analytics/cleanup.ts).
+    index("idx_conversation_messages_debug_created").on(table.createdAt).where(sql`${table.debugPayload} IS NOT NULL`),
   ],
 );
 

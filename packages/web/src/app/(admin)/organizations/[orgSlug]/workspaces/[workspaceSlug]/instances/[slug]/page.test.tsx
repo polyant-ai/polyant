@@ -103,6 +103,8 @@ vi.mock("@/lib/api", () => ({
     skills: { list: vi.fn(() => Promise.resolve({ skills: [] })) },
     prompts: { list: vi.fn(() => Promise.resolve({ prompts: [] })) },
     exportImport: { exportInstance: vi.fn() },
+    // The star beside the name reads the person's favorites; none here.
+    me: { favoriteAgents: vi.fn(() => Promise.resolve({ agentIds: [] })) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -168,6 +170,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     cacheEnabled: true,
     cacheTtl: "1h",
     toolResultsInHistoryEnabled: false,
+    toolHistoryReplay: "compact",
     debugEnabled: false,
     optoutEnabled: false,
     optoutStopKeywords: [],
@@ -320,6 +323,45 @@ describe("InstanceDetailPage — sections", () => {
 
     await screen.findByText("tab-body:status:provider-no-credentials");
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  // Tools, skills and prompts, and the status checks, serve a few sections. A
+  // link straight to another section must not pay for them.
+  it("reads only the agent for a section that needs nothing else", async () => {
+    resetSearch("tab=conversations");
+    render(<InstanceDetailPage />);
+
+    await screen.findByText("tab-body:conversations");
+    expect(api.tools.list).not.toHaveBeenCalled();
+    expect(api.skills.list).not.toHaveBeenCalled();
+    expect(api.prompts.list).not.toHaveBeenCalled();
+    expect(mockUseStatusChecks.mock.calls.at(-1)?.[0]).toMatchObject({ instance: null });
+  });
+
+  it("reads tools and skills for the Tools section, and not the prompts", async () => {
+    resetSearch("tab=tools");
+    render(<InstanceDetailPage />);
+
+    await screen.findByText("tab-body:tools");
+    expect(api.tools.list).toHaveBeenCalledWith("test-instance");
+    expect(api.skills.list).toHaveBeenCalledWith("test-instance");
+    expect(api.prompts.list).not.toHaveBeenCalled();
+  });
+
+  it("keeps what a section read when the person comes back to it", async () => {
+    resetSearch("tab=tools");
+    const { rerender } = render(<InstanceDetailPage />);
+    await screen.findByText("tab-body:tools");
+
+    resetSearch("tab=logs");
+    rerender(<InstanceDetailPage />);
+    await screen.findByText("tab-body:logs");
+    resetSearch("tab=skills");
+    rerender(<InstanceDetailPage />);
+    await screen.findByText("tab-body:skills");
+
+    expect(api.tools.list).toHaveBeenCalledTimes(1);
+    expect(api.skills.list).toHaveBeenCalledTimes(1);
   });
 
   // Every section is introduced the same way, by the page: the line under the

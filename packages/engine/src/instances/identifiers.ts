@@ -17,6 +17,23 @@ export type InstanceUuid = string & { readonly __brand: "InstanceUuid" };
 export const asInstanceSlug = (s: string): InstanceSlug => s as InstanceSlug;
 
 /**
+ * Slug format contract, shared by every entry point that accepts an external
+ * slug (HTTP API, snapshot CLI). Slugs are used as path segments (workspace
+ * dirs, snapshot folders) and URL/conversationId components, so the format
+ * must stay path- and separator-safe: no `/`, `\`, `..` or uppercase.
+ */
+export const INSTANCE_SLUG_MAX_LENGTH = 100;
+export const INSTANCE_SLUG_PATTERN = /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/;
+
+export function isValidInstanceSlug(slug: string): boolean {
+  return (
+    slug.length > 0 &&
+    slug.length <= INSTANCE_SLUG_MAX_LENGTH &&
+    INSTANCE_SLUG_PATTERN.test(slug)
+  );
+}
+
+/**
  * Zero-cost cast to {@link InstanceUuid}. Use ONLY for trusted sources: DB reads
  * of `instances.id` / a uuid FK column.
  */

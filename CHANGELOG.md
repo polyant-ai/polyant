@@ -7,6 +7,248 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-11-11
+
+### Added
+
+- Every model call is bounded. A streamed answer fails after
+  `LLM_STREAM_FIRST_CHUNK_TIMEOUT_MS` (default 300000) without its first chunk
+  and after `LLM_STREAM_CHUNK_TIMEOUT_MS` (default 120000) without a further
+  one, a background job that makes one model call after
+  `LLM_SERVICE_CALL_TIMEOUT_MS` (default 300000). A call that runs tools over
+  several steps keeps no total bound; each of its model requests fails after
+  `LLM_MODEL_REQUEST_TIMEOUT_MS` (default 300000) without the provider starting
+  to answer, its tools not counted. Failed requests are retried
+  `LLM_MAX_RETRIES` times (default 2, the AI SDK's own default) and each retry
+  is logged.
+- The work after a saved turn runs in two queues per process: title and
+  summary (`BACKGROUND_TURN_JOB_CONCURRENCY`, default 4) and memory extraction
+  (`BACKGROUND_MEMORY_JOB_CONCURRENCY`, default 2). A conversation has at most
+  one summary in progress, and a summary whose starting point has already
+  moved is dropped before its model call.
+- `ai_logs.purpose` records what a background call was for (`title`,
+  `summary`, `memory`, `webhook_match`, `prompt_rewrite`, `room_compaction`,
+  `sub_task`, `tool`, `hook`), so service spend can be grouped by it
+  (migration `0118`).
+- Prompt caching of the user turn. An Anthropic or Bedrock agent can also cache
+  the current message on the first model step of a turn, so the next step reads
+  it from cache instead of paying it at full input price and then writing it
+  again. It saves on agents whose turns usually call tools and carry a large
+  message; a turn answered in a single step pays a cache write that is never
+  read, so it is off by default. `PATCH /api/instances/:slug` accepts
+  `cacheUserTurn`, export and import carry it (migration `0099`), and the
+  conversation model panel has a switch under the cache lifetime.
+- Exact replay of earlier turns, per agent (`toolHistoryReplay: "exact"`, off by
+  default). With tool results in history on, an agent can replay earlier turns
+  exactly as the model received them: step by step, with whole tool results,
+  the user message with the context it was sent with, and the thinking blocks.
+  The next request then starts with the prefix the provider already cached, so
+  the history is read from the prompt cache instead of written to it every turn.
+  The context grows with every tool result kept whole, which is why it is opt-in.
+- `GET /api/instances/:slug/knowledge` returns `total` and `failed`, counted
+  over all of the agent's documents whatever the page. The agent's status
+  checks and the first-steps card read them, so an agent with more documents
+  than one page is no longer under-reported.
+- The message details show a turn's request path: every model call, hook run
+  and tool run of the turn on the turn's own clock, with duration, tokens, cost
+  and outcome, the model calls a hook or tool made nested under it, the
+  background calls (title, memory, summary) and the moment the reply was handed
+  to the channel, which opens on the exact text delivered. A step's text written
+  alongside a tool call is shown with what became of it. While the agent's debug
+  flag is on, each call also keeps the raw request sent to the provider and its
+  answer, per step and per retry, cleared with the debug payloads
+  (`DEBUG_PAYLOAD_RETENTION_DAYS`) and with their conversation. Calls are filed
+  under their message instead of matched by time window (migrations `0121` and
+  `0122`). `GET /api/conversations/:id/messages/:messageId/debug` returns the
+  summary and the path, and `.../debug/calls/:callId/exchanges` one call's
+  raw exchanges. A turn recorded before this release opens in the same layout
+  with the data it has: its hooks and background calls do not appear, and steps
+  without a recorded start show no time. Turns run by Room cycles and by
+  webhooks are not filed yet.
+- A person can star agents, from the agents list and from the agent's header.
+  Starred agents appear by name in a Favorites group at the foot of the sidebar.
+  Stars belong to the person, follow them across devices, grant no access and
+  are capped at 100 (migration `0123`, `GET /api/me/favorite-agents`,
+  `PUT` and `DELETE /api/me/favorite-agents/:agentId`).
+- Importing an agent file opens a review before anything is created: the new
+  agent's name and slug, editable and prefilled from the file, the
+  configuration it carries, and one section per kind (prompts, tools, skills,
+  MCP servers, hooks, webhooks, scheduled tasks, room, secrets) listing the
+  elements themselves.
+
+### Changed
+
+- Migrations apply one transaction per migration instead of one for the whole
+  upgrade, so a table lock lasts as long as the migration that takes it and
+  processes still serving the previous release keep reading and writing
+  meanwhile. A migration that waits more than
+  `POSTGRES_MIGRATION_LOCK_TIMEOUT_MS` (default 3000) for a table lock gives up
+  and is tried again up to four times. Index migrations build and drop indexes
+  concurrently. A failed migration leaves the ones before it applied and the
+  error names it; the next start continues from there.
+- The Anthropic `standard` tier resolves to `claude-sonnet-5` instead of
+  `claude-sonnet-4-6`, at two thirds of the price. Agents with no model of
+  their own, their `spawnTask` sub-agents and standard-tier background calls
+  change model; `claude-sonnet-5` takes no custom temperature.
+- A hook's `ctx.ai` request on the `fast` or `heavy` tier runs on that tier's
+  model of the agent's provider; only `standard` uses the agent's own model.
+- A model that cannot stop reasoning runs at the lowest effort its catalog row
+  lists when thinking is off, instead of its default effort.
+- Background calls write their Anthropic prompt cache at the five-minute
+  lifetime unless they ask for another.
+- `{{toolCatalog}}` lists the equipped tools by name; their descriptions are
+  already in the tool definitions the model receives.
+- A scheduled task's schedule follows one rule wherever it is written through
+  the API or the `scheduleTask` tool: an interval is an integer of at least
+  60000 ms, an anchor is a date, and fields the type does not have are dropped;
+  anything else answers 400 naming the field (`schedule.everyMs`). A bundle
+  import keeps the tasks an earlier export carried and refuses only an interval
+  that never advances (zero, negative or not finite). A task saved earlier with
+  an interval of zero or less is disabled on its next run instead of stopping
+  the engine.
+- The scheduler claims due tasks in one statement, the longest overdue first, so
+  replicas ticking together share them. The boot no longer runs or reschedules
+  overdue tasks: the tick serves them. A running task holds a lease that its
+  process renews; when the process dies, any replica's tick clears the run within
+  the installation's orphan grace (never less than a minute), closes it in the run
+  log as interrupted and counts no failure (migration `0107`).
+- Shutdown waits for Room cycles and scheduled-task runs already started, within
+  the same grace period as acknowledged channel turns.
+- A Room cycle titles its conversation from what it handled instead of asking the
+  model for a title.
+- A conversational turn reads its agent's MCP servers and starts opening their
+  shared connections when it starts, while the context is read and the
+  pre-model hooks run, instead of after them. A server that answered only the
+  older `initialize` handshake is no longer probed with `server/discover` on
+  every reconnect.
+- An agent import no longer renames a taken slug to `<slug>-imported`. It
+  imports under the slug it receives, answers 409 when another agent already
+  uses it, and validates the name and the slug.
+- Debug payloads are cleared. The request a debug-mode turn stores beside its
+  message is set to empty after `DEBUG_PAYLOAD_RETENTION_DAYS` (default 7); the
+  previous release kept it forever, so the first daily housekeeping after the
+  upgrade clears every payload older than that.
+- Statements on the main database pool are capped at
+  `POSTGRES_STATEMENT_TIMEOUT_MS` (default 60000), and a transaction left idle
+  is ended after `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` (default 60000). `0`
+  turns either off. Migrations run on their own connection without the cap.
+- A webhook request that carries an `Idempotency-Key` header is processed once
+  per source and key: a redelivery is acknowledged without running the matcher
+  again (migration `0109`). A request without the header is processed
+  every time, as before.
+- An agent API key is found through an indexed digest of its value instead of
+  decrypting every key (migrations `0101` and `0114`). A key that matches more
+  than one agent opens none of them.
+- A turn served buffered on the streaming routes, because of a
+  `response_generated` hook that may replace the reply, now streams each tool
+  call and result as it happens, so the playground's activity view follows the
+  agent while it works. The reply is still sent only once it is settled.
+- Request bodies are validated before anything is read. The agent `PATCH`, the
+  agent tools and skills `PATCH` and the skill env `PUT` answer 400 for a field
+  of the wrong JSON type, an unknown value or an unknown key, instead of storing
+  it. The web channel's `chat/stream` and the playground's stream take the
+  `/v1/chat/completions` body: text content only, at most 100 messages. The
+  playground sends only the most recent hundred.
+- A channel saved through one engine process reaches the others: the saving
+  process notifies them through Postgres and they restart their adapter.
+  Switching an agent's Web channel off closes its public endpoints on every
+  replica at once instead of within 30 seconds.
+- The reply is sent once the turn is saved, without waiting for the
+  `response_sent` hooks or the upload of the contact's attachments.
+- `getKnowledge` returns a long document a page at a time.
+
+### Removed
+
+- A Room's `evalIntervalMinutes`, which nothing read: the Room cycles on every
+  tick that finds pending work. The API, the bundle and the Room form drop it;
+  older bundles that carry it still import. The column stays until a later
+  release.
+
+### Fixed
+
+- The Monitor search box no longer drops what was typed while the previous
+  search was still reaching the address bar.
+- On Anthropic and Bedrock, system text that belongs to one conversation (a
+  hook's injected context, a persisted trigger message, a webhook context
+  prompt) is sent after the cached agent prompt instead of inside it, so a new
+  conversation reads the agent's cached tools and system prompt instead of
+  writing its own copy. Providers without cache markers receive the same text
+  as before.
+- A model call aborted while in flight is recorded in `ai_logs` as `aborted`
+  with `error_kind = 'in_flight'` and an estimate of the prompt the provider
+  had received and billed; it used to leave no row.
+- `spawnTask` no longer repeats the task in its sub-agent's system prompt, so
+  delegations share a cached prefix.
+- Bedrock calls without explicit credentials build the AWS default credential
+  chain once instead of on every call.
+- The engine never downloads a URL found in a message part. A URL the
+  provider fetches itself is passed on; any other fails the call. The AI SDK
+  used to download such URLs on the engine, with no time limit and up to 2 GiB
+  each.
+- A model call its caller cancels (a follow-up message preempting a turn) is
+  logged as one debug line instead of two error lines.
+- Room cycles across replicas. A cycle holds a lease on its Room (migration
+  `0105`), so two engine processes no longer run cycles of the same Room side by
+  side or leave empty conversations behind. Events claimed by a cycle that ended
+  without completing them, or whose process died, go back to pending on the next
+  tick once its lease has expired; the boot no longer puts back the events of a
+  cycle another process is running. The daily housekeeping runs once per
+  installation instead of once per process start.
+- A message from a Room's contact that arrives while a cycle runs is queued for
+  the next cycle instead of being dropped (migration `0106`), and a burst of
+  fragments on WhatsApp or Telegram reaches the Room once.
+- An agent's model shows "· Fast" only when fast mode runs: on a model the catalog prices fast, including the standard tier model of an agent with no model of its own. A `fastMode` stored on any other model, for example set through the API, no longer labels it. `GET /api/instances/{slug}` adds `effectiveFastMode`, next to `effectiveProvider` and `effectiveModel`.
+- An agent's enabled MCP servers are read in a stable order (by slug). They
+  were read in the table's physical order, which changes whenever a row is
+  updated, so the tool list reshuffled between requests and the prompt-cache
+  prefix of an agent with several MCP servers was written again instead of read.
+- Inline code and code blocks stay readable inside coloured message bubbles:
+  their background now derives from the text colour.
+- The slug field of the create and import drawers keeps a hyphen while it is
+  typed; `support-bot` no longer became `supportbot`.
+- A replaced agent API key no longer opens the agent, and its new key is
+  accepted at once, also when the rotation was made by a replica of the
+  previous release.
+- Each Slack thread has its own conversation. Every mention in a channel shared
+  one history, summary and state.
+- After a reload, the sidebar no longer lists every overview entry twice.
+- An enabled core tool that the running release does not know (after a
+  rollback, or while an older replica restarts during a deploy) keeps its agent
+  enablements and skill links, and saving the agent's tools no longer answers
+  400 or switches it off.
+- WhatsApp: a reply that Twilio failed to take (429, 5xx, unreachable) is sent
+  again; an answer that may come after Twilio queued the message is not, so no
+  reply arrives twice. A reminder campaign's replies are no longer refused with
+  429.
+- Knowledge: keyword search answers natural-language questions (it required
+  every word, stopwords included); uploads and imports take documents up to the
+  10 MB the store accepts, so an exported agent imports back; every chunk stays
+  within the chunk size and a document is indexed once.
+- Memory: each message is extracted once instead of on every turn; an agent
+  gets every memory it asks for and duplicates are found across a shared index;
+  the extraction prompt dates "tomorrow" in the agent's timezone.
+- The history folds into the summary once it outgrows a size, not only a
+  message count, so a few large tool results no longer make every next turn of
+  the conversation fail.
+- Deleting an agent that fails part-way no longer leaves it in place without its
+  conversations, memories or documents.
+- A tool call's audit row records that call's own output and duration; two
+  conversations calling the same tool used to swap them.
+- Speech-to-text requests stop at their deadline and when the caller aborts.
+- A server error on a request without a body answers 500 instead of
+  "Invalid request body".
+
+### Security
+
+- The agent `PATCH` read `confirmWipe: "false"` as a confirmation and deleted
+  every memory and knowledge document; a skill env `PUT` without `sensitive`
+  stored the secret in clear. Both bodies are now validated.
+- The chat stream routes no longer accept image or file parts, which made the
+  engine download the URL they carried.
+- A WhatsApp attachment is read as a stream and abandoned past 20 MB, and the
+  `curl` and `httpRequest` tools stop with the turn and read a bounded response;
+  either could hold any amount of engine memory.
+
 ## [1.3.5] - 2026-11-02
 
 ### Added
@@ -1143,7 +1385,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.6...HEAD
+[1.3.6]: https://github.com/polyant-ai/polyant/compare/v1.3.5...v1.3.6
 [1.3.5]: https://github.com/polyant-ai/polyant/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/polyant-ai/polyant/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/polyant-ai/polyant/compare/v1.3.1...v1.3.3

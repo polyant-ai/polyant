@@ -9,8 +9,11 @@ import type { Server } from "node:http";
  * Integration test that drives REAL HTTP requests through the REAL @a2a-js SDK
  * Express middleware (agentCardHandler / jsonRpcHandler) — NOT a mock. This is
  * the only test that can catch the "SDK router matches only '/'" hang: the
- * controller must rewrite req.url to "/" before delegating, or the request
- * never gets a response and the fetch below aborts on the 3s timeout.
+ * controller must rewrite req.url to "/" before delegating, or the SDK router
+ * falls through to the controller's no-op `next` and the request never gets a
+ * response. The wrapper below turns that fall-through into an immediate 599, so
+ * the regression fails on the response itself instead of on a client timer
+ * that a busy CI worker can outrun.
  *
  * @nestjs/testing is not a dependency, so instead of Test.createTestingModule we
  * wire the two controller methods into a bare express() app with real req/res
@@ -26,6 +29,28 @@ import type { Server } from "node:http";
 vi.mock("../../platform/platform-settings.store.js", () => ({
   resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
 }));
+
+// The real SDK middlewares, with one change: when their router matches no path
+// it calls the `next` it was given, which in the controller is a no-op that
+// leaves the response open. Here that call answers 599 at once.
+const FELL_THROUGH = 599;
+vi.mock("@a2a-js/sdk/server/express", async (importOriginal) => {
+  const sdk = await importOriginal<typeof import("@a2a-js/sdk/server/express")>();
+  type Middleware = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
+  const answerFallThrough =
+    (middleware: Middleware): Middleware =>
+    (req, res) =>
+      middleware(req, res, () => {
+        if (!res.headersSent) res.status(FELL_THROUGH).end();
+      });
+  return {
+    ...sdk,
+    agentCardHandler: (...args: Parameters<typeof sdk.agentCardHandler>) =>
+      answerFallThrough(sdk.agentCardHandler(...args) as unknown as Middleware),
+    jsonRpcHandler: (...args: Parameters<typeof sdk.jsonRpcHandler>) =>
+      answerFallThrough(sdk.jsonRpcHandler(...args) as unknown as Middleware),
+  };
+});
 
 vi.mock("../../instances/config-resolver.js", () => ({
   resolveInstanceConfig: vi.fn(),
@@ -51,17 +76,6 @@ const fakeStreamHandler: StreamMessageHandler = async () => ({
   })(),
   completed: Promise.resolve({ text: "Hello" }),
 });
-
-/** Fetch with a hard timeout so a regressed (hanging) route FAILS FAST, not hangs. */
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 3000);
-  try {
-    return await fetch(url, { ...init, signal: abort.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 let server: Server;
 let baseUrl: string;
@@ -102,7 +116,7 @@ describe("A2A HTTP integration (real SDK middleware)", () => {
   });
 
   it("should_serve_the_agent_card_over_a_real_request", async () => {
-    const res = await fetchWithTimeout(`${baseUrl}/a2a/acme/.well-known/agent-card.json`);
+    const res = await fetch(`${baseUrl}/a2a/acme/.well-known/agent-card.json`);
     expect(res.status).toBe(200);
     const card = (await res.json()) as {
       name: string;
@@ -116,7 +130,7 @@ describe("A2A HTTP integration (real SDK middleware)", () => {
   });
 
   it("should_complete_a_message_send_task_with_the_reply_text", async () => {
-    const res = await fetchWithTimeout(`${baseUrl}/a2a/acme/jsonrpc`, {
+    const res = await fetch(`${baseUrl}/a2a/acme/jsonrpc`, {
       method: "POST",
       headers: { "content-type": "application/json", "A2A-Version": "1.0" },
       body: JSON.stringify({
@@ -146,7 +160,7 @@ describe("A2A HTTP integration (real SDK middleware)", () => {
 
   it("should_404_the_card_when_a2a_disabled", async () => {
     vi.mocked(resolveInstanceConfig).mockResolvedValue({ a2aEnabled: false } as never);
-    const res = await fetchWithTimeout(`${baseUrl}/a2a/acme/.well-known/agent-card.json`);
+    const res = await fetch(`${baseUrl}/a2a/acme/.well-known/agent-card.json`);
     expect(res.status).toBe(404);
   });
 });

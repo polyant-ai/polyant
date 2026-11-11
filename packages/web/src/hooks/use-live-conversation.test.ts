@@ -65,6 +65,32 @@ describe("useLiveConversation", () => {
     expect(result.current.events).toEqual([]);
   });
 
+  // The server closes a long-lived stream on purpose and the browser reopens it.
+  it("stays connected through a close the browser reopens within the window", () => {
+    const { result } = renderHook(() => useLiveConversation({ ...props, enabled: true, onPersisted: vi.fn() }));
+    const source = FakeEventSource.instances[0];
+    act(() => source.onopen?.());
+
+    act(() => source.onerror?.());
+    expect(result.current.connected).toBe(true);
+    act(() => vi.advanceTimersByTime(1_000));
+    act(() => source.onopen?.());
+    act(() => vi.advanceTimersByTime(30_000));
+
+    expect(result.current.connected).toBe(true);
+  });
+
+  it("shows the stream as disconnected when it does not reopen within the window", () => {
+    const { result } = renderHook(() => useLiveConversation({ ...props, enabled: true, onPersisted: vi.fn() }));
+    const source = FakeEventSource.instances[0];
+    act(() => source.onopen?.());
+
+    act(() => source.onerror?.());
+    act(() => vi.advanceTimersByTime(30_000));
+
+    expect(result.current.connected).toBe(false);
+  });
+
   it("folds a tool's start and end events into one", () => {
     const { result } = renderHook(() => useLiveConversation({ ...props, enabled: true, onPersisted: vi.fn() }));
     const source = FakeEventSource.instances[0];

@@ -75,8 +75,11 @@ const fakeInstance = {
   webContextFieldMapping: { phone: "caller.phone" },
   cacheEnabled: true,
   cacheTtl: "1h",
+  // Not the column default: proves the row's value reaches cacheConfig.userTurn.
+  cacheUserTurn: true,
   a2aEnabled: true,
   toolResultsInHistoryEnabled: false,
+  toolHistoryReplay: "compact",
   debugEnabled: false,
   attachmentStorageEnabled: true,
   icon: null,
@@ -147,10 +150,11 @@ describe("instances/config-resolver", () => {
         datetime: { timezone: DEFAULT_DATETIME_TIMEZONE, locale: DEFAULT_DATETIME_LOCALE },
         dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
         messageTimings: DEFAULT_MESSAGE_TIMINGS,
-        cacheConfig: { enabled: true, ttl: "1h" },
+        cacheConfig: { enabled: true, ttl: "1h", userTurn: false },
         intermediateText: null,
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
+        toolHistoryReplay: "compact",
         debugEnabled: false,
         attachmentStorageEnabled: false,
         optout: {
@@ -161,7 +165,7 @@ describe("instances/config-resolver", () => {
           resumeMessage: null,
           injectPromptHint: true,
         },
-        stt: { provider: "openai", credentials: {} },
+        stt: { provider: "disabled", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
       expect(mockGetAllSecretsById).not.toHaveBeenCalled();
@@ -215,10 +219,11 @@ describe("instances/config-resolver", () => {
         datetime: { timezone: DEFAULT_DATETIME_TIMEZONE, locale: DEFAULT_DATETIME_LOCALE },
         dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
         messageTimings: DEFAULT_MESSAGE_TIMINGS,
-        cacheConfig: { enabled: true, ttl: "1h" },
+        cacheConfig: { enabled: true, ttl: "1h", userTurn: true },
         intermediateText: null,
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,
+        toolHistoryReplay: "compact",
         debugEnabled: false,
         attachmentStorageEnabled: true,
         optout: {
@@ -242,6 +247,18 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue({
         ...fakeInstance,
         sttProvider: "disabled",
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(config.stt).toEqual({ provider: "disabled", credentials: {} });
+    });
+
+    it("reads an unknown sttProvider as disabled, so a typo never turns on paid transcription", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        sttProvider: "openia",
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 

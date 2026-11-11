@@ -7,7 +7,6 @@ export const upsertRoomSchema = z.object({
   prompt: z.string().optional(),
   outboundChannel: z.string().nullable().optional(),
   outboundTarget: z.string().nullable().optional(),
-  evalIntervalMinutes: z.number().int().min(1).optional(),
 });
 
 export const createEventSourceSchema = z.object({

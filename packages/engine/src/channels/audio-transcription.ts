@@ -20,6 +20,13 @@ const log = createLogger();
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_DURATION_SEC = 60;
+/**
+ * The size cap for a clip whose channel reports no duration (WhatsApp does not).
+ * 1 MB holds 60 seconds of a 128 kbit/s audio file; a compressed voice note
+ * (Opus, 16-32 kbit/s) of that size runs a few minutes. Without it, any clip
+ * under MAX_BYTES (over an hour of voice note) would reach the paid provider.
+ */
+const MAX_BYTES_WITHOUT_DURATION = 1024 * 1024;
 const TIMEOUT_MS = 30_000;
 
 export interface TranscribeAudioInput {
@@ -61,7 +68,9 @@ function hasCredentialsFor(provider: STTProviderName, creds: {
 
 export async function transcribeAudio(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {
   if (input.audio.length > MAX_BYTES) return fail("too_large");
-  if (typeof input.durationSec === "number" && input.durationSec > MAX_DURATION_SEC) {
+  if (typeof input.durationSec === "number") {
+    if (input.durationSec > MAX_DURATION_SEC) return fail("too_long");
+  } else if (input.audio.length > MAX_BYTES_WITHOUT_DURATION) {
     return fail("too_long");
   }
 

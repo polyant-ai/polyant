@@ -44,6 +44,14 @@ export const KNOWN_DIFFERENCES = [
     key: "column-only-in-database:knowledge_chunks.content_tsv",
     reason: "generated tsvector column maintained in SQL for full-text search",
   },
+  {
+    key: "column-only-in-database:instance_room.eval_interval_minutes",
+    reason: "unread Room setting left out of the schema; kept until a later release drops it, so the previous version keeps working during a deploy",
+  },
+  {
+    key: "column-type:conversation_messages.seq",
+    reason: "bigint whose default is a sequence the migration sets, which the database reads back as bigserial; the schema leaves the default out because the engine never writes the column and rows saved before the migration keep NULL",
+  },
 ];
 
 /** Reduces an SQL fragment to a comparable form: no quotes, qualifiers, casts or parentheses. */

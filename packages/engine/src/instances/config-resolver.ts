@@ -8,7 +8,7 @@ import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import { DEFAULT_PROVIDER, isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
-import type { STTCredentials, InstanceSttSetting } from "../stt-gateway/types.js";
+import { INSTANCE_STT_SETTINGS, type STTCredentials, type InstanceSttSetting } from "../stt-gateway/types.js";
 import {
   resolveDatetimeSettings,
   resolveDedupSimilarityThreshold,
@@ -19,6 +19,7 @@ import {
 } from "./agent-settings.js";
 import { invalidateAllInstanceMeta, invalidateInstanceMeta } from "./instance-meta.js";
 import { isIntermediateTextPolicy, type IntermediateTextPolicy } from "../ai-gateway/intermediate-text.js";
+import type { ToolHistoryReplay } from "../conversations/tool-history.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -76,13 +77,15 @@ export interface InstanceConfig {
   dedupSimilarityThreshold: number;
   messageTimings: MessageTimingSettings;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
-  cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  cacheConfig: { enabled: boolean; ttl: CacheTtl; userTurn: boolean };
   /** What becomes of text written alongside a tool call; null = unset, the pre-policy behaviour. */
   intermediateText: IntermediateTextPolicy | null;
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
   a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /** How earlier turns are replayed when `toolResultsInHistoryEnabled` is on: rebuilt and truncated, or exactly as sent. */
+  toolHistoryReplay: ToolHistoryReplay;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
   /** When true, inbound attachments are copied to the agent's bucket. Default false — opt-in. */
@@ -125,6 +128,14 @@ function effectiveModelFor(provider: string | undefined, model: string | undefin
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The transcription setting a stored value means. A value the runtime does not
+ * know is off: reading it as a provider would turn on paid transcription for a typo.
+ */
+export function readSttSetting(stored: string): InstanceSttSetting {
+  return (INSTANCE_STT_SETTINGS as readonly string[]).includes(stored) ? (stored as InstanceSttSetting) : "disabled";
 }
 
 /** In-memory cache with TTL (30 s, max 200 instances). */
@@ -174,24 +185,21 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       datetime: resolveDatetimeSettings(UNSET_AGENT_SETTINGS),
       dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
       messageTimings: resolveMessageTimings(UNSET_AGENT_SETTINGS),
-      cacheConfig: { enabled: true, ttl: "1h" },
+      cacheConfig: { enabled: true, ttl: "1h", userTurn: false },
       intermediateText: null,
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
+      toolHistoryReplay: "compact",
       debugEnabled: false,
       attachmentStorageEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
-      stt: { provider: "openai", credentials: {} },
+      stt: { provider: "disabled", credentials: {} },
     };
   }
 
   const secrets = await getAllSecretsById(instance.id);
 
-  const sttProviderRaw = instance.sttProvider;
-  const sttProvider: InstanceSttSetting =
-    sttProviderRaw === "aws" || sttProviderRaw === "deepgram" || sttProviderRaw === "disabled"
-      ? sttProviderRaw
-      : "openai";
+  const sttProvider = readSttSetting(instance.sttProvider);
 
   const sttCredentials: STTCredentials = {};
   if (sttProvider === "openai" && secrets[SECRET_KEYS.OPENAI_API_KEY]) {
@@ -268,10 +276,12 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     cacheConfig: {
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
+      userTurn: instance.cacheUserTurn,
     },
     intermediateText: isIntermediateTextPolicy(instance.intermediateText) ? instance.intermediateText : null,
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    toolHistoryReplay: instance.toolHistoryReplay === "exact" ? "exact" : "compact",
     debugEnabled: instance.debugEnabled,
     attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optout: {

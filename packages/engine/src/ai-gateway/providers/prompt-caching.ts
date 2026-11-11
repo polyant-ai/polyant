@@ -70,7 +70,7 @@ export function withoutProviderCacheMarker(message: ModelMessage, providerKey: s
  * Pure function — does not mutate `messages`.
  */
 export function injectCacheBreakpoints(
-  { system, messages }: { system: string | undefined; messages: ModelMessage[] },
+  { system, systemTail, messages }: { system: string | undefined; systemTail?: string; messages: ModelMessage[] },
   applyMarker: (message: ModelMessage) => ModelMessage,
 ): { instructions: Instructions | undefined; messages: ModelMessage[] } {
   const out = [...messages];
@@ -91,15 +91,26 @@ export function injectCacheBreakpoints(
   // cacheControl / cachePoint rides along in its providerOptions exactly as
   // before. Not `allowSystemInMessages: true` — that only re-enables the
   // deprecated shape and would leave the same code to migrate later.
+  //
+  // `systemTail` — system text that belongs to this conversation (a hook's
+  // one-shot context, a persisted system row) — follows as a second, unmarked
+  // system block. Inside the marked one it would make every conversation write
+  // its own copy of the whole tools + system prefix instead of reading the
+  // agent's. Without an agent system prompt it is still sent unmarked: the
+  // history breakpoint caches it from the second turn on.
   if (system && system.length > 0) {
-    return { instructions: applyMarker({ role: "system", content: system }) as SystemModelMessage, messages: out };
+    const marked = applyMarker({ role: "system", content: system }) as SystemModelMessage;
+    return { instructions: systemTail ? [marked, { role: "system", content: systemTail }] : marked, messages: out };
   }
 
-  return { instructions: system, messages: out };
+  return { instructions: systemTail ?? system, messages: out };
 }
 
-/** Input the AI SDK `prepareStep` hook passes us (subset we use) plus the model id. */
-export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; modelId: string };
+/**
+ * Input the AI SDK `prepareStep` hook passes us (subset we use), plus the model
+ * id and the instance's `cacheConfig.userTurn` choice (see `makeStepMarker`).
+ */
+export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; modelId: string; userTurn?: boolean };
 
 export interface StepMarkerOptions {
   /**
@@ -131,13 +142,24 @@ export interface StepMarkerOptions {
  * history. Every marker after the current user turn is a
  * within-turn one placed here (the history marker sits before that turn), so
  * they are all cleared before the last message is marked: instructions,
- * history and one moving marker make three at most.
+ * history and one moving marker make three at most (four with `userTurn`).
  *
- * Skips step 0 on purpose: the initial user turn carries the per-turn volatile
+ * Skips step 0 by default: the initial user turn carries the per-turn volatile
  * `<context>` tail, and single-step turns (maxSteps=1 service calls, or a
  * tool-less answer) must not pay a wasted cache-write. From step 1 onward the
  * last message is a stable within-turn tool-result/assistant message — never the
  * volatile user turn — so this is independent of where the volatile block lives.
+ *
+ * `userTurn: true` (per-instance `cacheConfig.userTurn`, off by default) also
+ * marks the last message on step 0 — the current user turn. The cost of skipping
+ * it is that step 0 pays the whole user turn at full input price and step 1 then
+ * writes it to cache again; with the marker, step 0 writes it and step 1 reads
+ * it. That pays off for agents whose turns usually take two or more steps and
+ * carry a large user turn (pre-fetched data in the `<context>` tail); an agent
+ * that mostly answers in one step pays a cache write it never reads. The marker
+ * stays for the rest of the turn: from step 1 the loop below clears only what
+ * follows the user turn, so a turn with history carries four breakpoints
+ * (instructions, history, user turn, moving), the provider maximum.
  *
  * Pure function — never mutates the input array.
  */
@@ -146,10 +168,14 @@ export function makeStepMarker({
   clearMarker,
   isCacheCapable,
 }: StepMarkerOptions): (input: StepMarkerInput) => { messages?: ModelMessage[] } {
-  return ({ stepNumber, messages, modelId }) => {
-    if (stepNumber < 1 || messages.length === 0) return {};
+  return ({ stepNumber, messages, modelId, userTurn }) => {
+    if (messages.length === 0 || (stepNumber < 1 && !userTurn)) return {};
     if (isCacheCapable && !isCacheCapable(modelId)) return {};
     const out = [...messages];
+    if (stepNumber < 1) {
+      out[out.length - 1] = applyMarker(out[out.length - 1], modelId);
+      return { messages: out };
+    }
     const turnStart = out.map((m) => m.role).lastIndexOf("user");
     for (let i = turnStart + 1; i < out.length; i++) out[i] = clearMarker(out[i]);
     out[out.length - 1] = applyMarker(out[out.length - 1], modelId);

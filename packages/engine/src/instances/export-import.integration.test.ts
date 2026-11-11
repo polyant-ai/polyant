@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { queryClient } from "../database/client.js";
-import { createInstanceWithDefaults } from "./store.js";
+import { createInstanceWithDefaults, findInstanceBySlug, findInstanceIcon } from "./store.js";
 import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { setSecret, getAllSecretsById } from "./secrets.store.js";
 import { exportInstance } from "./export.service.js";
@@ -26,6 +26,7 @@ const MARKER = "itest-export-import";
 let orgId: string;
 
 async function teardown(): Promise<void> {
+  await queryClient`DELETE FROM scheduled_tasks WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -38,6 +39,18 @@ async function createAgent(suffix: string) {
     orgId,
     workspaceSlug: MARKER + "-ws",
   });
+}
+
+let copies = 0;
+
+/**
+ * Import a bundle as a new agent beside its source. The source's slug is taken,
+ * so the copy gets its own, as the panel asks the person to choose one.
+ */
+async function importCopy(bundle: Parameters<typeof importNewInstance>[0]) {
+  const { instance, ...rest } = bundle as { instance: Record<string, unknown> };
+  copies += 1;
+  return importNewInstance({ ...rest, instance: { ...instance, slug: `${MARKER}-copy-${copies}` } }, orgId);
 }
 
 describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () => {
@@ -91,7 +104,7 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     expect(bundle.instance.thinkingLevel).toBe("high");
     expect(JSON.stringify(bundle)).not.toContain("source-credential");
 
-    const result = await importNewInstance(bundle, orgId);
+    const result = await importCopy(bundle);
 
     const [row] = await queryClient<{ id: string; thinking_level: string }[]>`
       SELECT id, thinking_level FROM instances WHERE slug = ${result.slug}`;
@@ -101,6 +114,51 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
       type: "secret_required",
       message: 'Secret "itest_crm_api_key" needs to be configured',
     });
+  });
+
+  it("should_export_an_unknown_stored_transcription_provider_as_off_and_import_it", async () => {
+    // A value written before the setting was validated: the runtime reads it as off.
+    const source = await createAgent("stt-typo");
+    await queryClient`UPDATE instances SET stt_provider = 'openia' WHERE id = ${source.id}`;
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.sttProvider).toBe("disabled");
+
+    const result = await importCopy(bundle);
+    const [row] = await queryClient<{ stt_provider: string }[]>`
+      SELECT stt_provider FROM instances WHERE slug = ${result.slug}`;
+    expect(row.stt_provider).toBe("disabled");
+  });
+
+  it("should_carry_a_scheduled_task_with_an_interval_shorter_than_new_schedules_may_declare", async () => {
+    // A task an earlier release accepted: its API took any interval.
+    const source = await createAgent("short-interval");
+    await queryClient`
+      INSERT INTO scheduled_tasks (instance_id, name, schedule, prompt)
+      VALUES (${source.slug}, 'poll', ${JSON.stringify({ type: "interval", everyMs: 30_000 })}::jsonb, 'Check the queue')`;
+
+    const result = await importCopy(await exportInstance(source.slug));
+
+    const rows = await queryClient<{ schedule: unknown; next_run_at: Date | null }[]>`
+      SELECT schedule, next_run_at FROM scheduled_tasks WHERE instance_id = ${result.slug}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].schedule).toEqual({ type: "interval", everyMs: 30_000 });
+    expect(rows[0].next_run_at).not.toBeNull();
+  });
+
+  it("should_read_the_agent_without_its_icon_and_still_carry_the_icon_through_a_round_trip", async () => {
+    const icon = `data:image/png;base64,${"QUJD".repeat(1000)}`;
+    const source = await createAgent("icon");
+    await queryClient`UPDATE instances SET icon = ${icon} WHERE id = ${source.id}`;
+
+    const read = await findInstanceBySlug(source.slug);
+    expect(read).toMatchObject({ hasIcon: true });
+    expect(read).not.toHaveProperty("icon");
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.icon).toBe(icon);
+    const result = await importCopy(bundle);
+    expect(await findInstanceIcon(asInstanceSlug(result.slug))).toBe(icon);
   });
 
   it("should_carry_the_web_channel_state_through_a_round_trip", async () => {
@@ -114,18 +172,18 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     expect(await webOf(off.slug)).toBeUndefined();
     const offBundle = await exportInstance(off.slug);
     expect(offBundle.instance.channels).toContainEqual({ channelType: "web", enabled: false, config: {} });
-    expect(await webOf((await importNewInstance(offBundle, orgId)).slug)).toBe(false);
+    expect(await webOf((await importCopy(offBundle)).slug)).toBe(false);
 
     // Switched on, it stays on.
     const on = await createAgent("web-on");
     await queryClient`INSERT INTO instance_channels (instance_id, channel_type, enabled, config)
       VALUES (${on.id}, 'web', true, '')`;
     const onBundle = await exportInstance(on.slug);
-    expect(await webOf((await importNewInstance(onBundle, orgId)).slug)).toBe(true);
+    expect(await webOf((await importCopy(onBundle)).slug)).toBe(true);
 
     // A bundle from before Web was a channel has no row: its endpoint was online.
     const legacy = { ...offBundle, version: "1.2" as const, instance: { ...offBundle.instance, channels: [] } };
-    expect(await webOf((await importNewInstance(legacy, orgId)).slug)).toBe(true);
+    expect(await webOf((await importCopy(legacy)).slug)).toBe(true);
   });
 
   it("should_replace_a_parameter_on_overwrite_and_leave_the_target_credential_alone", async () => {
@@ -165,8 +223,8 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     await importOverwriteInstance(target.slug, legacy);
     expect(await stored(target.slug)).toBe(true);
 
-    expect(await stored((await importNewInstance(legacy, orgId)).slug)).toBe(false);
-    expect(await stored((await importNewInstance(bundle, orgId)).slug)).toBe(true);
+    expect(await stored((await importCopy(legacy)).slug)).toBe(false);
+    expect(await stored((await importCopy(bundle)).slug)).toBe(true);
   });
 
   it("should_normalise_the_context_field_mapping_and_refuse_one_the_panel_would_refuse", async () => {
@@ -180,13 +238,13 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     // Whitespace and an editor's blank row, as the PATCH normalises them.
     const messy = structuredClone(bundle);
     messy.instance.webContextFieldMapping = { "  phone ": " customer.phone ", "": "ignored" };
-    expect(await mapping((await importNewInstance(messy, orgId)).slug)).toEqual({ phone: "customer.phone" });
+    expect(await mapping((await importCopy(messy)).slug)).toEqual({ phone: "customer.phone" });
 
     // An empty path segment: the PATCH answers 400, so the import fails and writes nothing.
     const invalid = structuredClone(bundle);
     invalid.instance.webContextFieldMapping = { phone: "customer..phone" };
     await expect(importOverwriteInstance(target.slug, invalid)).rejects.toThrow(/webContextFieldMapping/);
     expect(await mapping(target.slug)).toEqual({ phone: "caller.phone" });
-    await expect(importNewInstance(invalid, orgId)).rejects.toThrow(/webContextFieldMapping/);
+    await expect(importCopy(invalid)).rejects.toThrow(/webContextFieldMapping/);
   });
 });

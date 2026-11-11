@@ -15,11 +15,17 @@ import { resolveInstanceConfig } from "../instances/config-resolver.js";
 
 const memoryLog = createLogger();
 
-function buildExtractionPrompt(): string {
-  const now = new Date();
-  const dateStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const dayName = dayNames[now.getDay()];
+/**
+ * The extraction prompt, dated in the agent's timezone: the model turns
+ * "tomorrow" into a date from it, so the date and its weekday must be the
+ * agent's day, not the UTC date paired with the server's weekday.
+ */
+function buildExtractionPrompt(now: Date, timeZone: string): string {
+  const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone, ...options });
+  const ymd = part({ year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const field = (type: string) => ymd.find((p) => p.type === type)?.value;
+  const dateStr = `${field("year")}-${field("month")}-${field("day")}`; // YYYY-MM-DD
+  const dayName = part({ weekday: "long" }).format(now);
 
   return `You are a memory extraction system. Your task is to extract important facts, preferences, decisions, and events from a conversation.
 
@@ -35,6 +41,7 @@ RULES:
 - Rate importance 1-10 (10 = critical life fact, 1 = trivial)
 - Do NOT extract: greetings, filler, questions without answers, assistant responses
 - Do NOT extract facts that are purely about the current task/request being performed
+- Extract ONLY from the NEW MESSAGES; the EARLIER MESSAGES were already processed and are there only to make the new ones understandable
 - If nothing worth extracting, return an empty array
 - Respond ONLY with a JSON array, no markdown fences, no explanation
 
@@ -42,9 +49,19 @@ OUTPUT FORMAT (strict JSON array):
 [{"content": "...", "category": "...", "importance": N}]`;
 }
 
+function renderTranscript(messages: readonly { role: string; content: string }[]): string {
+  return messages
+    .map((m) => {
+      if (typeof m.content !== "string" || !m.content) return null;
+      return `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
- * Extract memories from recent conversation messages using the project's LLM.
- * Designed to be called fire-and-forget after every supervisor response.
+ * Extract memories from the conversation messages not read yet, using the
+ * project's LLM. Called in the background after every saved turn.
  */
 export async function extractMemories(
   conversationId: string,
@@ -55,23 +72,31 @@ export async function extractMemories(
 ): Promise<UpsertResult[]> {
   const start = Date.now();
 
-  // 1. Load the last 15 messages
-  const recentMessages = await conversationStore.getRecentMessages(conversationId, 15);
-
-  if (recentMessages.length === 0) return [];
+  // 1. The messages not read yet, with two before them for context: each
+  //    message reaches the model once as new, instead of in every one of the
+  //    next seven extractions.
+  const { context, fresh, through, memoryThrough } = await conversationStore.getMessagesToExtract(conversationId, {
+    limit: 15,
+    context: 2,
+  });
+  if (fresh.length === 0) return [];
+  // Rows saved before messages carried a seq are read by time until the first
+  // mark by seq; with no such mark to set, they are read again next time.
+  const markRead = () =>
+    through === null ? Promise.resolve() : conversationStore.advanceMemoryThrough(conversationId, through, memoryThrough);
 
   // 2. Build conversation transcript for the LLM
-  const transcript = recentMessages
-    .map((m) => {
-      const content = typeof m.content === "string" ? m.content : "";
-      if (!content) return null;
-      const role = m.role === "user" ? "User" : "Assistant";
-      return `${role}: ${content}`;
-    })
-    .filter(Boolean)
-    .join("\n");
+  const newText = renderTranscript(fresh);
+  if (!newText.trim()) {
+    await markRead();
+    return [];
+  }
+  const earlierText = renderTranscript(context);
+  const transcript = [...(earlierText ? ["EARLIER MESSAGES:", earlierText, ""] : []), "NEW MESSAGES:", newText].join("\n");
 
-  if (!transcript.trim()) return [];
+  // From the 30s-cached config every turn already reads, not a fresh row read:
+  // the agent's timezone dates the prompt, its threshold deduplicates the facts.
+  const { datetime, dedupSimilarityThreshold } = await resolveInstanceConfig(instanceId);
 
   // 3. Call LLM for extraction (uses configured provider, tier fast)
   const response = await chat(
@@ -80,10 +105,10 @@ export async function extractMemories(
       provider,
       apiKeys,
       langsmith,
-      system: buildExtractionPrompt(),
+      system: buildExtractionPrompt(new Date(), datetime.timezone),
       messages: [{ role: "user", content: transcript }],
     },
-    { conversationId, instanceId, callType: "service" },
+    { conversationId, instanceId, callType: "service", purpose: "memory" },
   );
 
   // 4. Parse JSON response
@@ -104,7 +129,10 @@ export async function extractMemories(
     return [];
   }
 
-  if (facts.length === 0) return [];
+  if (facts.length === 0) {
+    await markRead();
+    return [];
+  }
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
@@ -120,10 +148,8 @@ export async function extractMemories(
   //    path that doesn't block the user-facing response, in exchange for zero
   //    intra-batch conflicts. Cross-conversation conflicts on the same instance
   //    are still possible and handled by the retry loop in `upsertMemory`.
-  // Resolved ONCE per extraction, not per fact: it is a property of the agent,
-  // and the facts of one run all belong to the same one.
-  // From the 30s-cached config every turn already reads, not a fresh row read.
-  const { dedupSimilarityThreshold } = await resolveInstanceConfig(instanceId);
+  // The threshold is resolved ONCE per extraction, not per fact: it is a
+  // property of the agent, and the facts of one run all belong to the same one.
 
   const results: UpsertResult[] = [];
   for (let i = 0; i < facts.length; i++) {
@@ -141,6 +167,12 @@ export async function extractMemories(
     });
     results.push(result);
   }
+
+  // The facts are saved: the next extraction starts after these messages. Until
+  // then a failure (the embedding provider down, an upsert refused) leaves them
+  // unread, and the next extraction reads them again; a fact saved before the
+  // failure is matched by similarity then, not duplicated.
+  await markRead();
 
   const elapsed = Date.now() - start;
   const added = results.filter((r) => r.event === "ADD").length;

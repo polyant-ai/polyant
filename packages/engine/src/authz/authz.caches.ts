@@ -20,16 +20,18 @@ export const SUPERADMIN_CACHE_TTL_MS = 5 * 60_000;
 
 /**
  * Keyed by `${userId}:${organizationId}` → the user's effective bindings in
- * that org. Bounded so a burst of distinct users cannot grow it unbounded.
+ * that org. Bounded so a burst of distinct users cannot grow it unbounded, and
+ * sized like the engine's other per-process caches: the oldest entry goes
+ * first, so a bound below the active user count would evict on every request.
  */
 export const bindingCache = new TtlCache<string, EffectiveBinding[]>({
-  maxSize: 1_000,
+  maxSize: 10_000,
   ttlMs: BINDING_CACHE_TTL_MS,
 });
 
 /** Keyed by `userId` → whether the user is a platform admin. */
 export const platformAdminCache = new TtlCache<string, boolean>({
-  maxSize: 1_000,
+  maxSize: 10_000,
   ttlMs: SUPERADMIN_CACHE_TTL_MS,
 });
 

@@ -8,7 +8,6 @@ import {
   type ChannelConfig,
   type Instance,
   type InstanceHook,
-  type KnowledgeDocument,
   type RoomConfigResponse,
   type SecretStatus,
   type SkillState,
@@ -59,11 +58,12 @@ export function useStatusChecks({
     const slug = instance.slug;
 
     (async () => {
-      const [secrets, channels, documents, hooks, hookFunctions, room, optOuts] =
+      const [secrets, channels, knowledge, hooks, hookFunctions, room, optOuts] =
         await Promise.allSettled([
           api.secrets.list(slug),
           api.channels.list(slug),
-          api.knowledge.list(slug),
+          // One row: the checks read the counts, which cover every document.
+          api.knowledge.list(slug, { limit: 1 }),
           api.hooks.list(slug),
           api.hooks.functions(),
           api.room.get(slug),
@@ -87,7 +87,7 @@ export function useStatusChecks({
           optedOutCount: optOutList === null ? null : optOutList.length,
           secrets: (value(secrets)?.secrets ?? null) as SecretStatus[] | null,
           channels: (value(channels)?.channels ?? null) as ChannelConfig[] | null,
-          documents: (value(documents)?.documents ?? null) as KnowledgeDocument[] | null,
+          documentCounts: value(knowledge),
           hooks: (value(hooks)?.hooks ?? null) as InstanceHook[] | null,
           hookFunctions: value(hookFunctions)?.hookFunctions.map((f) => f.name) ?? null,
           room: value(room) as RoomConfigResponse | null,

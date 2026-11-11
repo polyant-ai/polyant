@@ -146,6 +146,7 @@ vi.mock("../tools/mcp/mcp-tools.js", () => ({
 }));
 
 import { buildUserContent, supervise, superviseStream } from "./index.js";
+import { buildExactHistory } from "../../conversations/tool-history.js";
 import type { SupervisorInput } from "./index.js";
 import type { Attachment } from "../../channels/types.js";
 import { channelManager } from "../../channels/channel-manager.js";
@@ -418,6 +419,28 @@ describe("supervise", () => {
       // conversationHistory is [] which is falsy for .length, so summary is NOT injected
       expect(callArgs.messages).toEqual([
         { role: "user", content: "hello" },
+      ]);
+    });
+
+    it("sends conversation-only system text ahead of the history, apart from the agent's system prompt", async () => {
+      mockBuildPrompt.mockResolvedValueOnce({
+        system: "System prompt content",
+        conversationSystem: "---\n\n## Conversation Context\n\nOrder 42 shipped.",
+        turnContext: "",
+      });
+
+      await supervise({
+        instanceId: TEST_INSTANCE,
+        message: "and now?",
+        conversationHistory: [{ role: "user" as const, content: "earlier" }],
+      });
+
+      const callArgs = mockChat.mock.calls[0][0];
+      expect(callArgs.system).toBe("System prompt content");
+      expect(callArgs.messages).toEqual([
+        { role: "system", content: "---\n\n## Conversation Context\n\nOrder 42 shipped." },
+        { role: "user", content: "earlier" },
+        { role: "user", content: "and now?" },
       ]);
     });
 
@@ -700,18 +723,12 @@ describe("superviseStream", () => {
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("stream-inst");
   });
 
-  it("falls back to DEFAULT_INSTANCE_ID when instanceId is not provided", async () => {
-    await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
-
-    expect(mockFindInstanceBySlug).toHaveBeenCalledWith("default");
-  });
-
-  it("returns textStream, fullStream, and completed promise", async () => {
+  it("relays the model's text as it streams", async () => {
     const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
 
-    expect(result.textStream).toBeDefined();
-    expect(result.fullStream).toBeDefined();
-    expect(result.completed).toBeInstanceOf(Promise);
+    const chunks: string[] = [];
+    for await (const chunk of result.textStream) chunks.push(chunk);
+    expect(chunks).toEqual(["Hello ", "world"]);
   });
 
   it("completed resolves with SupervisorOutput", async () => {
@@ -868,5 +885,80 @@ describe("buildUserContent", () => {
     const parts = buildUserContent("caption", "", image) as { type: string; text?: string }[];
     expect(parts[0]).toEqual({ type: "text", text: "caption" });
     expect(parts[1].type).toBe("image");
+  });
+});
+
+// =========================================================================
+// Exact history replay: the turn as the model received it, and the guard
+// that keeps a replayed thinking block only under the prefix it is bound to.
+// =========================================================================
+
+describe("supervise — exact history replay", () => {
+  const response = [
+    {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "", providerOptions: { anthropic: { signature: "sig-1" } } },
+        { type: "tool-call", toolCallId: "toolu_01", toolName: "read", input: { path: "a" } },
+      ],
+    },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "toolu_01", toolName: "read", output: { type: "text", value: "ok" } }] },
+    { role: "assistant", content: [{ type: "text", text: "Done." }] },
+  ];
+
+  it("returns the user message as sent, the response messages and the prefix key", async () => {
+    mockBuildPrompt.mockResolvedValueOnce({ system: "System prompt content", turnContext: "<current_datetime>now</current_datetime>" });
+    mockChat.mockResolvedValueOnce({ ...defaultChatResponse, responseMessages: response });
+
+    const result = await supervise({ instanceId: TEST_INSTANCE, message: "read a" });
+
+    expect(result.exactTurn?.user).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "read a" },
+        { type: "text", text: "<context>\n<current_datetime>now</current_datetime>\n</context>" },
+      ],
+    });
+    expect(result.exactTurn?.response).toEqual(response);
+    expect(result.exactTurn?.prefixKey).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  /** A first turn run for real, then stored the way the pipeline stores it. */
+  async function storedFirstTurn() {
+    mockChat.mockResolvedValueOnce({ ...defaultChatResponse, responseMessages: response });
+    const first = await supervise({ instanceId: TEST_INSTANCE, message: "read a", provider: "anthropic", model: "claude-sonnet-5-5" });
+    const turn = first.exactTurn!;
+    return buildExactHistory(
+      [
+        { role: "user", content: "read a", exactReplay: { messages: [turn.user] }, createdAt: null },
+        { role: "assistant", content: "Done.", exactReplay: { messages: turn.response, prefixKey: turn.prefixKey }, createdAt: null },
+      ],
+      { keepReasoning: true },
+    );
+  }
+
+  const sentReasoning = () =>
+    (mockChat.mock.calls.at(-1)![0].messages as { content: unknown }[])
+      .flatMap((m) => (Array.isArray(m.content) ? (m.content as { type: string }[]) : []))
+      .filter((p) => p.type === "reasoning");
+
+  it("replays the earlier turn's thinking blocks while the system prompt, tools and model are unchanged", async () => {
+    const history = await storedFirstTurn();
+
+    await supervise({ instanceId: TEST_INSTANCE, message: "and b?", conversationHistory: history, provider: "anthropic", model: "claude-sonnet-5-5" });
+
+    expect(mockChat.mock.calls.at(-1)![0].messages.slice(0, -1)).toEqual(history);
+    expect(sentReasoning()).toHaveLength(1);
+  });
+
+  it("drops the earlier turn's thinking blocks once the system prompt changed", async () => {
+    const history = await storedFirstTurn();
+    mockBuildPrompt.mockResolvedValueOnce({ system: "Edited system prompt", turnContext: "" });
+
+    await supervise({ instanceId: TEST_INSTANCE, message: "and b?", conversationHistory: history, provider: "anthropic", model: "claude-sonnet-5-5" });
+
+    expect(sentReasoning()).toHaveLength(0);
+    const sent = mockChat.mock.calls.at(-1)![0].messages as { role: string }[];
+    expect(sent.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
   });
 });

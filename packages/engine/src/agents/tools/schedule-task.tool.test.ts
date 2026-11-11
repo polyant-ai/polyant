@@ -19,4 +19,14 @@ describe("buildScheduleConfig", () => {
       buildScheduleConfig({ scheduleType: "cron", cronExpression: "0 9 * * *", timezone: "Europe/Rome" }),
     ).toMatchObject({ timezone: "Europe/Rome" });
   });
+
+  it.each([0, -5, 59_999, 1.5])("refuses an interval of %s ms", (everyMs) => {
+    expect(buildScheduleConfig({ scheduleType: "interval", everyMs })).toEqual({
+      error: "Field 'everyMs' must be an integer of at least 60000 ms.",
+    });
+  });
+
+  it("builds a one-minute interval", () => {
+    expect(buildScheduleConfig({ scheduleType: "interval", everyMs: 60_000 })).toEqual({ type: "interval", everyMs: 60_000 });
+  });
 });

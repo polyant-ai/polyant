@@ -111,6 +111,8 @@ export interface Instance {
   temperature?: number | null;
   /** Ask the provider for fast mode; applied only on a model whose catalog entry has `fastMultiplier`. */
   fastMode?: boolean;
+  /** Whether the effective model runs in fast mode: `fastMode` on a model the catalog prices fast. */
+  effectiveFastMode?: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */
@@ -130,6 +132,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** Also cache the current user turn on the first step of a multi-step turn (Anthropic/Bedrock). */
+  cacheUserTurn?: boolean;
   /**
    * What becomes of text the model writes alongside a tool call. null = never
    * chosen: each channel keeps its own behaviour and the prompt says nothing.
@@ -139,6 +143,11 @@ export interface Instance {
   a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /**
+   * How earlier turns are replayed when tool results are in history: "compact"
+   * rebuilds them with truncated results, "exact" replays them as they were sent.
+   */
+  toolHistoryReplay: "compact" | "exact";
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
   debugEnabled: boolean;
   /** When true, files users send are copied to the agent's bucket so they can be reopened. */
@@ -228,7 +237,6 @@ export interface RoomConfigResponse {
   prompt?: string;
   outboundChannel?: string | null;
   outboundTarget?: string | null;
-  evalIntervalMinutes?: number;
   pendingEventCount?: number;
 }
 
@@ -534,13 +542,16 @@ export interface StepDetail {
   index: number;
   stepType: "initial" | "continue" | "tool-result";
   text: string;
-  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  /** Each tool call, with when its run started and how long it took (absent on older rows). */
+  toolCalls: { toolCallId: string; toolName: string; args: unknown; startedAt?: string; durationMs?: number }[];
   toolResults?: { toolCallId: string; result: unknown }[];
   reasoning?: ReasoningDetail[];
   finishReason: string;
   promptTokens?: number;
   completionTokens?: number;
   durationMs: number;
+  /** When the step's model request started (ISO); absent on older rows. */
+  startedAt?: string;
   /** True for rows backfilled from the legacy `tool_calls` shape (no real timing/reasoning). */
   legacy?: boolean;
 }
@@ -608,38 +619,104 @@ export interface LlmDebugPayload {
   tools: { name: string; description?: string; parameters?: unknown }[];
 }
 
-/** Response of GET /api/conversations/:id/messages/:messageId/debug. */
-/** One model call made during a turn. */
-export interface TurnModelCall {
-  /** "conversation" for the agent's answer, "service" for the calls around it, "embedding" for an embedder. */
+/** One model call of a turn, as `ai_logs` recorded it. */
+export interface PathModelCall {
+  id: string;
+  /** "conversation" for the agent's own loop, "service" for any other call, "embedding" for an embedder. */
   callType: string;
+  /** What a service call was for (title, memory, hook, tool…); null on the agent's calls. */
+  purpose: string | null;
+  /** The hook function or tool that made the call. */
+  originName: string | null;
+  /** The hook run id or tool call id the call nests under. */
+  parentRef: string | null;
   provider: string;
   model: string;
+  startedAt: string | null;
   durationMs: number;
   promptTokens: number;
   completionTokens: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
   costUsd: number;
+  stepCount: number;
   /** "ok", "error" or "aborted". */
   outcome: string;
   /** The class of the failure, never its message. */
   errorKind: string | null;
-  createdAt: string | null;
+  /** How many raw exchanges were kept for the call; 0 when the agent's debug flag was off. */
+  exchangeCount: number;
 }
 
+/** One hook run of a turn. */
+export interface PathHookRun {
+  id: string;
+  name: string;
+  event: string;
+  startedAt: string | null;
+  durationMs: number;
+  success: boolean;
+  error: string | null;
+  args: Record<string, unknown> | null;
+  result: string | null;
+}
+
+/** One request a model call sent the provider (a step, or a retry of it) and the answer. */
+export interface PathExchange {
+  stepIndex: number;
+  attempt: number;
+  status: number | null;
+  request: unknown;
+  response: unknown;
+  createdAt: string;
+}
+
+/** A turn's model, usage, cost and latency, from its pipeline trace. */
+export interface TurnSummary {
+  promptTokens: number;
+  completionTokens: number;
+  cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheCreation5mInputTokens?: number | null;
+  model: string | null;
+  provider: string | null;
+  cost: CostBreakdown | null;
+  thinking: boolean | null;
+  temperature: number | null;
+  latency: MessageLatency | null;
+}
+
+/** Response of GET /api/conversations/:id/messages/:messageId/debug. */
 export interface MessageDebug {
   /** Null when the turn was generated with DEBUG off. */
   debugPayload: LlmDebugPayload | null;
-  /** Per-step tool trace for the turn (always present for tool-using turns). */
+  /** Per-step trace for the turn. */
   steps: StepDetail[] | null;
+  /** The reply as persisted. */
+  content: string;
   /** How the turn arrived; null for a message with no pipeline trace. */
-  turn?: {
+  turn: {
     channel: string;
     streaming: boolean;
     /** Present only on a voice turn. */
     speechToText: { provider: string; durationMs: number | null; audioDurationSec: number | null } | null;
   } | null;
-  /** The turn's model calls, from the user message that opened it to the next one. */
-  modelCalls?: TurnModelCall[];
+  /** The turn's model, usage, cost and latency; null without a pipeline trace. */
+  summary: TurnSummary | null;
+  /**
+   * Every model call and hook run of the turn. A turn from before the request
+   * path has only its agent call, from its trace, and the times its trace kept.
+   */
+  path: {
+    turnStartedAt: string | null;
+    replySentAt: string | null;
+    /** What the channel received, when it differs from `content`. */
+    deliveredText: string | null;
+    /** The agent's intermediate-text policy for the turn; null when none was set. */
+    intermediateText: "discard" | "progress" | "reply" | null;
+    modelCalls: PathModelCall[];
+    hookRuns: PathHookRun[];
+  };
 }
 
 // ── Memories ──────────────────────────────────────────────────────────

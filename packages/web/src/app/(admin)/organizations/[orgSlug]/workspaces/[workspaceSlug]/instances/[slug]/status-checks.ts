@@ -5,7 +5,6 @@ import type {
   ChannelConfig,
   Instance,
   InstanceHook,
-  KnowledgeDocument,
   RoomConfigResponse,
   SecretStatus,
   SkillState,
@@ -65,7 +64,8 @@ export interface StatusCheckInput {
   /** `null` when the caller could not read them (a viewer): the secret checks are skipped. */
   secrets: SecretStatus[] | null;
   channels: ChannelConfig[] | null;
-  documents: KnowledgeDocument[] | null;
+  /** The agent's documents and how many failed to index, counted by the engine over all of them. */
+  documentCounts: { total: number; failed: number } | null;
   hooks: InstanceHook[] | null;
   /** Names the hook registry knows — a hook outside this list cannot fire. */
   hookFunctions: string[] | null;
@@ -111,7 +111,7 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     skills,
     secrets,
     channels,
-    documents,
+    documentCounts,
     hooks,
     hookFunctions,
     room,
@@ -270,8 +270,8 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     });
   }
 
-  if (documents !== null) {
-    if (instance.knowledgeEnabled && documents.length === 0) {
+  if (documentCounts !== null) {
+    if (instance.knowledgeEnabled && documentCounts.total === 0) {
       checks.push({
         id: "knowledge-empty",
         severity: "broken",
@@ -281,25 +281,24 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
         sectionKey: "instances.detail.tabKnowledge",
       });
     }
-    if (!instance.knowledgeEnabled && documents.length > 0) {
+    if (!instance.knowledgeEnabled && documentCounts.total > 0) {
       checks.push({
         id: "knowledge-unused",
         severity: "warning",
         titleKey: "status.check.knowledgeUnused.title",
         bodyKey: "status.check.knowledgeUnused.body",
-        params: { count: documents.length },
+        params: { count: documentCounts.total },
         section: "knowledge",
         sectionKey: "instances.detail.tabKnowledge",
       });
     }
-    const failed = documents.filter((d) => d.status === "error");
-    if (failed.length > 0) {
+    if (documentCounts.failed > 0) {
       checks.push({
         id: "knowledge-errors",
         severity: "broken",
         titleKey: "status.check.knowledgeErrors.title",
         bodyKey: "status.check.knowledgeErrors.body",
-        params: { count: failed.length },
+        params: { count: documentCounts.failed },
         section: "knowledge",
         sectionKey: "instances.detail.tabKnowledge",
       });

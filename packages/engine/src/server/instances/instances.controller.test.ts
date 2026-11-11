@@ -83,6 +83,8 @@ vi.mock("../../instances/config-resolver.js", () => ({
 vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
   DEFAULT_PROVIDER: "openai",
+  // The catalog prices these two fast; every other model has no fast mode.
+  fastSupported: (_provider: string, model: string): boolean => model === "gpt-6.1-terra" || model === "claude-sonnet",
   isThinkingCapable: vi.fn().mockReturnValue(false),
   temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
     if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
@@ -127,7 +129,9 @@ const { mockPrepareAttachmentCleanup, mockRunAttachmentCleanup, mockStopAllForIn
   mockStopAllForInstance: vi.fn(async () => undefined),
 }));
 vi.mock("../../attachments/attachment-cleanup.js", () => ({ prepareAttachmentCleanup: mockPrepareAttachmentCleanup }));
-vi.mock("../../channels/channel-manager.js", () => ({ channelManager: { stopAllForInstance: mockStopAllForInstance } }));
+vi.mock("../../channels/channel-manager.js", () => ({
+  channelManager: { stopAllForInstance: mockStopAllForInstance, announceChange: vi.fn() },
+}));
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
@@ -150,7 +154,8 @@ const fullInstance = {
   thinkingEnabled: false,
   stateInPromptEnabled: false,
   toolResultsInHistoryEnabled: false,
-  icon: "data:image/png;base64,AAA=",
+  toolHistoryReplay: "compact",
+  hasIcon: true,
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
   createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -219,14 +224,14 @@ describe("InstancesController", () => {
 
       // Allowed fields
       const allowed = new Set([
-        "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel",
+        "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel", "effectiveFastMode",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "fastMode", "stateInPromptEnabled", "datetimeInjectionEnabled",
         // The six that moved off the environment. On the allow-list because the
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
-        "cacheEnabled", "cacheTtl", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "cacheEnabled", "cacheTtl", "cacheUserTurn", "intermediateText", "a2aEnabled", "toolResultsInHistoryEnabled", "toolHistoryReplay", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
@@ -257,6 +262,31 @@ describe("InstancesController", () => {
       });
     });
 
+    it("should_report_fast_mode_as_off_when_the_effective_model_has_no_fast_mode", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "openai", model: "gpt-4o", fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      // The stored choice stays visible; what runs is told apart.
+      expect(instance).toMatchObject({ fastMode: true, effectiveFastMode: false });
+    });
+
+    it("should_report_fast_mode_as_on_when_the_effective_model_runs_fast", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "openai", model: "gpt-6.1-terra", fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      expect(instance).toMatchObject({ fastMode: true, effectiveFastMode: true });
+    });
+
+    it("should_report_fast_mode_from_the_standard_tier_model_when_the_agent_has_no_model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, provider: "anthropic", model: null, fastMode: true });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      expect(instance).toMatchObject({ model: null, effectiveModel: "claude-sonnet", effectiveFastMode: true });
+    });
+
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
@@ -269,7 +299,7 @@ describe("InstancesController", () => {
     });
 
     it("icon is null when the instance has no icon stored", async () => {
-      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, hasIcon: false });
 
       const { instance } = await controller.getBySlug("test-one");
 
@@ -797,6 +827,58 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Body types — a JSON value of the wrong type is a 400, never a coercion
+  // -------------------------------------------------------------------------
+  describe("update — body types", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+    });
+
+    it("does not take the string \"false\" as the confirmation that deletes memories and knowledge", async () => {
+      mockCountMemories.mockResolvedValue(1);
+      await expect(
+        controller.update("test-one", { embeddingDim: 1536, confirmWipe: "false" } as never),
+      ).rejects.toThrow(/confirmWipe/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("refuses a speech-to-text provider the runtime does not know, instead of running it as OpenAI", async () => {
+      await expect(controller.update("test-one", { sttProvider: "openia" } as never)).rejects.toThrow(/sttProvider/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["memoryEnabled", "false"],
+      ["authEnabled", 0],
+      ["name", null],
+      ["name", ""],
+      ["thinkingLevel", "extreme"],
+      ["temperature", "0.5"],
+      ["optoutStopKeywords", "STOP"],
+      ["embeddingDim", "1024"],
+    ])("rejects %s = %p, naming the field", async (field, value) => {
+      await expect(controller.update("test-one", { [field]: value } as never)).rejects.toThrow(new RegExp(field));
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts every speech-to-text setting the runtime reads", async () => {
+      for (const sttProvider of ["openai", "aws", "deepgram", "disabled"]) {
+        await controller.update("test-one", { sttProvider } as never);
+      }
+      expect(mockUpdateInstance).toHaveBeenCalledTimes(4);
+    });
+
+    it("drops a key the PATCH does not write, such as the icon that has its own validated route", async () => {
+      await controller.update("test-one", { name: "Renamed", icon: "data:image/png;base64,AAA=" } as never);
+      const written = mockUpdateInstance.mock.calls[0][1] as Record<string, unknown>;
+      expect(written.name).toBe("Renamed");
+      expect(written).not.toHaveProperty("icon");
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Models endpoint — capability hints
   // -------------------------------------------------------------------------
   describe("getModels", () => {
@@ -866,6 +948,12 @@ describe("InstancesController", () => {
       expect(order).toEqual(["prepare", "delete", "cleanup"]);
     });
 
+    it("drops the agent's cached configuration, so its slug stops answering at once", async () => {
+      mockDeleteInstance.mockResolvedValue(true);
+      await controller.remove("test-one");
+      expect(mockInvalidateCache).toHaveBeenCalledWith("test-one");
+    });
+
     it("leaves the files alone when there was no agent to delete", async () => {
       mockDeleteInstance.mockResolvedValue(false);
 
@@ -879,6 +967,39 @@ describe("InstancesController", () => {
       await expect(
         controller.update("test-one", { attachmentStorageEnabled: "false" as unknown as boolean }),
       ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("update — cacheUserTurn", () => {
+    // A string "false" would reach the column as true and turn the extra cache write on.
+    it("refuses a value that is not a boolean, before writing anything", async () => {
+      await expect(
+        controller.update("test-one", { cacheUserTurn: "false" as unknown as boolean }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("writes the setting it is given", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, cacheUserTurn: true });
+
+      await controller.update("test-one", { cacheUserTurn: true });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ cacheUserTurn: true }));
+    });
+  });
+
+  describe("update — toolHistoryReplay", () => {
+    it("writes a replay mode the runtime knows", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, toolHistoryReplay: "exact" });
+
+      await controller.update("test-one", { toolHistoryReplay: "exact" });
+      expect(mockUpdateInstance).toHaveBeenCalledWith("test-one", expect.objectContaining({ toolHistoryReplay: "exact" }));
+    });
+
+    it("refuses a mode the runtime does not know, before writing anything", async () => {
+      await expect(controller.update("test-one", { toolHistoryReplay: "verbatim" })).rejects.toThrow(BadRequestException);
       expect(mockUpdateInstance).not.toHaveBeenCalled();
     });
   });

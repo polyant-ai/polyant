@@ -38,7 +38,7 @@ describe("getKnowledge tool", () => {
     mockGetDocumentByFilename.mockResolvedValue(undefined);
 
     const result = await getKnowledge.execute(
-      { filename: "missing.md" },
+      { filename: "missing.md", offset: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
@@ -66,7 +66,7 @@ describe("getKnowledge tool", () => {
     });
 
     const result = await getKnowledge.execute(
-      { filename: "policy.md" },
+      { filename: "policy.md", offset: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
@@ -74,11 +74,61 @@ describe("getKnowledge tool", () => {
       found: true,
       filename: "policy.md",
       content: "# Policy\n\nBody",
+      truncated: false,
+      totalChars: 14,
       mimeType: "text/markdown",
       sizeBytes: 42,
       source: "agent",
       status: "ready",
       updatedAt: updatedAt.toISOString(),
+    });
+  });
+
+  // A document can be megabytes of text; returned whole it outgrows the
+  // model's context, and a replayed tool result carries it into later turns.
+  describe("a document longer than one result", () => {
+    const rawContent = Array.from({ length: 12_000 }, (_, i) => `line ${String(i).padStart(4, "0")}`).join("\n");
+    const doc = {
+      id: "doc-3",
+      instanceId: "inst-1",
+      filename: "manual.txt",
+      mimeType: "text/plain",
+      sizeBytes: rawContent.length,
+      rawContent,
+      contentHash: "ghi",
+      source: "upload",
+      status: "ready",
+      chunkCount: 60,
+      errorMessage: null,
+      enabled: true,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const read = (offset: number | null) =>
+      getKnowledge.execute({ filename: "manual.txt", offset }, { toolCallId: "tc-1", messages: [] } as any);
+
+    it("returns the first 50,000 characters and where to continue", async () => {
+      mockGetDocumentByFilename.mockResolvedValue(doc);
+
+      const result = await read(null);
+
+      expect(result.content).toBe(rawContent.slice(0, 50_000));
+      expect(result).toMatchObject({ truncated: true, nextOffset: 50_000, totalChars: rawContent.length });
+    });
+
+    it("hands back the whole document across pages", async () => {
+      mockGetDocumentByFilename.mockResolvedValue(doc);
+
+      let text = "";
+      let offset: number | null = null;
+      for (let page = 0; page < 10; page++) {
+        const result = await read(offset);
+        text += result.content;
+        if (!result.truncated) break;
+        offset = result.nextOffset;
+      }
+
+      expect(text).toBe(rawContent);
     });
   });
 

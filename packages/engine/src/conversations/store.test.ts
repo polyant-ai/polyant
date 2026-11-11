@@ -46,6 +46,9 @@ const { mockDb } = vi.hoisted(() => {
 
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
+const mockReadTurnRuns = vi.hoisted(() => vi.fn());
+vi.mock("../request-path/request-path.store.js", () => ({ readTurnRuns: mockReadTurnRuns }));
+
 vi.mock("./schema.js", () => ({
   conversations: {
     conversationId: "conversation_id",
@@ -85,6 +88,7 @@ vi.mock("drizzle-orm", () => ({
   sql: Object.assign(vi.fn((...args: unknown[]) => ({ type: "sql", args })), {
     raw: vi.fn(),
     join: vi.fn((parts: unknown[], separator: unknown) => ({ type: "sql-join", parts, separator })),
+    param: vi.fn((value: unknown) => ({ type: "sql-param", value })),
   }),
   count: vi.fn(() => "count"),
 }));
@@ -267,108 +271,6 @@ describe("ConversationStore", () => {
   });
 
   // =========================================================================
-  // getSystemMessageContents (system-message dedup at write time)
-  // =========================================================================
-  describe("getSystemMessageContents", () => {
-    it("returns a Set of distinct persisted system contents", async () => {
-      const selChain = createChainMock([
-        { content: "Context A" },
-        { content: "Context B" },
-        { content: "Context A" },
-      ]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const result = await conversationStore.getSystemMessageContents(uid());
-      expect(result).toBeInstanceOf(Set);
-      expect([...result].sort()).toEqual(["Context A", "Context B"]);
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-
-    it("returns an empty Set when no system messages exist", async () => {
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const result = await conversationStore.getSystemMessageContents(uid());
-      expect(result.size).toBe(0);
-    });
-  });
-
-  // =========================================================================
-  // getSummary / updateSummary
-  // =========================================================================
-  describe("getSummary", () => {
-    it("returns summary from DB when cache is empty", async () => {
-      const id = uid();
-      const selChain = createChainMock([{ summary: "A brief summary" }]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("A brief summary");
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-
-    it("returns cached summary without DB call", async () => {
-      const id = uid();
-      const updChain = createChainMock(undefined);
-      mockDb.update.mockReturnValue(updChain as any);
-      await conversationStore.updateSummary(id, "Cached summary");
-      vi.clearAllMocks();
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Cached summary");
-      expect(mockDb.select).not.toHaveBeenCalled();
-    });
-
-    it("returns null when DB returns empty rows", async () => {
-      const id = uid();
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBeNull();
-    });
-
-    it("returns null when DB row has null summary", async () => {
-      const id = uid();
-      const selChain = createChainMock([{ summary: null }]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBeNull();
-    });
-
-    it("does not cache null summaries", async () => {
-      const id = uid();
-      const selChain1 = createChainMock([{ summary: null }]);
-      mockDb.select.mockReturnValue(selChain1 as any);
-      await conversationStore.getSummary(id);
-      vi.clearAllMocks();
-
-      const selChain2 = createChainMock([{ summary: "Now exists" }]);
-      mockDb.select.mockReturnValue(selChain2 as any);
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Now exists");
-      expect(mockDb.select).toHaveBeenCalled();
-    });
-  });
-
-  describe("updateSummary", () => {
-    it("updates DB and populates cache", async () => {
-      const id = uid();
-      const updChain = createChainMock(undefined);
-      mockDb.update.mockReturnValue(updChain as any);
-
-      await conversationStore.updateSummary(id, "Updated summary");
-      expect(mockDb.update).toHaveBeenCalled();
-
-      vi.clearAllMocks();
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Updated summary");
-      expect(mockDb.select).not.toHaveBeenCalled();
-    });
-  });
-
-  // =========================================================================
   // clearContextPrompt
   // =========================================================================
   describe("clearContextPrompt", () => {
@@ -466,7 +368,7 @@ describe("ConversationStore", () => {
 
       expect(mockDb.insert).toHaveBeenCalled();
       expect(insChain.values).toHaveBeenCalledWith([
-        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null, debugPayload: null },
+        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null, debugPayload: null, exactReplay: null },
         {
           conversationId: id,
           role: "assistant",
@@ -476,6 +378,7 @@ describe("ConversationStore", () => {
           attachments: null,
           metadata: null,
           debugPayload: null,
+          exactReplay: null,
         },
       ]);
     });
@@ -618,47 +521,62 @@ describe("ConversationStore", () => {
   // getMessageDebug
   // =========================================================================
   describe("getMessageDebug", () => {
-    it("returns the captured payload, steps, turn and model calls for a matching message", async () => {
+    it("returns the payload, steps, summary and the request path filed under the message", async () => {
       const payload = { system: "sys", messages: [{ role: "user", content: "hi" }], tools: [] };
       const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
-      const selChain = createChainMock([{ debugPayload: payload, steps, createdAt: new Date("2026-01-01T12:00:00Z") }]);
+      const selChain = createChainMock([{ debugPayload: payload, steps, content: "hello" }]);
       const traceChain = createChainMock([
-        { channel: "web", isStreaming: true, sttProvider: null, sttDurationMs: null, audioDurationSec: null },
+        {
+          channel: "web", isStreaming: true, sttProvider: null, sttDurationMs: null, audioDurationSec: null,
+          promptTokens: 10, completionTokens: 5, model: "gpt-4o", provider: "openai", totalMs: 900,
+          turnStartedAt: new Date("2026-01-01T12:00:00Z"), replySentAt: new Date("2026-01-01T12:00:02Z"),
+          deliveredText: null, intermediateText: "reply",
+        },
       ]);
-      const call = {
-        callType: "conversation", provider: "openai", model: "gpt-4o", durationMs: 90,
-        promptTokens: 10, completionTokens: 5, costUsd: 0.001, outcome: "ok", errorKind: null,
-        createdAt: new Date("2026-01-01T12:00:01Z"),
-      };
-      const callsChain = createChainMock([call]);
-      mockDb.select
-        .mockReturnValueOnce(selChain as any)
-        .mockReturnValueOnce(traceChain as any)
-        .mockReturnValueOnce(callsChain as any);
+      const runs = { modelCalls: [{ id: "c1", model: "gpt-4o" }], hookRuns: [] };
+      mockReadTurnRuns.mockResolvedValueOnce(runs);
+      mockDb.select.mockReturnValueOnce(selChain as any).mockReturnValueOnce(traceChain as any);
 
       const result = await conversationStore.getMessageDebug("conv-1", "11111111-1111-1111-1111-111111111111");
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         debugPayload: payload,
         steps,
+        content: "hello",
         turn: { channel: "web", streaming: true, speechToText: null },
-        modelCalls: [{ ...call, createdAt: "2026-01-01T12:00:01.000Z" }],
+        summary: { promptTokens: 10, completionTokens: 5, model: "gpt-4o", provider: "openai" },
+        path: {
+          turnStartedAt: "2026-01-01T12:00:00.000Z",
+          replySentAt: "2026-01-01T12:00:02.000Z",
+          deliveredText: null,
+          intermediateText: "reply",
+          ...runs,
+        },
       });
       // Scoped by both message id AND conversation id.
       expect(selChain.where).toHaveBeenCalled();
+      expect(mockReadTurnRuns).toHaveBeenCalledWith("conv-1", "11111111-1111-1111-1111-111111111111");
     });
 
-    it("returns null debugPayload when DEBUG was off (column null) but keeps steps", async () => {
+    it("gives a turn with neither a trace nor filed runs an empty request path", async () => {
       const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
+      mockReadTurnRuns.mockResolvedValueOnce({ modelCalls: [], hookRuns: [] });
       mockDb.select
-        .mockReturnValueOnce(createChainMock([{ debugPayload: null, steps, createdAt: new Date() }]) as any)
-        .mockReturnValueOnce(createChainMock([]) as any)
+        .mockReturnValueOnce(createChainMock([{ debugPayload: null, steps, content: "x" }]) as any)
         .mockReturnValueOnce(createChainMock([]) as any);
 
       const result = await conversationStore.getMessageDebug("conv-1", "msg-1");
-      expect(result).toEqual({ debugPayload: null, steps, turn: null, modelCalls: [] });
+      expect(result).toEqual({
+        debugPayload: null,
+        steps,
+        content: "x",
+        turn: null,
+        summary: null,
+        path: { turnStartedAt: null, replySentAt: null, deliveredText: null, intermediateText: null, modelCalls: [], hookRuns: [] },
+      });
     });
 
     it("returns null when the message is not in the conversation", async () => {
+      mockReadTurnRuns.mockResolvedValueOnce({ modelCalls: [], hookRuns: [] });
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
@@ -943,6 +861,8 @@ describe("ConversationStore", () => {
         },
       ];
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce(rows)
         .mockResolvedValueOnce([{ total: 1 }]);
 
@@ -961,6 +881,8 @@ describe("ConversationStore", () => {
 
     it("returns the contact of a search hit", async () => {
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { id: "u1", conversation_id: "c1", title: "Visita", user_identifier: "+393331234567", match_count: 0, best_snippet: null },
         ])
@@ -994,6 +916,8 @@ describe("ConversationStore", () => {
         },
       ];
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce(rows)
         .mockResolvedValueOnce([{ total: 1 }]);
 
@@ -1010,6 +934,8 @@ describe("ConversationStore", () => {
 
     it("interpolates an escaped, %-wrapped ILIKE pattern for the conversation id", async () => {
       mockDb.execute
+        // The full-text probe: no message matches.
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ total: 0 }]);
 
@@ -1278,8 +1204,8 @@ describe("ConversationStore", () => {
   // deleteConversation
   // =========================================================================
   describe("deleteConversation", () => {
-    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, hook_executions, memories, conversation_state, principal_secrets, conversations
-    const EXPECTED_DELETE_CALLS = 9;
+    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, hook_executions, model_exchanges, memories, conversation_state, principal_secrets, conversations
+    const EXPECTED_DELETE_CALLS = 10;
 
     it("returns false and touches nothing when the conversation belongs to another tenant", async () => {
       const id = uid("agent:web:foreign");
@@ -1336,14 +1262,13 @@ describe("ConversationStore", () => {
       expect(result).toBe(false);
     });
 
-    it("clears both title and summary cache", async () => {
+    it("clears the title cache", async () => {
       const id = uid();
 
-      // Prime both caches
+      // Prime the cache
       const updChain = createChainMock(undefined);
       mockDb.update.mockReturnValue(updChain as any);
       await conversationStore.updateTitle(id, "Title to clear");
-      await conversationStore.updateSummary(id, "Summary to clear");
 
       vi.clearAllMocks();
 
@@ -1362,19 +1287,11 @@ describe("ConversationStore", () => {
 
       vi.clearAllMocks();
 
-      // Now getTitle and getSummary should hit DB (cache was cleared)
+      // Now getTitle should hit DB (cache was cleared)
       const selChainTitle = createChainMock([{ title: "Reloaded" }]);
       mockDb.select.mockReturnValue(selChainTitle as any);
       const title = await conversationStore.getTitle(id);
       expect(title).toBe("Reloaded");
-      expect(mockDb.select).toHaveBeenCalled();
-
-      vi.clearAllMocks();
-
-      const selChainSummary = createChainMock([{ summary: "Reloaded" }]);
-      mockDb.select.mockReturnValue(selChainSummary as any);
-      const summary = await conversationStore.getSummary(id);
-      expect(summary).toBe("Reloaded");
       expect(mockDb.select).toHaveBeenCalled();
     });
   });

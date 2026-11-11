@@ -25,7 +25,6 @@ interface RoomConfig {
   prompt: string;
   outboundChannel: string | null;
   outboundTarget: string | null;
-  evalIntervalMinutes: number;
 }
 
 const EMPTY_ROOM_FORM: RoomFormState = {
@@ -33,7 +32,6 @@ const EMPTY_ROOM_FORM: RoomFormState = {
   prompt: "",
   outboundChannel: "",
   outboundTarget: "",
-  evalIntervalMinutes: 5,
 };
 
 const NO_ACTIVITY: ActivityLog[] = [];
@@ -41,7 +39,7 @@ const NO_BACKLOG: BacklogEvent[] = [];
 
 function isConfiguredRoom(
   room: RoomConfigResponse | null,
-): room is RoomConfigResponse & Required<Pick<RoomConfig, "id" | "enabled" | "prompt" | "outboundChannel" | "outboundTarget" | "evalIntervalMinutes">> & { configured: true } {
+): room is RoomConfigResponse & Required<Pick<RoomConfig, "id" | "enabled" | "prompt" | "outboundChannel" | "outboundTarget">> & { configured: true } {
   return room?.configured === true && typeof room.id === "string";
 }
 
@@ -71,7 +69,6 @@ export function RoomTab({ slug }: Props) {
         prompt: room.prompt ?? "",
         outboundChannel: room.outboundChannel ?? "",
         outboundTarget: room.outboundTarget ?? "",
-        evalIntervalMinutes: room.evalIntervalMinutes ?? 5,
       }
     : EMPTY_ROOM_FORM;
   const { draft: roomForm, set, isDirty } = useDraft(baseline);
@@ -87,7 +84,6 @@ export function RoomTab({ slug }: Props) {
         prompt: roomForm.prompt,
         outboundChannel: roomForm.outboundChannel || null,
         outboundTarget: roomForm.outboundTarget || null,
-        evalIntervalMinutes: roomForm.evalIntervalMinutes,
       });
       toast.success(t("room.saved"));
       reload();

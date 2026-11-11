@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { randomUUID } from "node:crypto";
 import { createLogger, shouldLog } from "../utils/create-logger.js";
-import type { IncomingMessage, OutgoingMessage } from "./types.js";
+import type { IncomingMessage, OutgoingMessage, TurnBurst } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
 import { trackBackgroundTurn } from "./background-turns.js";
 import { contactConversationId } from "./outbound-conversation.js";
@@ -31,6 +32,9 @@ const log = createLogger();
  *    the history the restarted run reads, and the same words could do it again.
  *    The run goes on and is saved; the new fragments get a run of their own
  *    after it. No tool starts in a run once it is cancelled.
+ * 8. And once the run begins saving its turn: from then on its reply is in the
+ *    history, so it is the reply the contact receives. Cancelling it there
+ *    would keep a reply nobody got and save its fragments a second time.
  *
  * Rationale: delayed typing gives a human-like "starting to think" latency,
  * while cancel-and-restart keeps the pipeline responsive to updated intent
@@ -95,10 +99,17 @@ interface ConversationState {
   currentAbort: AbortController | null;
   /** Number of consecutive aborts triggered by newly-arrived fragments. */
   restartCount: number;
-  /** The in-flight pipeline has started a tool: it is no longer cancelled, its fragments wait for it. */
-  toolStarted: boolean;
+  /**
+   * The in-flight pipeline has passed a point of no return (a tool started, or
+   * it began saving the turn): it is no longer cancelled, its fragments wait for it.
+   */
+  uncancellable: boolean;
   /** Serialization chain for pipeline runs on the same conversation. */
   flushChain: Promise<unknown>;
+  /** Shared by every run of this burst (see `IncomingMessage.burst`). */
+  burst: TurnBurst;
+  /** What the burst did, logged once when it closes. */
+  stats: { fragments: number; runs: number; restarts: number; startedAt: number; lastFragmentAt: number; gapsMs: number[] };
   /**
    * Ends the burst's entry in the background-turn tracker. The adapter has
    * already acknowledged these fragments, so shutdown waits for the burst —
@@ -169,21 +180,26 @@ export class MessageCoordinator {
 
     // Append fragment to the burst
     state.buffer.push(msg.text);
+    const now = Date.now();
+    state.stats.fragments++;
+    state.stats.gapsMs.push(now - state.stats.lastFragmentAt);
+    state.stats.lastFragmentAt = now;
     const sid = extractMessageSid(msg);
     if (sid) state.lastSid = sid;
     if (msg.attachments?.length) state.attachments.push(...msg.attachments);
 
     if (state.currentAbort) {
       // Pipeline in flight — decide whether to abort and restart, or accumulate.
-      if (state.restartCount < state.timings.maxRestarts && !state.toolStarted) {
+      if (state.restartCount < state.timings.maxRestarts && !state.uncancellable) {
         state.currentAbort.abort();
         state.currentAbort = null;
         state.restartCount++;
+        state.stats.restarts++;
         // Fragments under processing are restored into the buffer by the flushChain
         // catch branch (see doFlush). We just re-arm the pipeline timer here.
         this.armPipelineTimer(key);
       }
-      // else: degraded, or a tool has started — keep fragment in buffer; a new
+      // else: degraded, or past a point of no return — keep fragment in buffer; a new
       // pipeline will be armed by finalizePipeline() once the current run completes.
     } else {
       // Pipeline not yet started — reset sliding timers.
@@ -237,8 +253,10 @@ export class MessageCoordinator {
       pipelineTimer: null,
       currentAbort: null,
       restartCount: 0,
-      toolStarted: false,
+      uncancellable: false,
       flushChain: Promise.resolve(),
+      burst: { id: randomUUID() },
+      stats: { fragments: 1, runs: 0, restarts: 0, startedAt: Date.now(), lastFragmentAt: Date.now(), gapsMs: [] },
       settle,
     };
     this.states.set(key, state);
@@ -311,17 +329,23 @@ export class MessageCoordinator {
           return;
         }
 
-        state.toolStarted = false;
+        state.uncancellable = false;
+        state.stats.runs++;
+        // Asked right before each tool and right before the turn is saved: a
+        // cancelled run does neither, and one that does either is not cancelled.
+        // The check and the flag share one tick, so no fragment falls in between.
+        const pointOfNoReturn = () => {
+          if (signal.aborted) return false;
+          if (state.currentAbort?.signal === signal) state.uncancellable = true;
+          return true;
+        };
         const combined: IncomingMessage = {
           ...state.seed,
           text: fragments.join("\n"),
           attachments: burstAttachments,
-          // Asked right before each tool: a cancelled run starts none, and one that starts any is not cancelled.
-          toolGate: () => {
-            if (signal.aborted) return false;
-            if (state.currentAbort?.signal === signal) state.toolStarted = true;
-            return true;
-          },
+          toolGate: pointOfNoReturn,
+          commitGate: pointOfNoReturn,
+          burst: state.burst,
         };
         return this.doFlush(key, state, combined, signal, fragments, burstAttachments);
       })
@@ -398,9 +422,11 @@ export class MessageCoordinator {
   private finalizePipeline(key: string, state: ConversationState, signal: AbortSignal): void {
     if (state.currentAbort?.signal === signal) state.currentAbort = null;
     state.restartCount = 0;
-    state.toolStarted = false;
+    state.uncancellable = false;
     state.typingSent = false;
     state.lastSid = undefined;
+    // A completed run saved the first turn: no later run treats it as one.
+    state.burst.conversationStart = undefined;
 
     if (state.buffer.length > 0) {
       this.armPipelineTimer(key);
@@ -410,6 +436,21 @@ export class MessageCoordinator {
       if (state.pipelineTimer) clearTimeout(state.pipelineTimer);
       this.states.delete(key);
       state.settle();
+      this.logBurst(state);
     }
+  }
+
+  /**
+   * One line per burst, the data `softDebounceMs` and `maxRestarts` are chosen
+   * from: how many fragments, how far apart, how many runs and restarts. Stable
+   * identifiers only, never the contact's address.
+   */
+  private logBurst(state: ConversationState): void {
+    const { fragments, runs, restarts, startedAt, gapsMs } = state.stats;
+    log.info(
+      "coordinator",
+      `burst closed for ${state.seed.instanceId}/${state.seed.channelType} (${state.burst.id}): ` +
+        `fragments=${fragments} runs=${runs} restarts=${restarts} gapsMs=[${gapsMs.join(",")}] spanMs=${Date.now() - startedAt}`,
+    );
   }
 }

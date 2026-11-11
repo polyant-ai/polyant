@@ -15,7 +15,7 @@
  * was "just one boolean".
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
@@ -37,6 +37,14 @@ function renderWithProvider(ui: ReactElement) {
     </PageActionsProvider>,
   );
 }
+
+/**
+ * The tab has rendered past its loading state. It shows a skeleton until the
+ * document list settles, so waiting for the list call alone let a test look for
+ * the content while the skeleton was still on screen whenever the answer came a
+ * moment later.
+ */
+const tabReady = () => screen.findByLabelText("knowledge.tab.enableTitle");
 
 const { mockSetEnabled, mockGet, mockList, mockDelete, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockSetEnabled: vi.fn(),
@@ -163,7 +171,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
       />,
     );
 
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
     expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
@@ -179,7 +187,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
       />,
     );
 
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
     expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
@@ -209,7 +217,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
 
   it("writes only on save, never on mount", async () => {
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     expect(mockUpdate).not.toHaveBeenCalled();
     // Nothing is dirty, so there is no Save to press either.
@@ -228,7 +236,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={vi.fn()}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
 
@@ -245,7 +253,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={onUpdate}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
     await userEvent.click(screen.getByText("common.save"));
@@ -263,7 +271,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
    */
   it("does not carry the memory switch", async () => {
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     expect(screen.queryByLabelText("settings.tab.memory")).not.toBeInTheDocument();
   });
@@ -277,7 +285,7 @@ describe("KnowledgeTab — the retrieval switch", () => {
         onUpdate={vi.fn()}
       />,
     );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    await tabReady();
 
     await userEvent.click(retrieval());
     await userEvent.click(screen.getByText("common.save"));
@@ -298,6 +306,23 @@ describe("KnowledgeTab — document sizes", () => {
 
     await waitFor(() => expect(screen.getByText(/3 GB/)).toBeInTheDocument());
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeTab — a list longer than one page", () => {
+  it("shows a document once when an upload between two pages pushes it onto the next one", async () => {
+    const doc = (id: string, filename: string) =>
+      ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+    // Newest first: a new document arrived after the first page was read, so the
+    // second page starts one row back and repeats the first page's last document.
+    mockList
+      .mockResolvedValueOnce({ documents: [doc("d2", "second.md"), doc("d1", "boundary.md")], nextOffset: 2 })
+      .mockResolvedValueOnce({ documents: [doc("d1", "boundary.md"), doc("d0", "oldest.md")], nextOffset: null });
+
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("oldest.md");
+    expect(screen.getAllByText("boundary.md")).toHaveLength(1);
   });
 });
 
@@ -480,5 +505,87 @@ describe("KnowledgeTab — the switch on a document", () => {
     await userEvent.click(sw);
     await userEvent.click(sw);
     expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+  });
+});
+
+describe("KnowledgeTab — an agent with more documents than one page", () => {
+  const doc = (id: string, filename: string) => ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+
+  it("follows the engine's pages until the last, and lists every document", async () => {
+    mockList.mockImplementation(async (_slug: string, page?: { offset?: number }) =>
+      page?.offset === 1
+        ? { documents: [doc("d2", "second-page.md")], nextOffset: null }
+        : { documents: [doc("d1", "first-page.md")], nextOffset: 1 },
+    );
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    expect(await screen.findByText("second-page.md")).toBeInTheDocument();
+    expect(screen.getByText("first-page.md")).toBeInTheDocument();
+    expect(mockList).toHaveBeenCalledTimes(2);
+    expect(mockList).toHaveBeenLastCalledWith("a1", { offset: 1 });
+  });
+
+  it("asks once when the engine names no next page", async () => {
+    mockList.mockResolvedValue({ documents: [doc("d1", "only.md")] });
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("only.md");
+    expect(mockList).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("KnowledgeTab — refreshing documents still in processing", () => {
+  const processing = [
+    { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
+  ];
+  const setHidden = (hidden: boolean) => Object.defineProperty(document, "hidden", { value: hidden, configurable: true });
+  /** Let time pass one polling step at a time, so each answer renders before the next step. */
+  const elapse = async (ms: number) => {
+    for (let passed = 0; passed < ms; passed += 3_000) await act(async () => vi.advanceTimersByTime(3_000));
+  };
+
+  beforeEach(() => {
+    // Only the polling interval is driven by hand; everything else keeps real time.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    mockList.mockResolvedValue({ documents: processing });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    setHidden(false);
+  });
+
+  it("asks the engine again every few seconds while a document is processing", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+    const before = mockList.mock.calls.length;
+
+    await elapse(9_000);
+    expect(mockList.mock.calls.length).toBe(before + 3);
+  });
+
+  it("does not ask while the browser tab is hidden, and that time does not count toward giving up", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+    const before = mockList.mock.calls.length;
+
+    setHidden(true);
+    await elapse(10 * 60_000);
+    expect(mockList.mock.calls.length).toBe(before);
+
+    setHidden(false);
+    await elapse(3_000);
+    expect(mockList.mock.calls.length).toBe(before + 1);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it("gives up after about three minutes in view and says so", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await screen.findByText("later.md");
+
+    await elapse(4 * 60_000);
+    expect(mockToastError).toHaveBeenCalledWith("knowledge.tab.processingTimeout");
+    const settled = mockList.mock.calls.length;
+    await elapse(60_000);
+    expect(mockList.mock.calls.length).toBe(settled);
   });
 });

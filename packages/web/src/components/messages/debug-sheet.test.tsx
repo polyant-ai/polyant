@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The Debug sheet: its tabs, and the copy action that puts only the open tab's
- * part of the turn on the clipboard.
+ * The Debug sheet: its tabs, the copy action that puts only the open tab's
+ * part of the turn on the clipboard, and the turn's request path.
  *
  * The expected JSON is written out by hand rather than built from the
  * component's own export helper: a test that calls the same function the
@@ -13,13 +13,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
-import type { MessageDebug } from "@/lib/api";
+import type { MessageDebug, PathModelCall } from "@/lib/api";
 import { DebugSheet } from "./debug-sheet";
 
 const messageDebug = vi.fn();
+const callExchanges = vi.fn();
 
 vi.mock("@/lib/api", () => ({
-  api: { conversations: { messageDebug: (...args: unknown[]) => messageDebug(...args) } },
+  api: {
+    conversations: {
+      messageDebug: (...args: unknown[]) => messageDebug(...args),
+      callExchanges: (...args: unknown[]) => callExchanges(...args),
+    },
+  },
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -41,8 +47,14 @@ const step = {
   durationMs: 12,
 };
 
-function renderSheet(data: MessageDebug) {
-  messageDebug.mockResolvedValue(data);
+/** A turn with nothing but what the test sets. */
+function turn(data: Partial<MessageDebug>): MessageDebug {
+  const path = { turnStartedAt: null, replySentAt: null, deliveredText: null, intermediateText: null, modelCalls: [], hookRuns: [] };
+  return { debugPayload: null, steps: null, content: "", turn: null, summary: null, path, ...data };
+}
+
+function renderSheet(data: Partial<MessageDebug>) {
+  messageDebug.mockResolvedValue(turn(data));
   return render(<DebugSheet open onOpenChange={vi.fn()} target={target} />);
 }
 
@@ -90,9 +102,9 @@ describe("DebugSheet copy action", () => {
     expect(JSON.parse(await copyTab(/message\.debug\.context/))).toEqual({ booking: { day: "monday" } });
   });
 
-  it("offers no copy on Model, Tools and Steps", async () => {
+  it("offers no copy on Model and Tools", async () => {
     renderSheet({ debugPayload: payload, steps: [step] });
-    for (const name of [/message\.debug\.usage/, /message\.debug\.tools/, /message\.debug\.steps/]) {
+    for (const name of [/message\.debug\.usage/, /message\.debug\.tools/]) {
       await userEvent.click(screen.getByRole("tab", { name }));
       expect(screen.queryByRole("button", { name: /common\.copy/ })).not.toBeInTheDocument();
     }
@@ -143,28 +155,6 @@ describe("DebugSheet tabs", () => {
     expect(screen.getByText('"monday"')).toBeInTheDocument();
   });
 
-  it("shows how the turn arrived and its model calls in Model", async () => {
-    renderSheet({
-      debugPayload: null,
-      steps: [],
-      turn: { channel: "whatsapp", streaming: false, speechToText: { provider: "deepgram", durationMs: 320, audioDurationSec: 4.5 } },
-      modelCalls: [
-        { callType: "conversation", provider: "openai", model: "gpt-4o", durationMs: 900,
-          promptTokens: 10, completionTokens: 5, costUsd: 0.001, outcome: "ok", errorKind: null, createdAt: null },
-        { callType: "service", provider: "openai", model: "gpt-4o-mini", durationMs: 50,
-          promptTokens: 3, completionTokens: 0, costUsd: 0, outcome: "error", errorKind: "rate_limit", createdAt: null },
-      ],
-    });
-
-    expect(await screen.findByText("whatsapp")).toBeInTheDocument();
-    expect(screen.getByText("deepgram")).toBeInTheDocument();
-    expect(screen.getByText("message.debug.modelCalls")).toBeInTheDocument();
-    expect(screen.getByText("message.debug.callConversation")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "message.debug.outcomeOk" })).toHaveTextContent("✅");
-    expect(screen.getByRole("img", { name: "message.debug.outcomeError" })).toHaveTextContent("❌");
-    expect(screen.getByText("rate_limit")).toBeInTheDocument();
-  });
-
   it("keeps the system prompt in Prompt and the messages sent in Messages", async () => {
     renderSheet({
       debugPayload: { system: "You are a test.", messages: [stateMessage], tools: [] },
@@ -179,13 +169,133 @@ describe("DebugSheet tabs", () => {
     expect(await screen.findByRole("button", { name: "0" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("says the payload was not captured in the payload tabs, and keeps the steps", async () => {
+  it("says the payload was not captured in the payload tabs", async () => {
     renderSheet({ debugPayload: null, steps: [step] });
 
     await userEvent.click(screen.getByRole("tab", { name: "message.debug.prompt" }));
     expect(await screen.findByText("message.debug.noPayload")).toBeInTheDocument();
+  });
+});
 
-    await userEvent.click(screen.getByRole("tab", { name: /message\.debug\.steps/ }));
-    expect(await screen.findByText("lookup")).toBeInTheDocument();
+describe("DebugSheet request path", () => {
+  const T0 = "2026-11-03T14:29:00.000Z";
+  const at = (ms: number) => new Date(Date.parse(T0) + ms).toISOString();
+  const call = (over: Partial<PathModelCall>): PathModelCall => ({
+    id: "call-agent",
+    callType: "conversation",
+    purpose: null,
+    originName: null,
+    parentRef: null,
+    provider: "anthropic",
+    model: "claude-sonnet-5",
+    startedAt: at(100),
+    durationMs: 3000,
+    promptTokens: 100,
+    completionTokens: 20,
+    cachedInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    costUsd: 0.01,
+    stepCount: 2,
+    outcome: "ok",
+    errorKind: null,
+    exchangeCount: 2,
+    ...over,
+  });
+  const steps = [
+    {
+      index: 0,
+      stepType: "initial" as const,
+      text: "Checking the order.",
+      startedAt: at(100),
+      toolCalls: [{ toolCallId: "tc-1", toolName: "lookupOrder", args: { order: "48213" }, startedAt: at(1300), durationMs: 200 }],
+      toolResults: [{ toolCallId: "tc-1", result: { status: "shipped" } }],
+      finishReason: "tool-calls",
+      durationMs: 1200,
+    },
+    { index: 1, stepType: "tool-result" as const, text: "It ships tomorrow.", startedAt: at(1600), toolCalls: [], finishReason: "stop", durationMs: 1400 },
+  ];
+  const path: MessageDebug["path"] = {
+    turnStartedAt: T0,
+    replySentAt: at(3200),
+    deliveredText: "Checking the order.\n\nIt ships tomorrow.",
+    intermediateText: null,
+    hookRuns: [
+      { id: "run-1", name: "classifyIntent", event: "message_received", startedAt: at(10), durationMs: 80, success: true, error: null, args: { text: "hi" }, result: "delivery" },
+    ],
+    modelCalls: [
+      call({}),
+      call({ id: "call-hook", callType: "service", purpose: "hook", originName: "classifyIntent", parentRef: "run-1", startedAt: at(20), durationMs: 60, stepCount: 1, exchangeCount: 1 }),
+      call({ id: "call-tool", callType: "service", purpose: "tool", originName: "lookupOrder", parentRef: "tc-1", startedAt: at(1350), durationMs: 100, stepCount: 1, exchangeCount: 0 }),
+      call({ id: "call-title", callType: "service", purpose: "title", startedAt: at(3300), durationMs: 500, stepCount: 1, exchangeCount: 1 }),
+    ],
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("lays the turn out on its clock, with every run under what made it", async () => {
+    renderSheet({ steps, content: "It ships tomorrow.", turn: { channel: "web", streaming: true, speechToText: null }, path });
+
+    expect(await screen.findByText("message.debug.path.title")).toBeInTheDocument();
+    expect(screen.getByText("classifyIntent")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.path.agent")).toBeInTheDocument();
+    expect(screen.getAllByText("message.debug.path.step")).toHaveLength(2);
+    expect(screen.getByText("lookupOrder")).toBeInTheDocument();
+    // The hook's and the tool's own model calls nest under them.
+    expect(screen.getAllByText("message.debug.path.modelCall")).toHaveLength(2);
+    expect(screen.getByText(/message\.debug\.path\.system · message\.debug\.path\.purpose\.title/)).toBeInTheDocument();
+    // A streamed turn with no policy let the step's text through.
+    expect(screen.getByText("«Checking the order.»")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.path.fate.unsetStream")).toBeInTheDocument();
+    // The send row opens on what the channel received.
+    await userEvent.click(screen.getByRole("button", { name: /message\.debug\.path\.sent/ }));
+    expect(screen.getByText(/Checking the order\.\s+It ships tomorrow\./)).toBeInTheDocument();
+  });
+
+  it("fetches a call's raw exchange only when its row opens", async () => {
+    callExchanges.mockResolvedValue({
+      exchanges: [{ stepIndex: 0, attempt: 1, status: 200, request: { model: "claude-sonnet-5" }, response: { stop_reason: "end_turn" }, createdAt: at(3800) }],
+    });
+    renderSheet({ steps, content: "It ships tomorrow.", path });
+    await screen.findByText("message.debug.path.title");
+    expect(callExchanges).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /message\.debug\.path\.purpose\.title/ }));
+    expect(callExchanges).toHaveBeenCalledWith("conv-1", "msg-1", "call-title", "agent-1");
+    expect(await screen.findByText("anthropic · claude-sonnet-5")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "message.debug.path.response" }));
+    expect(screen.getByText("HTTP 200")).toBeInTheDocument();
+  });
+
+  it("says the exchange was not saved when debug was off, without asking for it", async () => {
+    renderSheet({ steps, content: "It ships tomorrow.", path });
+    await screen.findByText("message.debug.path.title");
+    const toolCall = screen.getAllByRole("button", { name: /message\.debug\.path\.modelCall/ }).at(-1)!;
+    await userEvent.click(toolCall);
+    expect(screen.getByText("message.debug.path.noExchanges")).toBeInTheDocument();
+    expect(callExchanges).not.toHaveBeenCalled();
+  });
+
+  it("lays an older turn out the same way, with the times it kept", async () => {
+    // Steps saved before the request path carry no start times.
+    const older = [
+      { ...steps[0], startedAt: undefined, toolCalls: [{ toolCallId: "tc-1", toolName: "lookupOrder", args: { order: "48213" } }] },
+      { ...steps[1], startedAt: undefined },
+    ];
+    renderSheet({
+      steps: older,
+      content: "It ships tomorrow.",
+      path: {
+        turnStartedAt: T0,
+        replySentAt: at(3200),
+        deliveredText: null,
+        intermediateText: null,
+        hookRuns: [],
+        modelCalls: [call({ id: "msg-1", startedAt: null, exchangeCount: 0 })],
+      },
+    });
+    expect(await screen.findByText("message.debug.path.title")).toBeInTheDocument();
+    expect(screen.getByText("message.debug.path.agent")).toBeInTheDocument();
+    expect(screen.getAllByText("message.debug.path.step")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /message\.debug\.path\.sent/ })).toBeInTheDocument();
   });
 });

@@ -572,12 +572,9 @@ describe("registry", () => {
     });
 
     it("imports only files matching the *.tool.(ts|js) pattern", async () => {
-      // We cannot easily intercept dynamic import() in Vitest, but we can
-      // verify the filtering logic by checking which files readdirSync returns
-      // and ensuring non-tool files are ignored. We'll set up a scenario
-      // where readdirSync returns a mix and assert no errors occur for
-      // non-existent tool files (since import() for unknown files would throw
-      // if actually called for non-tool files).
+      // `my-helper.ts` does not exist: importing it would reject the load, and a
+      // core tools file that fails to load aborts it. So a load that resolves
+      // imported none of these non-tool names.
       mockReaddirSync.mockReturnValue([
         "registry.ts",
         "registry.test.ts",
@@ -585,8 +582,7 @@ describe("registry", () => {
         "index.ts",
       ] as any);
 
-      // Should complete without error since no *.tool.ts files are found
-      await loadAllTools();
+      await expect(loadAllTools()).resolves.toBeUndefined();
     });
 
     it("prunes tools with missing requiredEnv vars from the registry", async () => {

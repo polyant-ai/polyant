@@ -21,5 +21,7 @@ export const toolAuditLogs = pgTable(
     index("idx_tool_audit_instance_created").on(table.instanceId, table.createdAt),
     index("idx_tool_audit_tool_created").on(table.toolName, table.createdAt),
     index("idx_tool_audit_conversation").on(table.conversationId),
+    // The cleanup deletes by age.
+    index("idx_tool_audit_created").on(table.createdAt),
   ],
 );

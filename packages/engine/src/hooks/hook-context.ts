@@ -31,7 +31,7 @@ export function buildHookContext(
     apiKeys: ctx.apiKeys,
     ai: agentAi(
       { provider: ctx.provider, model: ctx.model, apiKeys: ctx.apiKeys, abortSignal: ctx.abortSignal },
-      { conversationId: ctx.conversationId, instanceId: ctx.instanceId },
+      { conversationId: ctx.conversationId, instanceId: ctx.instanceId, purpose: "hook" },
     ),
     audit,
     abortSignal: ctx.abortSignal,

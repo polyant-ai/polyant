@@ -1,0 +1,2 @@
+-- The conversation watermarks (`summary_through`, `memory_through`) are added by
+-- 0118. Kept so the numbering of the release does not move.

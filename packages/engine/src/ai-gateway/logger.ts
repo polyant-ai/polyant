@@ -27,20 +27,33 @@ export const aiLogs = pgTable(
     conversationId: text("conversation_id"),
     instanceId: text("instance_id"),
     callType: text("call_type").notNull().default("conversation"),
+    // What a service call was for (title, summary, memory…); null on other calls.
+    purpose: text("purpose"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     // A turn that dies at the provider used to leave no row at all. Default 'ok'
     // keeps every historical row meaningful — they are all calls that returned.
     outcome: text("outcome").notNull().default("ok"),
     // The CLASS of the failure (see classifyProviderError below), never the
     // message: the message can quote the request, and the request is the prompt.
+    // On an `aborted` row, `in_flight` marks that its prompt includes the
+    // estimate of a model call aborted before it answered.
     errorKind: text("error_kind"),
+    // The request path (see request-path/): the assistant message of the turn
+    // the call belongs to, when it started, and — for a call a hook or a tool
+    // made — that run's name and id (hook_executions.id or the tool call id).
+    // Null on rows written before the columns and on calls outside a turn.
+    messageId: uuid("message_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    originName: text("origin_name"),
+    parentRef: text("parent_ref"),
   },
   (table) => [
-    index("idx_ai_logs_instance_id").on(table.instanceId),
     index("idx_ai_logs_created_at").on(table.createdAt),
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
     // Conversation-list token/cost LATERAL aggregation filters by conversation_id.
     index("idx_ai_logs_conversation_id").on(table.conversationId),
+    // The request path reads a turn's calls by its message.
+    index("idx_ai_logs_message").on(table.messageId),
     // Error-rate-by-agent queries filter on instance_id + outcome, ordered by time.
     index("idx_ai_logs_instance_outcome").on(table.instanceId, table.outcome, table.createdAt),
   ],

@@ -22,13 +22,19 @@ if (existsSync(packageEnv)) {
 }
 
 /*
-  Migrations in this repository are written by hand: there are no drizzle-kit
-  snapshots under migrations/meta, and most CHECK constraints (on instances,
-  organizations and platform_settings), some partial indexes and every data
-  backfill live only in the SQL files, not in the Drizzle schema. So
+  Migrations in this repository are written by hand: most CHECK constraints (on
+  instances, organizations and platform_settings), some partial indexes and every
+  data backfill live only in the SQL files, not in the Drizzle schema. So
   `drizzle-kit push` is NOT a supported path: diffing these schema files against
   a migrated database would drop what they do not declare. Apply schema changes
   with `npm run db:migrate`.
+
+  migrations/meta holds one snapshot of these schema files as of the latest
+  migration (src/database/schema-snapshot.ts), so `npm run db:generate` writes
+  only what changed since. It names the file after the journal's length, not the
+  next file number: rename it and its journal `tag` before committing. After a
+  migration written without the generator, `npm run db:snapshot` rewrites the
+  snapshot; a guardrail test fails while it is stale.
 
   The list below still has to name every file that declares a table, so tools
   that read it (`db:studio`) see the whole database. A guardrail test
@@ -38,6 +44,7 @@ export default defineConfig({
   out: "./src/database/migrations",
   schema: [
     "./src/ai-gateway/logger.ts",
+    "./src/background/work-lease.schema.ts",
     "./src/conversations/schema.ts",
     "./src/instances/schema.ts",
     "./src/instances/skill-env.schema.ts",
@@ -54,6 +61,7 @@ export default defineConfig({
     "./src/room/room.schema.ts",
     "./src/audit/audit.schema.ts",
     "./src/auth/users.schema.ts",
+    "./src/users/favorite-agents.schema.ts",
     "./src/webhooks/webhooks.schema.ts",
     "./src/analytics/traces.schema.ts",
     "./src/optout/optout.schema.ts",
@@ -64,6 +72,7 @@ export default defineConfig({
     "./src/auth/management-api-keys.schema.ts",
     "./src/conversations/principal-secrets.schema.ts",
     "./src/hooks/hooks.schema.ts",
+    "./src/request-path/exchanges.schema.ts",
     "./src/instances/mcp-servers.schema.ts",
     "./src/management-audit/management-audit.schema.ts",
     "./src/platform/platform-settings.schema.ts",

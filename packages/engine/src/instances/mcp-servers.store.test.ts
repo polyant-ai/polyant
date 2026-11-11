@@ -7,7 +7,9 @@ const rows: any[] = [];
 vi.mock("../database/client.js", () => ({
   db: {
     insert: () => ({ values: (v: any) => ({ onConflictDoUpdate: ({ set }: any) => { const i = rows.findIndex((r) => r.instanceId === v.instanceId && r.slug === v.slug); if (i >= 0) rows[i] = { ...rows[i], ...set }; else rows.push(v); } }) }),
-    select: () => ({ from: () => ({ where: () => rows.slice() }) }),
+    select: () => ({ from: () => ({ where: () => Object.assign(rows.slice(), {
+      orderBy: () => rows.slice().sort((a, b) => a.slug.localeCompare(b.slug)),
+    }) }) }),
     delete: () => ({ where: () => { rows.length = 0; } }),
     update: () => ({ set: () => ({ where: () => {} }) }),
   },
@@ -37,6 +39,15 @@ describe("mcp-servers.store", () => {
 
   it("should_accept_oauth_config_with_only_scopes", () => {
     expect(mcpServerConfigSchema("oauth", { scopes: ["repo"] })).toMatchObject({ scopes: ["repo"] });
+  });
+
+  // The servers' order is the MCP tools' order in every LLM request, and the tools
+  // open the prompt-cache prefix: a reshuffle between requests loses every cached prefix.
+  it("should_list_enabled_servers_in_slug_order", async () => {
+    for (const slug of ["widget", "arcadia", "kb"]) {
+      await setMcpServer(IID, { slug, name: slug, url: "https://mcp.example.com", authMode: "none", enabled: true, config: {} });
+    }
+    expect((await listEnabledMcpServers(IID)).map((s) => s.slug)).toEqual(["arcadia", "kb", "widget"]);
   });
 
   it("should_encrypt_and_round_trip_a_static_server", async () => {

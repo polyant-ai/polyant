@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ModelMessage, Tool, UserContent } from "ai";
+import { runAs } from "../../request-path/turn-scope.js";
 import { tool as aiTool } from "ai";
 import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
@@ -15,7 +16,7 @@ import {
 } from "../tools/registry.js";
 import { artifactApiFor } from "../tools/artifact-store.js";
 import { agentAi } from "../../ai-gateway/agent-ai.js";
-import type { Attachment } from "../../channels/types.js";
+import type { Attachment, ToolObserver } from "../../channels/types.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { auditStore } from "../../audit/audit.store.js";
 import { createTaskTool } from "../tools/task.tool.js";
@@ -31,12 +32,14 @@ import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import { buildConversationApi } from "../../conversations/conversation-history-api.js";
+import { requestPrefixKey, withoutStaleReasoning, type ExactTurn } from "../../conversations/tool-history.js";
 import { makeOAuthAccess } from "../tools/oauth-access.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
+import type { McpServerRecord } from "../../instances/mcp-servers.store.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
@@ -87,15 +90,19 @@ export interface SupervisorInput {
   /** The agent's resolved datetime formatting; absent = the deployment default. */
   datetime?: DatetimeSettings;
   /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
-  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
+  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h"; userTurn?: boolean };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   /** The agent's policy for text written alongside a tool call; null/absent = unset. */
   intermediateText?: IntermediateTextPolicy | null;
   /** The channel's veto on each tool, asked right before it runs (`IncomingMessage.toolGate`). */
   toolGate?: (toolName: string) => boolean;
+  /** Told of each tool call and result as they happen (`IncomingMessage.toolObserver`). */
+  toolObserver?: ToolObserver;
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
+  /** The id the turn's assistant message is saved under; the agent's model calls are filed under it (request path). */
+  messageId?: string;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
   includeHarness?: Set<string>;
   /** Attachments from the current user message (images, files, etc.). */
@@ -148,6 +155,8 @@ export interface SupervisorInput {
    * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
    */
   allowOAuth?: boolean;
+  /** The agent's MCP servers when the turn already read them (`startMcpConnections`). */
+  mcpServers?: Promise<McpServerRecord[]>;
 }
 
 export interface SupervisorOutput {
@@ -197,6 +206,13 @@ export interface SupervisorOutput {
    * on — threaded to the pipeline and persisted on the assistant message row.
    */
   debugPayload?: LlmDebugPayload;
+  /**
+   * The turn's messages as the model received them: the user message (content
+   * parts and volatile tail included), the step-by-step response messages, and
+   * the fingerprint of the system prompt, tools and model they ran under.
+   * Persisted only by agents that replay their history exactly.
+   */
+  exactTurn?: ExactTurn;
 }
 
 /** Shared mutable signals accumulated across tool calls within a single supervise() run. */
@@ -205,6 +221,10 @@ interface SupervisorSignals {
   replyTexts: string[];
   /** The channel's veto, asked by every tool wrapper right before the tool runs. */
   toolGate?: (toolName: string) => boolean;
+  /** Told by every tool wrapper of the call and of its result. */
+  toolObserver?: ToolObserver;
+  /** The turn the tools run in, so what a tool asks the model is filed under its run (request path). */
+  turn?: { messageId: string; debug: boolean };
 }
 
 /** What the model reads for a tool the channel stopped: the turn was cut short before it ran. */
@@ -243,10 +263,10 @@ export function wrapToolWithAudit(
   if (!original.execute) return builtTool;
 
   const originalExecute = original.execute;
-  return aiTool({
+  return observeTool(name, aiTool({
     description: original.description ?? "",
     inputSchema: original.inputSchema as never,
-    execute: async (params: any) => {
+    execute: async (params: any, options?: { toolCallId?: string }) => {
       const toolStart = Date.now();
       const emitToolEnd = emitToolStart({ toolName: name, args: params, conversationId, instanceSlug: instanceId });
 
@@ -257,8 +277,11 @@ export function wrapToolWithAudit(
         return { error: TOOL_NOT_RUN, notRun: true };
       }
 
+      const auditCall = auditStore.beginToolCall(name, instanceId);
       try {
-        const output = await originalExecute(params);
+        const run = () => auditCall.run(() => originalExecute(params));
+        const toolCallId = options?.toolCallId;
+        const output = await (toolCallId ? runAs({ kind: "tool", name, toolCallId }, run, signals?.turn) : run());
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
@@ -272,21 +295,45 @@ export function wrapToolWithAudit(
           }
         }
         toolCallTraces?.push({ name, duration_ms: durationMs, success: !hasError });
-        // Backfill duration + output on the audit entry logged by the tool
-        auditStore.patchDuration(name, instanceId, durationMs);
-        const outputPreview = safeOutputPreview(output);
-        if (outputPreview) auditStore.patchOutput(name, instanceId, outputPreview);
+        auditCall.end(durationMs, safeOutputPreview(output));
         emitToolEnd({ kind: "success", output });
         return output;
       } catch (err) {
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
-        auditStore.patchDuration(name, instanceId, durationMs);
+        auditCall.end(durationMs);
         emitToolEnd({ kind: "error", message: errMsg(err) });
         throw err;
       }
     },
-  });
+  }), signals?.toolObserver);
+}
+
+/**
+ * Tell `observer` of the tool's call and of what the model gets back, around
+ * whatever the tool does (the gate, the audit). A tool that throws is reported
+ * as an error result. Without an observer the tool is returned as it is.
+ */
+export function observeTool(name: string, builtTool: Tool, observer?: ToolObserver): Tool {
+  const execute = (builtTool as { execute?: (params: unknown, options?: { toolCallId?: string }) => Promise<unknown> }).execute;
+  if (!observer || !execute) return builtTool;
+  const toolName = toModelToolName(name);
+  return {
+    ...builtTool,
+    execute: async (params: unknown, options?: { toolCallId?: string }) => {
+      const toolCallId = options?.toolCallId;
+      if (!toolCallId) return execute(params, options);
+      observer.onToolCall({ toolCallId, toolName, input: params });
+      try {
+        const output = await execute(params, options);
+        observer.onToolResult({ toolCallId, output });
+        return output;
+      } catch (err) {
+        observer.onToolResult({ toolCallId, output: { error: errMsg(err) } });
+        throw err;
+      }
+    },
+  } as Tool;
 }
 
 interface BuildToolsOptions {
@@ -362,7 +409,7 @@ async function buildTools(opts: BuildToolsOptions) {
         // takeable here, so the store needs no per-tool authorization of its own.
         artifacts: artifactApiFor(instanceId, conversationId),
         // No `model`: a pinned model would override the tier the tool asks for.
-        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId }),
+        ai: agentAi({ provider, apiKeys, abortSignal, langsmith }, { conversationId, instanceId, purpose: "tool" }),
         abortSignal,
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
@@ -451,13 +498,13 @@ async function buildTools(opts: BuildToolsOptions) {
         dispatch: (input) => adapter.dispatch(input),
       });
       const handoff = synth.execute as (args: { prompt: string }) => Promise<string>;
-      tools[synth.name] = aiTool({
+      tools[synth.name] = observeTool(synth.name, aiTool({
         description: synth.description,
         inputSchema: synth.inputSchema,
         // The channel's veto covers a handoff too: the other agent can write.
         execute: async (args: { prompt: string }) =>
           signals?.toolGate && !signals.toolGate(synth.name) ? { error: TOOL_NOT_RUN, notRun: true } : handoff(args),
-      });
+      }), signals?.toolObserver);
     }
   }
 
@@ -491,6 +538,8 @@ interface SupervisorContext {
   tools: Record<string, Tool>;
   systemPrompt: string;
   messages: ModelMessage[];
+  /** Fingerprint of the system prompt, tools and model of this request (see `requestPrefixKey`). */
+  prefixKey: string;
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
@@ -566,7 +615,13 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   }
 
   const toolCallTraces: ToolCallTrace[] = [];
-  const signals: SupervisorSignals = { replyHandled: false, replyTexts: [], ...(input.toolGate ? { toolGate: input.toolGate } : {}) };
+  const signals: SupervisorSignals = {
+    replyHandled: false,
+    replyTexts: [],
+    ...(input.toolGate ? { toolGate: input.toolGate } : {}),
+    ...(input.toolObserver ? { toolObserver: input.toolObserver } : {}),
+    ...(input.messageId ? { turn: { messageId: input.messageId, debug: input.debugEnabled ?? false } } : {}),
+  };
   const toolBuildStart = Date.now();
   const tools = await buildTools({
     instanceId: instanceSlug,
@@ -598,6 +653,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     conversationId: input.conversationId,
     abortSignal: input.abortSignal,
     allowOAuth: input.allowOAuth ?? false,
+    servers: input.mcpServers,
   });
 
   // Everything below opens no new resources, but it DOES await (DB calls in
@@ -617,7 +673,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
     }
 
-    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+    const { system: systemPrompt, conversationSystem, turnContext } = await buildSupervisorSystemPrompt({
       tools,
       instanceId: instanceUuid,
       instanceSlug,
@@ -639,12 +695,28 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     // Build user message — multimodal when attachments are present. The per-turn
     // volatile context rides the tail of this message (see buildUserContent).
     const userContent = buildUserContent(input.message, turnContext, input.attachments);
-    const messages: ModelMessage[] = [
+    // Conversation-only system text leads the history: the gateway sends it
+    // after the cached agent prompt, ahead of the history's own system rows.
+    const history: ModelMessage[] = [
+      ...(conversationSystem ? [{ role: "system" as const, content: conversationSystem }] : []),
       ...(input.conversationHistory ?? []),
+    ];
+    const prefixKey = requestPrefixKey({
+      system: systemPrompt,
+      messages: history,
+      tools,
+      provider: input.provider,
+      model: input.model,
+    });
+    // An exactly replayed turn keeps its signed thinking blocks only while the
+    // prefix they are bound to is unchanged; a history without such turns comes
+    // back as the same array.
+    const messages: ModelMessage[] = [
+      ...withoutStaleReasoning(history, prefixKey),
       { role: "user", content: userContent },
     ];
 
-    return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
+    return { instanceId: instanceSlug, tools, systemPrompt, messages, prefixKey, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
   } catch (err) {
     await mcp.close().catch(() => { /* best-effort */ });
     throw err;
@@ -687,6 +759,7 @@ function buildChatArgs(
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
       agentCallMetadata: input.agentCallMetadata,
+      ...(input.messageId ? { messageId: input.messageId } : {}),
     },
   ];
 }
@@ -714,6 +787,11 @@ function toSupervisorOutput(
     replyHandled: ctx.signals.replyHandled || undefined,
     replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
     ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+    exactTurn: {
+      user: ctx.messages[ctx.messages.length - 1],
+      response: response.responseMessages ?? [],
+      prefixKey: ctx.prefixKey,
+    },
   };
 }
 

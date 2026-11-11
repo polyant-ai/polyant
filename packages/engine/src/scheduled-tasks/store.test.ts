@@ -184,7 +184,7 @@ describe("scheduled-tasks/store", () => {
       // returning() resolves to [{ id }] when one row was updated
       mockDb.update.mockReturnValue(createChainMock([{ id: TASK_ID }]) as never);
 
-      const result = await markRunning(TASK_ID);
+      const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeInstanceOf(Date);
       expect(mockDb.update).toHaveBeenCalledTimes(1);
@@ -194,7 +194,7 @@ describe("scheduled-tasks/store", () => {
       // returning() resolves to [] when WHERE clause filtered out the row
       mockDb.update.mockReturnValue(createChainMock([]) as never);
 
-      const result = await markRunning(TASK_ID);
+      const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeNull();
     });
@@ -281,6 +281,22 @@ describe("scheduled-tasks/store", () => {
       expect(setArgs.enabled).toBe(false);
       expect(setArgs.nextRunAt).toBeNull();
       expect(setArgs.lastError).toBe("give up");
+    });
+
+    it("disables on the first failure a task whose stored schedule yields no next run, without retrying", async () => {
+      wireGetById({ ...BASE_TASK, consecutiveErrors: 0, maxRetries: 3 });
+      mockComputeNextRun.mockImplementationOnce(() => {
+        throw new RangeError("Interval schedule has an invalid everyMs: 0");
+      });
+      const updateChain = createChainMock([{ id: TASK_ID }]);
+      mockDb.update.mockReturnValue(updateChain as never);
+
+      await markFailed(TASK_ID, "Interval schedule has an invalid everyMs: 0", new Date());
+
+      const setArgs = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
+      expect(setArgs.enabled).toBe(false);
+      expect(setArgs.nextRunAt).toBeNull();
+      expect(mockComputeRetryDelay).not.toHaveBeenCalled();
     });
 
     it("is a no-op (no update) when the task does not exist", async () => {

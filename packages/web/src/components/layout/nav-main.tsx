@@ -20,6 +20,8 @@ export interface NavItem {
   title: string;
   url: string;
   icon: LucideIcon;
+  /** A picture drawn in place of `icon`, such as an agent's own; already checked as safe. */
+  image?: string;
   exact?: boolean;
   /** True while the tenancy needed to resolve `url` is not yet known. */
   disabled?: boolean;
@@ -69,10 +71,14 @@ export function NavMain({
         <SidebarMenu>
           {items.map((item) => {
             const isActive = isNavActive(pathname, item.url, item.exact);
+            // Not the url alone: until the tenancy resolves every disabled entry
+            // links to the same placeholder "/", and duplicate keys left those
+            // rows on screen beside the live ones once the slugs arrived.
+            const key = item.tour ?? item.url;
 
             if (item.disabled) {
               return (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={key}>
                   <SidebarMenuButton tooltip={item.title} aria-disabled="true" data-tour={item.tour}>
                     <item.icon />
                     <span>{item.title}</span>
@@ -82,7 +88,7 @@ export function NavMain({
             }
 
             return (
-              <SidebarMenuItem key={item.title}>
+              <SidebarMenuItem key={key}>
                 <SidebarMenuButton
                   asChild
                   isActive={isActive}
@@ -90,7 +96,13 @@ export function NavMain({
                   className={cn(isActive && ACTIVE_ROW_CLASS)}
                 >
                   <Link href={item.url} data-tour={item.tour}>
-                    <item.icon />
+                    {item.image ? (
+                      // A 16px picture gains nothing from next/image optimisation.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.image} alt="" className="size-4 shrink-0 rounded-sm object-cover" />
+                    ) : (
+                      <item.icon />
+                    )}
                     <span>{item.title}</span>
                   </Link>
                 </SidebarMenuButton>

@@ -46,6 +46,7 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("../crypto/index.js", () => ({
   encrypt: mockEncrypt,
   decrypt: mockDecrypt,
+  lookupDigest: (v: string) => `digest:${v}`,
 }));
 
 vi.mock("./schema.js", () => ({
@@ -147,8 +148,21 @@ describe("instances/secrets.store", () => {
         instanceId: INSTANCE_UUID,
         key: "openai_api_key",
         value: "encrypted:sk-test-key",
+        lookupDigest: null,
       });
       expect(chain.onConflictDoUpdate).toHaveBeenCalled();
+    });
+
+    it("stores the lookup digest of an agent API key, and replaces it with the value", async () => {
+      const chain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(chain as never);
+
+      await setSecret(INSTANCE_UUID, "auth_api_key", "k-1");
+
+      expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ lookupDigest: "digest:k-1" }));
+      expect(chain.onConflictDoUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ set: expect.objectContaining({ value: "encrypted:k-1", lookupDigest: "digest:k-1" }) }),
+      );
     });
   });
 

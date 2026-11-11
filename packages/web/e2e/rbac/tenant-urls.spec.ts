@@ -14,7 +14,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { loginAs } from "../fixtures/auth.js";
+import { loginAs, setGuidance } from "../fixtures/auth.js";
 
 const ORG_SLUG = "default";
 const WORKSPACE_SLUG = "general";
@@ -27,17 +27,36 @@ const CANONICAL_AGENTS = `/organizations/${ORG_SLUG}/workspaces/${WORKSPACE_SLUG
 const AGENTS_HEADING = /^(Agents|Agenti)$/;
 const NOT_FOUND_COPY = /does not exist|non esiste/i;
 
+/**
+ * Where `/` lands (`app/(admin)/page.tsx`): the caller's organization dashboard.
+ * For a person who has not seen the first-access wizard, the wizard opens there,
+ * and since it only runs under a workspace the panel moves on to the default
+ * workspace's agents (`components/onboarding/onboarding-host.tsx`). The specs
+ * below set the guidance state they depend on: it belongs to the user and
+ * outlives a spec.
+ */
 test.describe("tenant-scoped URLs", () => {
   test("the root path resolves to the organization dashboard", async ({ page }) => {
     await loginAs(page, "owner");
+    await setGuidance(page, "closed");
 
     await page.goto("/");
 
     await page.waitForURL(`**/organizations/${ORG_SLUG}`, { timeout: 20_000 });
   });
 
+  test("the root path takes a person new to the panel to the default workspace's agents, where the wizard opens", async ({ page }) => {
+    await loginAs(page, "owner");
+    await setGuidance(page, "new");
+
+    await page.goto("/");
+
+    await page.waitForURL(`**${CANONICAL_AGENTS}`, { timeout: 20_000 });
+  });
+
   test("the canonical workspace URL renders the agents page", async ({ page }) => {
     await loginAs(page, "owner");
+    await setGuidance(page, "closed");
 
     await page.goto(CANONICAL_AGENTS);
 
@@ -47,6 +66,8 @@ test.describe("tenant-scoped URLs", () => {
 
   test("an unknown organization slug is a 404", async ({ page }) => {
     await loginAs(page, "owner");
+    // With the wizard closed nothing opens over the 404 page and covers its link.
+    await setGuidance(page, "closed");
 
     await page.goto(`/organizations/ghost/workspaces/${WORKSPACE_SLUG}/instances`);
 
@@ -63,6 +84,7 @@ test.describe("tenant-scoped URLs", () => {
 
   test("an unknown workspace slug is a 404", async ({ page }) => {
     await loginAs(page, "owner");
+    await setGuidance(page, "closed");
 
     await page.goto(`/organizations/${ORG_SLUG}/workspaces/ghost/instances`);
 
@@ -71,6 +93,7 @@ test.describe("tenant-scoped URLs", () => {
 
   test("a Viewer can still resolve their tenancy under enforcement", async ({ page }) => {
     await loginAs(page, "viewer");
+    await setGuidance(page, "closed");
 
     await page.goto("/");
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { isUniqueViolation } from "./db-errors.js";
+import { isForeignKeyViolation, isUniqueViolation } from "./db-errors.js";
 
 describe("isUniqueViolation", () => {
   it("returns true for an Error with .code === '23505' on the top level", () => {
@@ -40,5 +40,17 @@ describe("isUniqueViolation", () => {
 
   it("returns false for an Error with no code anywhere", () => {
     expect(isUniqueViolation(new Error("plain error"))).toBe(false);
+  });
+});
+
+describe("isForeignKeyViolation", () => {
+  it("returns true when the driver error with code 23503 is wrapped on .cause", () => {
+    const driverError = Object.assign(new Error("insert or update violates foreign key constraint"), { code: "23503" });
+    const wrapped = Object.assign(new Error("Failed query: insert into ..."), { cause: driverError });
+    expect(isForeignKeyViolation(wrapped)).toBe(true);
+  });
+
+  it("returns false for a unique violation", () => {
+    expect(isForeignKeyViolation(Object.assign(new Error("duplicate key"), { code: "23505" }))).toBe(false);
   });
 });

@@ -28,7 +28,7 @@ export async function generateConversationTitle(opts: GenerateTitleOptions): Pro
     langsmith: opts.langsmith ?? undefined,
     system,
     messages: [{ role: "user", content: opts.content }],
-  }, { conversationId: opts.conversationId, instanceId: asInstanceSlug(opts.instanceId), callType: "service" });
+  }, { conversationId: opts.conversationId, instanceId: asInstanceSlug(opts.instanceId), callType: "service", purpose: "title" });
 
   const title = titleResponse.text.trim();
   if (title) {

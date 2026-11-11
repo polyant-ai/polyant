@@ -4,9 +4,19 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { config } from "../config.js";
 
+/**
+ * The main pool: turns, the API and the jobs. Statements and idle transactions
+ * are capped generously (`config.postgres`), so a stuck read or a transaction
+ * an error left open gives its connection back instead of holding one of the
+ * pool's few connections for good.
+ */
 const queryClient = postgres(config.postgres.databaseUrl, {
   max: config.postgres.poolMax,
-  connection: { TimeZone: "UTC" },
+  connection: {
+    TimeZone: "UTC",
+    statement_timeout: config.postgres.statementTimeoutMs,
+    idle_in_transaction_session_timeout: config.postgres.idleInTransactionTimeoutMs,
+  },
   ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
 });
 

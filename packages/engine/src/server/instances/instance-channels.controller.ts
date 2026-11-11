@@ -137,6 +137,7 @@ export class InstanceChannelsController {
     this.auditWebhookSecretWrite(slug, user);
     if (channel.enabled) {
       await channelManager.startChannel(slug, WHATSAPP_CHANNEL_TYPE, result.config);
+      await channelManager.announceChange(slug, WHATSAPP_CHANNEL_TYPE);
     }
 
     return { webhookUrl: await buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
@@ -250,6 +251,7 @@ export class InstanceChannelsController {
     } else {
       await channelManager.stopChannel(slug, channelType, { deregister: true });
     }
+    await channelManager.announceChange(slug, channelType);
     if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
     }
@@ -334,6 +336,7 @@ export class InstanceChannelsController {
 
     await channelManager.stopChannel(slug, channelType, { deregister: true });
     await deleteChannelConfig(instance.id, channelType as ChannelType);
+    await channelManager.announceChange(slug, channelType as ChannelType);
 
     // Audit AFTER the config is actually gone but BEFORE the remaining side
     // effect (agent-tool sync). Auditing earlier would claim a destruction

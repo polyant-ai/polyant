@@ -65,10 +65,13 @@ const TABLES_NOT_EXPORTED: Record<string, string> = {
   pipeline_traces: "Runtime telemetry.",
   tool_audit_logs: "Runtime audit.",
   hook_executions: "Runtime audit.",
+  model_exchanges: "Raw model exchanges captured under debug, cleared after the debug retention.",
   scheduled_task_runs: "Run history of the tasks the bundle does carry.",
   event_backlog: "Events still queued against the source deployment.",
+  webhook_deliveries: "Delivery keys the source deployment saw in the last day.",
   room_activity_log: "Runtime activity.",
   oauth_states: "A single-use nonce with a minutes-long TTL.",
+  user_favorite_agents: "A person's own shortcut to the agent, not part of the agent.",
   instance_tools:
     "Carried as `manualTools` — the auto-derived rows are recomputed from skills on import.",
 };
@@ -97,6 +100,8 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
     notCarried: {
       value:
         "Carried only for a key a tool or hook declares `sensitive: false`, as the optional `value`. A credential travels as its key, and the import asks for it.",
+      lookup_digest:
+        "Derived from the value with this deployment's encryption key; the import computes its own when it writes the value.",
     },
   },
   instance_channels: { field: "channels" },
@@ -141,6 +146,7 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
       last_conversation_id: "Run history, naming a conversation of the source.",
       consecutive_errors: "Run history.",
       total_runs: "Run history.",
+      lease_expires_at: "Run state: the lease of a run in progress in the source's process.",
     },
   },
 };
