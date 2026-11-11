@@ -28,16 +28,19 @@ const DISPLAY_NAME_MAX = 255;
 const DESCRIPTION_MAX = 2000;
 
 /**
- * The two texts people edit on a skill, checked at the boundary. `displayName` may be
- * left out (the name stays as it is) but never blank; `description` may be empty.
+ * The two texts people edit on a skill, checked at the boundary. Either may be left
+ * out, and stays as it is. `displayName` is never blank; `description` may be empty.
  * The slug is not an input here at all: agents read a skill by slug.
  */
-function parseSkillTexts(body: { displayName?: unknown; description?: unknown }): { displayName?: string; description: string } {
-  if (typeof body.description !== "string") throw new BadRequestException("Description must be a string");
-  if (body.description.length > DESCRIPTION_MAX) {
-    throw new BadRequestException(`Description must be at most ${DESCRIPTION_MAX} characters`);
+function parseSkillTexts(body: { displayName?: unknown; description?: unknown }): { displayName?: string; description?: string } {
+  if (body.description !== undefined) {
+    if (typeof body.description !== "string") throw new BadRequestException("Description must be a string");
+    if (body.description.length > DESCRIPTION_MAX) {
+      throw new BadRequestException(`Description must be at most ${DESCRIPTION_MAX} characters`);
+    }
   }
-  if (body.displayName === undefined) return { description: body.description };
+  const description = body.description as string | undefined;
+  if (body.displayName === undefined) return { description };
   if (typeof body.displayName !== "string" || body.displayName.trim() === "") {
     throw new BadRequestException("Name must not be empty");
   }
@@ -45,7 +48,7 @@ function parseSkillTexts(body: { displayName?: unknown; description?: unknown })
   if (displayName.length > DISPLAY_NAME_MAX) {
     throw new BadRequestException(`Name must be at most ${DISPLAY_NAME_MAX} characters`);
   }
-  return { displayName, description: body.description };
+  return { displayName, description };
 }
 
 @Controller("api/skills")
@@ -109,7 +112,7 @@ export class SkillsController {
 
   @Put(":name")
   @RequirePermission(Permission.SKILL_CATALOG_WRITE)
-  async update(@Param("name") name: string, @Body() body: { displayName?: string; description: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[]; changelog?: string }) {
+  async update(@Param("name") name: string, @Body() body: { displayName?: string; description?: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[]; changelog?: string }) {
     const skill = await this.skillsService.updateSkill(name, { ...body, ...parseSkillTexts(body) });
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
     return skill;

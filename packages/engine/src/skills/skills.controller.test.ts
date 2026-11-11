@@ -9,7 +9,7 @@ vi.mock("./skills-export.service.js", () => ({ exportSkillsCatalog: vi.fn(), exp
 import { SkillsController } from "./skills.controller.js";
 
 function setup() {
-  const updateSkill = vi.fn(async (_slug: string, data: { displayName?: string; description: string }) => ({
+  const updateSkill = vi.fn(async (_slug: string, data: { displayName?: string; description?: string }) => ({
     name: "my-skill",
     displayName: data.displayName ?? "kept",
     description: data.description,
@@ -42,12 +42,19 @@ describe("PUT /api/skills/:name — name and description", () => {
     expect(updateSkill).toHaveBeenCalledOnce();
   });
 
+  it("leaves the description out when none is sent, so the stored one stays", async () => {
+    const { controller, updateSkill } = setup();
+    await controller.update("my-skill", { ...base, displayName: "New name" } as never);
+    const [, data] = updateSkill.mock.calls[0]!;
+    expect(data.description).toBeUndefined();
+    expect(data.displayName).toBe("New name");
+  });
+
   it.each([
     ["a blank name", { displayName: "   ", description: "d" }],
     ["a name that is not text", { displayName: 5, description: "d" }],
     ["a name over 255 characters", { displayName: "x".repeat(256), description: "d" }],
     ["a description that is not text", { description: 5 }],
-    ["a missing description", {}],
     ["a description over 2000 characters", { description: "x".repeat(2001) }],
   ])("refuses %s with 400 and writes nothing", async (_label, body) => {
     const { controller, updateSkill } = setup();

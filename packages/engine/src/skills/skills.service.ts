@@ -85,7 +85,8 @@ export class SkillsService {
     data: {
       /** Replaces the display name; the slug is not an input and cannot change. */
       displayName?: string;
-      description: string;
+      /** Replaces the description; left out, the stored one stays. */
+      description?: string;
       content: string;
       requiredEnv?: Array<{ name: string; description?: string; sensitive: boolean }>;
       requiredTools?: string[];

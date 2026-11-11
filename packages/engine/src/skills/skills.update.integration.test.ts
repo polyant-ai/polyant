@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { queryClient } from "../database/client.js";
 import { SkillsService } from "./skills.service.js";
+import { SkillsController } from "./skills.controller.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const SLUG = `itest-skill-edit-${Date.now()}`;
@@ -41,5 +42,14 @@ describe.skipIf(!DB_AVAILABLE)("skill name and description edit (integration)", 
     await service.updateSkill(SLUG, { description: "again", content: "v3" });
     const [row] = await queryClient<{ name: string; description: string }[]>`SELECT name, description FROM skills WHERE slug = ${SLUG}`;
     expect(row).toMatchObject({ name: "Research the web", description: "again" });
+  });
+
+  it("keeps the description when an update through the API sends none", async () => {
+    const controller = new SkillsController(service);
+    const updated = await controller.update(SLUG, { content: "v4" } as never);
+
+    expect(updated).toMatchObject({ description: "again", content: "v4" });
+    const [row] = await queryClient<{ description: string }[]>`SELECT description FROM skills WHERE slug = ${SLUG}`;
+    expect(row!.description).toBe("again");
   });
 });
