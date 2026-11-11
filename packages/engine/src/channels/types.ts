@@ -51,6 +51,12 @@ export const CHANNEL_MAX_LENGTH: Record<"telegram" | "slack" | "whatsapp", numbe
   whatsapp: 1600,
 };
 
+/** Watches a turn's tools (`IncomingMessage.toolObserver`); names are the ones the model calls them by. */
+export interface ToolObserver {
+  onToolCall(call: { toolCallId: string; toolName: string; input: unknown }): void;
+  onToolResult(result: { toolCallId: string; output: unknown }): void;
+}
+
 export interface IncomingMessage {
   /** Channel this message came from */
   channelType: MessageChannelType;
@@ -89,6 +95,13 @@ export interface IncomingMessage {
    * cannot take back?" has an answer that no other event can race.
    */
   toolGate?: (toolName: string) => boolean;
+
+  /**
+   * Told of each of the turn's tools as it is called and as it returns. Set
+   * only in-process, by whoever serves the turn and wants its tools before the
+   * reply: a buffered turn on a streaming route shows them while it runs.
+   */
+  toolObserver?: ToolObserver;
 
   /**
    * Asked once, synchronously, right before the turn writes anything (its
