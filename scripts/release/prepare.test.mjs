@@ -9,6 +9,7 @@ import {
   foreignChanges,
   ownedPaths,
   applyVersion,
+  applyLockfileVersions,
   ensureChangelogSection,
   ensureReleaseNote,
   retargetReadmeRelease,
@@ -33,6 +34,33 @@ async function writeFixture(rootDir) {
   await json("packages/web/package.json", { name: "web", version: OLD });
   await json("infra/package.json", { name: "polyant-infra", version: OLD });
 
+  // Lockfiles as npm writes them: the version on the file, on the root package and on
+  // each workspace, plus dependency entries (one of them at the same version as the
+  // release, and one carrying a `libc` field the local npm would drop).
+  const dependency = {
+    "node_modules/left-pad": { version: OLD, resolved: "https://registry.example/left-pad.tgz", libc: ["glibc"] },
+  };
+  await json("package-lock.json", {
+    name: "polyant",
+    version: OLD,
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      "": { name: "polyant", version: OLD, workspaces: ["packages/*"] },
+      ...dependency,
+      "node_modules/@polyant/engine": { resolved: "packages/engine", link: true },
+      "packages/engine": { name: releaseFacts.engineWorkspace, version: OLD },
+      "packages/web": { name: "web", version: OLD },
+    },
+  });
+  await json("infra/package-lock.json", {
+    name: "polyant-infra",
+    version: OLD,
+    lockfileVersion: 3,
+    requires: true,
+    packages: { "": { name: "polyant-infra", version: OLD }, ...dependency },
+  });
+
   // Two stages of one Dockerfile restate the same stub, and both are left at an
   // older version than the manifests — the drift a hand-maintained mirror list
   // produces, and which this repository actually carried.
@@ -47,6 +75,14 @@ async function writeFixture(rootDir) {
       "# Changelog",
       "",
       "## [Unreleased]",
+      "",
+      "### Added",
+      "",
+      "- A pending feature.",
+      "",
+      "### Fixed",
+      "",
+      "- A pending fix.",
       "",
       `## [${OLD}] - 2026-08-25`,
       "",
@@ -136,14 +172,65 @@ test("applyVersion leaves everything it does not own untouched, and is idempoten
   });
 });
 
-test("ensureChangelogSection inserts a dated heading under Unreleased with empty subsections", async () => {
+test("applyLockfileVersions bumps the file, the root and the workspaces, and nothing else", async () => {
+  await withFixture(async (rootDir) => {
+    const before = await read(rootDir, "package-lock.json");
+    const changed = await applyLockfileVersions(rootDir, NEW, releaseFacts);
+    assert.deepEqual(changed, ["package-lock.json", "infra/package-lock.json"]);
+
+    const lock = await readJson(rootDir, "package-lock.json");
+    assert.equal(lock.version, NEW);
+    assert.equal(lock.packages[""].version, NEW);
+    assert.equal(lock.packages["packages/engine"].version, NEW);
+    assert.equal(lock.packages["packages/web"].version, NEW);
+    assert.equal(lock.packages["node_modules/left-pad"].version, OLD, "a dependency that shares the version is not ours");
+    assert.deepEqual(lock.packages["node_modules/left-pad"].libc, ["glibc"], "fields npm 10 would drop survive");
+    assert.equal((await readJson(rootDir, "infra/package-lock.json")).packages[""].version, NEW);
+
+    // Only the four version lines differ, so the release commit shows nothing else.
+    const after = await read(rootDir, "package-lock.json");
+    const diff = before.split("\n").filter((line, i) => line !== after.split("\n")[i]);
+    assert.equal(diff.length, 4);
+    assert.ok(diff.every((line) => line.includes(`"version": "${OLD}"`)));
+
+    await applyLockfileVersions(rootDir, NEW, releaseFacts);
+    assert.equal(await read(rootDir, "package-lock.json"), after, "a second run changes nothing");
+  });
+});
+
+test("applyLockfileVersions refuses a lockfile with no workspace entries to update", async () => {
+  await withFixture(async (rootDir) => {
+    await writeFile(path.join(rootDir, "package-lock.json"), "{}\n");
+    await assert.rejects(() => applyLockfileVersions(rootDir, NEW, releaseFacts), /package-lock\.json/);
+  });
+});
+
+test("ensureChangelogSection moves the Unreleased entries under the dated heading and leaves Unreleased empty", async () => {
   await withFixture(async (rootDir) => {
     await ensureChangelogSection(rootDir, NEW, "2026-09-01");
     const changelog = await read(rootDir, "CHANGELOG.md");
 
     const headings = [...changelog.matchAll(/^## \[([^\]]+)\](?: - (\S+))?$/gm)].map((m) => m[1]);
     assert.deepEqual(headings, ["Unreleased", NEW, OLD], "newest release first, Unreleased on top");
-    assert.match(changelog, new RegExp(`## \\[${quote(NEW)}\\] - 2026-09-01\\n\\n### Added\\n\\n### Changed\\n\\n### Fixed\\n`));
+    assert.match(
+      changelog,
+      new RegExp(
+        `## \\[Unreleased\\]\\n\\n## \\[${quote(NEW)}\\] - 2026-09-01\\n\\n### Added\\n\\n- A pending feature\\.\\n\\n### Fixed\\n\\n- A pending fix\\.\\n\\n## \\[${quote(OLD)}\\]`,
+      ),
+    );
+    assert.equal((changelog.match(/^### Added$/gm) ?? []).length, 2, "one Added per release, none left over in Unreleased");
+  });
+});
+
+test("ensureChangelogSection gives an empty Unreleased the empty subsections to fill", async () => {
+  await withFixture(async (rootDir) => {
+    const bare = (await read(rootDir, "CHANGELOG.md")).replace(/(## \[Unreleased\]\n\n)[\s\S]*?(## \[1\.1\.0\])/, "$1$2");
+    await writeFile(path.join(rootDir, "CHANGELOG.md"), bare);
+    await ensureChangelogSection(rootDir, NEW, "2026-09-01");
+    assert.match(
+      await read(rootDir, "CHANGELOG.md"),
+      new RegExp(`## \\[${quote(NEW)}\\] - 2026-09-01\\n\\n### Added\\n\\n### Changed\\n\\n### Fixed\\n\\n## \\[${quote(OLD)}\\]`),
+    );
   });
 });
 
@@ -196,6 +283,7 @@ test("retargetReadmeRelease moves only the release paragraph, not every version 
 test("after a full prepare the metadata verifier passes", async () => {
   await withFixture(async (rootDir) => {
     await applyVersion(rootDir, NEW, releaseFacts);
+    await applyLockfileVersions(rootDir, NEW, releaseFacts);
     await ensureChangelogSection(rootDir, NEW, "2026-09-01");
     await ensureReleaseNote(rootDir, NEW, releaseFacts);
     await retargetReadmeRelease(rootDir, OLD, NEW);
