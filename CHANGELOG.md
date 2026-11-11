@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-11-11
+
 ### Added
 
 - Every model call is bounded. A streamed answer fails after
@@ -137,10 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An agent API key is found through an indexed digest of its value instead of
   decrypting every key (migrations `0101` and `0114`). A key that matches more than one
   agent opens none of them.
-- A turn served buffered on the streaming routes, because of a `response_generated` hook that may replace the reply, now
-  streams each tool call and result as it happens, so the playground's
-  activity view follows the agent while it works. The reply is still sent only
-  once it is settled.
+- A turn served buffered on the streaming routes, because of a
+  `response_generated` hook that may replace the reply, now streams each tool
+  call and result as it happens, so the playground's activity view follows the
+  agent while it works. The reply is still sent only once it is settled.
 
 ### Removed
 
@@ -1334,7 +1336,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.6...HEAD
+[1.3.6]: https://github.com/polyant-ai/polyant/compare/v1.3.5...v1.3.6
 [1.3.5]: https://github.com/polyant-ai/polyant/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/polyant-ai/polyant/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/polyant-ai/polyant/compare/v1.3.1...v1.3.3
