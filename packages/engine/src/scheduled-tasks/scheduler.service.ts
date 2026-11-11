@@ -14,6 +14,7 @@ import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { trackBackgroundTurn } from "../channels/background-turns.js";
+import { keepLeaseAlive } from "../background/work-lease.js";
 import { createLogger } from "../utils/create-logger.js";
 import { errMsg } from "../utils/error.js";
 
@@ -168,22 +169,18 @@ class SchedulerService {
    */
   private async runClaimed(task: ScheduledTask, claim: Date, triggerType: TriggerType, leaseTtlMs: number): Promise<void> {
     this.running.add(task.id);
-    const heartbeat = setInterval(() => {
-      store
-        .renewRunLease(task.id, claim, leaseTtlMs)
-        .then((held) => {
-          if (!held) scheduledTaskLog.warn("SchedulerService", `task "${task.name}" (${task.id}) lost its claim while running`);
-        })
-        .catch((err) => scheduledTaskLog.warn("SchedulerService", `lease renewal failed for "${task.name}": ${errMsg(err)}`));
-    }, leaseTtlMs / 4);
-    heartbeat.unref();
+    const stopRenewing = keepLeaseAlive(leaseTtlMs, () => store.renewRunLease(task.id, claim, leaseTtlMs), {
+      scope: "SchedulerService",
+      onLost: `task "${task.name}" (${task.id}) lost its claim while running`,
+      onError: (err) => `lease renewal failed for "${task.name}": ${errMsg(err)}`,
+    });
     try {
       // Shutdown waits for it within its grace period, like an acknowledged channel turn.
       const run = this.executeClaimed(task, claim, triggerType);
       trackBackgroundTurn(run);
       await run;
     } finally {
-      clearInterval(heartbeat);
+      stopRenewing();
       this.running.delete(task.id);
     }
   }

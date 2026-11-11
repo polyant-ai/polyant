@@ -16,6 +16,29 @@ const log = createLogger();
 export const WORK_LEASE_TTL_MS = 5 * 60_000;
 
 /**
+ * Renew a lease every quarter of `ttlMs` until the returned function is called, so a
+ * live holder keeps it and a dead one loses it within `ttlMs`. The one renewal loop
+ * for every lease the engine holds (`work_leases` here, a scheduled task's run lease
+ * in its own row): `renew` resolves false when the lease was lost, which is logged
+ * under `scope` with `onLost`; a renewal that throws is logged and the next one tried.
+ */
+export function keepLeaseAlive(
+  ttlMs: number,
+  renew: () => Promise<boolean>,
+  logs: { scope: string; onLost: string; onError: (err: unknown) => string },
+): () => void {
+  const heartbeat = setInterval(() => {
+    renew()
+      .then((held) => {
+        if (!held) log.warn(logs.scope, logs.onLost);
+      })
+      .catch((err) => log.warn(logs.scope, logs.onError(err)));
+  }, ttlMs / 4);
+  heartbeat.unref();
+  return () => clearInterval(heartbeat);
+}
+
+/**
  * Take the lease on `key` when nobody holds a live one and, for a periodic job
  * (`everyMs`), when its last completed run is at least that old. Returns the token
  * that owns the lease, or null. Every time is read from the database clock, so
@@ -68,18 +91,15 @@ export async function withLease(
 ): Promise<boolean> {
   const owner = await acquireLease(key, opts);
   if (!owner) return false;
-  const heartbeat = setInterval(() => {
-    renewLease(key, owner)
-      .then((held) => {
-        if (!held) log.warn("work-lease", `lease ${key} expired while its work was still running`);
-      })
-      .catch((err) => log.warn("work-lease", `lease ${key} renewal failed: ${errMsg(err)}`));
-  }, WORK_LEASE_TTL_MS / 4);
-  heartbeat.unref();
+  const stopRenewing = keepLeaseAlive(WORK_LEASE_TTL_MS, () => renewLease(key, owner), {
+    scope: "work-lease",
+    onLost: `lease ${key} expired while its work was still running`,
+    onError: (err) => `lease ${key} renewal failed: ${errMsg(err)}`,
+  });
   try {
     await body(owner);
   } finally {
-    clearInterval(heartbeat);
+    stopRenewing();
     await releaseLease(key, owner, { done: opts.everyMs !== undefined }).catch((err) =>
       log.warn("work-lease", `lease ${key} release failed, it frees itself on expiry: ${errMsg(err)}`),
     );
