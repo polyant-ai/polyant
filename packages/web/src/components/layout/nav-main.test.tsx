@@ -84,3 +84,29 @@ describe("NavMain disabled items", () => {
     );
   });
 });
+
+describe("NavMain once the tenancy resolves", () => {
+  it("replaces the disabled placeholders instead of listing them beside the live entries", () => {
+    const titles = ["Dashboard", "Agents", "Conversations"];
+    const { rerender } = renderNavMain(
+      titles.map((title) => ({ title, url: "/", icon: LayoutDashboard, disabled: true, tour: `nav-${title}` })),
+    );
+
+    rerender(
+      <SidebarProvider>
+        <NavMain
+          label="Overview"
+          items={titles.map((title) => ({
+            title,
+            url: `/organizations/acme/workspaces/main/${title.toLowerCase()}`,
+            icon: LayoutDashboard,
+            tour: `nav-${title}`,
+          }))}
+        />
+      </SidebarProvider>,
+    );
+
+    for (const title of titles) expect(screen.getAllByText(title)).toHaveLength(1);
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+});
