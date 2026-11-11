@@ -28,7 +28,6 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { isUuid } from "../../utils/uuid.js";
 
-
 @Controller("api/instances/:slug/hooks")
 export class InstanceHooksController {
   @RequirePermission(Permission.GOVERNANCE_READ)

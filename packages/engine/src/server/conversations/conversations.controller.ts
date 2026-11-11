@@ -23,9 +23,6 @@ import type { TenantScope } from "../../authz/scope-filter.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { readExchanges } from "../../request-path/request-path.store.js";
-
-/** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
-
 import { type InstanceSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { isUuid } from "../../utils/uuid.js";

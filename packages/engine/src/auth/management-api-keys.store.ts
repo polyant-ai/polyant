@@ -20,7 +20,6 @@ const LOG_PREFIX = "management-api-keys";
  */
 const TOKEN_PREFIX = "pk_";
 const TOKEN_SEPARATOR = "_";
-/** The id is a uuid column; anything else would reach Postgres as a cast error. */
 
 export interface ParsedManagementApiKeyToken {
   readonly id: string;
