@@ -167,6 +167,29 @@ describe.skipIf(!DB_AVAILABLE)("scheduled tasks across replicas (integration)", 
     expect(dead.error).toContain("interrupted");
   });
 
+  it("a run a release without leases left running is recovered after the orphan grace without counting a failure", async () => {
+    const [id, young] = await overdueTasks(2);
+    // A process of the previous release claimed both and was stopped by the deploy: no
+    // lease, started long ago for one, a moment ago for the other. Its deadline has
+    // passed, so only the recovery stands between the stale run and a counted failure.
+    await db.update(scheduledTasks)
+      .set({ lastRunStatus: "running", lastRunAt: null, leaseExpiresAt: null, maxRunMs: 1_000, updatedAt: sql`now() - interval '1 day'` })
+      .where(eq(scheduledTasks.id, id));
+    await db.update(scheduledTasks)
+      .set({ lastRunStatus: "running", lastRunAt: null, leaseExpiresAt: null, updatedAt: sql`now()` })
+      .where(eq(scheduledTasks.id, young));
+
+    const survivor = newReplica();
+    survivor.initialize(handler);
+    await survivor.tick();
+
+    expect(ran).toEqual([id]);
+    const [row, youngRow] = await rows([id, young]);
+    expect(row.lastRunStatus).toBe("success");
+    expect(row.consecutiveErrors).toBe(0);
+    expect(youngRow.lastRunStatus).toBe("running");
+  });
+
   it("a run whose lease is live is left to its process", async () => {
     const [id] = await overdueTasks(1);
     const claim = new Date();

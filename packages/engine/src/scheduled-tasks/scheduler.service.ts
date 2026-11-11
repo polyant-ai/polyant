@@ -324,7 +324,8 @@ class SchedulerService {
 
   /**
    * Per-tick recovery: runs whose lease expired, because the process running them is
-   * gone (a deploy, an OOM kill, a crash) or cannot reach the database.
+   * gone (a deploy, an OOM kill, a crash) or cannot reach the database. A run claimed
+   * by a release without leases counts as expired once it is a lease's lifetime old.
    *
    * Every replica does this on every tick, so a run interrupted during a rolling deploy
    * is recovered by the process that survives it, a lease TTL later, without waiting for
@@ -337,7 +338,7 @@ class SchedulerService {
    * this process must not start it again next to itself.
    */
   private async recoverInterruptedRuns(): Promise<void> {
-    const expired = (await store.findExpiredRunLeases()).filter((task) => !this.running.has(task.id));
+    const expired = (await store.findExpiredRunLeases(await this.leaseTtlMs())).filter((task) => !this.running.has(task.id));
     if (expired.length === 0) return;
 
     // The dangling runs are read BEFORE the markers are cleared, and each marker is
