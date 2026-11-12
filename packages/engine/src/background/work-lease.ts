@@ -18,9 +18,9 @@ export const WORK_LEASE_TTL_MS = 5 * 60_000;
 /**
  * Renew a lease every quarter of `ttlMs` until the returned function is called, so a
  * live holder keeps it and a dead one loses it within `ttlMs`. The one renewal loop
- * for every lease the engine holds (`work_leases` here, a scheduled task's run lease
- * in its own row): `renew` resolves false when the lease was lost, which is logged
- * under `scope` with `onLost`; a renewal that throws is logged and the next one tried.
+ * for every lease the engine holds: `renew` resolves false when the lease was lost,
+ * which is logged under `scope` with `onLost`; a renewal that throws is logged and the
+ * next one tried.
  */
 export function keepLeaseAlive(
   ttlMs: number,
@@ -58,10 +58,14 @@ export async function acquireLease(key: string, opts: { everyMs?: number } = {})
   return rows.length > 0 ? owner : null;
 }
 
-/** Extend a lease `owner` holds. False when it was lost: it expired and was taken. */
-export async function renewLease(key: string, owner: string): Promise<boolean> {
+/**
+ * Extend a lease `owner` holds by `ttlMs`. False when it was lost: it expired and was
+ * taken. A lease whose holder takes it elsewhere (a scheduled task's run lease is taken
+ * with its claim) passes its own TTL.
+ */
+export async function renewLease(key: string, owner: string, ttlMs = WORK_LEASE_TTL_MS): Promise<boolean> {
   const rows = await db.execute<{ key: string }>(sql`
-    UPDATE work_leases SET expires_at = now() + ${WORK_LEASE_TTL_MS} * interval '1 millisecond'
+    UPDATE work_leases SET expires_at = now() + ${ttlMs} * interval '1 millisecond'
     WHERE key = ${key} AND owner = ${owner}
     RETURNING key
   `);
@@ -76,6 +80,14 @@ export async function releaseLease(key: string, owner: string, opts: { done?: bo
         last_done_at = CASE WHEN ${opts.done ?? false}::boolean THEN now() ELSE last_done_at END
     WHERE key = ${key} AND owner = ${owner}
   `);
+}
+
+/**
+ * Remove the lease `owner` holds on `key`, row and all: for a key per unit of work
+ * (one per scheduled task) that would otherwise leave a row behind for every unit.
+ */
+export async function dropLease(key: string, owner: string): Promise<void> {
+  await db.execute(sql`DELETE FROM work_leases WHERE key = ${key} AND owner = ${owner}`);
 }
 
 /**

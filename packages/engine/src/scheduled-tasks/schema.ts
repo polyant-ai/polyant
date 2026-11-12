@@ -41,6 +41,10 @@ export const scheduledTasks = pgTable(
      * While `running`: until when the run's process vouches for it, on the database
      * clock. The process renews it as the run goes on; past it, the run is taken as
      * interrupted. Null for a row claimed before leases existed.
+     *
+     * Superseded by the run's `work_leases` row and kept for one release, written next
+     * to it, for replicas of the previous release that read only this column (see
+     * `RUN_LEASE_PREFIX` in the store).
      */
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     totalRuns: integer("total_runs").notNull().default(0),

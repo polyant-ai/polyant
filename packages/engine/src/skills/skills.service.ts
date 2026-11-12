@@ -79,7 +79,10 @@ export class SkillsService {
     }
   }
 
-  /** Update an existing skill (creates a new version). */
+  /**
+   * Update an existing skill (creates a new version). Left out, the description and
+   * each requirement list keep their stored value; the content is always replaced.
+   */
   async updateSkill(
     slug: string,
     data: {
@@ -88,12 +91,16 @@ export class SkillsService {
       /** Replaces the description; left out, the stored one stays. */
       description?: string;
       content: string;
+      /** Replaces the stored list, `[]` clears it; left out, the stored one stays. */
       requiredEnv?: Array<{ name: string; description?: string; sensitive: boolean }>;
+      /** Replaces the stored list, `[]` clears it; left out, the stored one stays. */
       requiredTools?: string[];
       changelog?: string;
     },
   ): Promise<SkillDetail | null> {
-    const metadata = buildSkillMetadata(data);
+    const current = await dbGetSkill(slug);
+    if (!current) return null;
+    const metadata = buildSkillMetadata(data, parseSkillMetadata(current.currentVersion?.metadata));
 
     const input: UpdateSkillInput = {
       name: data.displayName,

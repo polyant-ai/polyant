@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, lte, lt, or, isNull, notInArray, inArray, count, sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { eq, and, lte, lt, gt, or, isNull, notInArray, inArray, notExists, count, sql } from "drizzle-orm";
+import { db, type DbTransaction } from "../database/client.js";
+import { workLeases } from "../background/work-lease.schema.js";
+import { dropLease, renewLease } from "../background/work-lease.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
 import { computeNextRun, computeRetryDelay, MAX_CONSECUTIVE_ERRORS } from "./schedule-utils.js";
@@ -202,11 +204,42 @@ export async function countDueTasks(now: Date): Promise<number> {
 const leaseUntil = (ttlMs: number) => sql`now() + ${ttlMs} * interval '1 millisecond'`;
 
 /**
+ * A run's lease is the `work_leases` row `scheduled-task:<task id>`, owned by the run's
+ * claim (see `RunClaim`): one run, one token, nothing new to carry around.
+ *
+ * Transition: `scheduled_tasks.lease_expires_at`, the lease of the previous release, is
+ * still written and renewed next to it. A replica of that release, still running during
+ * a rolling deploy, reads only the column, and without it would take every run of this
+ * release as an orphan. The release after this one stops writing and reading the
+ * column, then drops it.
+ */
+const RUN_LEASE_PREFIX = "scheduled-task:";
+const runLeaseKey = (id: string) => `${RUN_LEASE_PREFIX}${id}`;
+const runLeaseOwner = (claim: Date) => claim.toISOString();
+
+/**
+ * Take the run lease of each task just claimed under `claim`, in the claim's
+ * transaction. The claim of the task row is the authority, so a lease a previous run
+ * left behind is taken over whatever its expiry.
+ */
+async function takeRunLeases(tx: DbTransaction, ids: string[], claim: Date, ttlMs: number): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .insert(workLeases)
+    .values(ids.map((id) => ({ key: runLeaseKey(id), owner: runLeaseOwner(claim), expiresAt: leaseUntil(ttlMs) })))
+    .onConflictDoUpdate({
+      target: workLeases.key,
+      set: { owner: sql`excluded.owner`, expiresAt: sql`excluded.expires_at` },
+    });
+}
+
+/**
  * Claim up to `limit` due tasks in one statement, the longest overdue first, and
  * return them; their claim is `now`. Rows another replica is claiming at the same
  * moment are skipped rather than waited for, so replicas ticking together share the
  * due tasks instead of contending for the same few. `skip` names the tasks still
- * executing in this process (see the in-process guard in the scheduler).
+ * executing in this process (see the in-process guard in the scheduler). Each claimed
+ * task's run lease is taken in the same transaction.
  */
 export async function claimDueTasks(
   now: Date,
@@ -221,11 +254,15 @@ export async function claimDueTasks(
     .orderBy(scheduledTasks.nextRunAt)
     .limit(limit)
     .for("update", { of: scheduledTasks, skipLocked: true });
-  return db
-    .update(scheduledTasks)
-    .set({ lastRunStatus: "running", lastRunAt: now, updatedAt: now, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
-    .where(inArray(scheduledTasks.id, due))
-    .returning();
+  return db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(scheduledTasks)
+      .set({ lastRunStatus: "running", lastRunAt: now, updatedAt: now, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
+      .where(inArray(scheduledTasks.id, due))
+      .returning();
+    await takeRunLeases(tx, claimed.map((task) => task.id), now, opts.leaseTtlMs);
+    return claimed;
+  });
 }
 
 /**
@@ -251,39 +288,46 @@ function isClaim(claim: RunClaim) {
 }
 
 /**
- * Atomically mark a task as running, for a manual run. Returns the claim, or `null`
- * when another run holds the task.
+ * Atomically mark a task as running, for a manual run, and take its run lease. Returns
+ * the claim, or `null` when another run holds the task.
  */
 export async function markRunning(id: string, opts: { leaseTtlMs: number }): Promise<Date | null> {
   const claim = new Date();
-  const result = await db
-    .update(scheduledTasks)
-    .set({ lastRunStatus: "running", lastRunAt: claim, updatedAt: claim, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
-    .where(
-      and(
+  return db.transaction(async (tx) => {
+    const result = await tx
+      .update(scheduledTasks)
+      .set({ lastRunStatus: "running", lastRunAt: claim, updatedAt: claim, leaseExpiresAt: leaseUntil(opts.leaseTtlMs) })
+      .where(and(
         eq(scheduledTasks.id, id),
-        or(
-          isNull(scheduledTasks.lastRunStatus),
-          sql`${scheduledTasks.lastRunStatus} != 'running'`,
-        ),
-      ),
-    )
-    .returning({ id: scheduledTasks.id });
-
-  return result.length > 0 ? claim : null;
+        or(isNull(scheduledTasks.lastRunStatus), sql`${scheduledTasks.lastRunStatus} != 'running'`),
+      ))
+      .returning({ id: scheduledTasks.id });
+    if (result.length === 0) return null;
+    await takeRunLeases(tx, [id], claim, opts.leaseTtlMs);
+    return claim;
+  });
 }
 
 /**
  * Extend the lease of the run holding `claim`. False when the run no longer holds the
- * task. The run's start (`updated_at`) is left alone: the reaper's deadline counts from it.
+ * task: its lease was taken over, or its row was ended (by the reaper, say). The run's
+ * start (`updated_at`) is left alone: the reaper's deadline counts from it.
  */
-export async function renewRunLease(id: string, claim: RunClaim, leaseTtlMs: number): Promise<boolean> {
-  const rows = await db
-    .update(scheduledTasks)
-    .set({ leaseExpiresAt: leaseUntil(leaseTtlMs) })
-    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running"), isClaim(claim)))
-    .returning({ id: scheduledTasks.id });
-  return rows.length > 0;
+export async function renewRunLease(id: string, claim: Date, leaseTtlMs: number): Promise<boolean> {
+  const [leaseHeld, rowHeld] = await Promise.all([
+    renewLease(runLeaseKey(id), runLeaseOwner(claim), leaseTtlMs),
+    db
+      .update(scheduledTasks)
+      .set({ leaseExpiresAt: leaseUntil(leaseTtlMs) })
+      .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running"), isClaim(claim)))
+      .returning({ id: scheduledTasks.id }),
+  ]);
+  return leaseHeld && rowHeld.length > 0;
+}
+
+/** Remove the run lease of the run that held `claim`, once the run has ended. */
+export async function releaseRunLease(id: string, claim: Date): Promise<void> {
+  await dropLease(runLeaseKey(id), runLeaseOwner(claim));
 }
 
 /**
@@ -417,8 +461,10 @@ export async function countStuckRunning(since: Date): Promise<number> {
 }
 
 /**
- * Running rows whose lease has expired: the process running them stopped renewing it,
- * so it is gone (or cannot reach the database).
+ * Running rows with no live run lease: the process running them stopped renewing it,
+ * so it is gone (or cannot reach the database). Both leases must be dead: the
+ * `work_leases` row and, during the transition, the column a replica of the previous
+ * release renews instead (see `RUN_LEASE_PREFIX`).
  *
  * A row claimed without a lease was claimed by a process of a release that had none,
  * typically one a deploy stopped mid-run. Whether that run is still alive cannot be
@@ -431,6 +477,15 @@ export async function findExpiredRunLeases(orphanGraceMs: number): Promise<Sched
     .from(scheduledTasks)
     .where(and(
       eq(scheduledTasks.lastRunStatus, "running"),
+      notExists(
+        db
+          .select({ key: workLeases.key })
+          .from(workLeases)
+          .where(and(
+            eq(workLeases.key, sql`${RUN_LEASE_PREFIX} || ${scheduledTasks.id}::text`),
+            gt(workLeases.expiresAt, sql`now()`),
+          )),
+      ),
       or(
         lt(scheduledTasks.leaseExpiresAt, sql`now()`),
         and(

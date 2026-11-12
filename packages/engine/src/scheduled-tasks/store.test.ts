@@ -45,6 +45,8 @@ const { mockDb, mockComputeNextRun, mockComputeRetryDelay } = vi.hoisted(() => (
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    // A transaction runs its body on the same handle: the unit seam is the query chain.
+    transaction: vi.fn((body: (tx: unknown) => Promise<unknown>) => body(mockDb)),
   },
   mockComputeNextRun: vi.fn(() => new Date("2026-06-01T00:00:00Z")),
   mockComputeRetryDelay: vi.fn((n: number) => (n + 1) * 30_000),
@@ -74,6 +76,10 @@ vi.mock("./schema.js", () => ({
   },
 }));
 
+vi.mock("../background/work-lease.schema.js", () => ({
+  workLeases: { key: "key", owner: "owner", expiresAt: "expires_at" },
+}));
+
 vi.mock("./schedule-utils.js", () => ({
   computeNextRun: mockComputeNextRun,
   computeRetryDelay: mockComputeRetryDelay,
@@ -85,6 +91,8 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   lte: vi.fn((...args: unknown[]) => ({ type: "lte", args })),
   lt: vi.fn((...args: unknown[]) => ({ type: "lt", args })),
+  gt: vi.fn((...args: unknown[]) => ({ type: "gt", args })),
+  notExists: vi.fn((...args: unknown[]) => ({ type: "notExists", args })),
   or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
   isNull: vi.fn((...args: unknown[]) => ({ type: "isNull", args })),
   inArray: vi.fn((...args: unknown[]) => ({ type: "inArray", args })),
@@ -184,19 +192,29 @@ describe("scheduled-tasks/store", () => {
       // returning() resolves to [{ id }] when one row was updated
       mockDb.update.mockReturnValue(createChainMock([{ id: TASK_ID }]) as never);
 
+      const insert = createChainMock([]);
+      mockDb.insert.mockReset().mockReturnValue(insert);
+
       const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeInstanceOf(Date);
       expect(mockDb.update).toHaveBeenCalledTimes(1);
+      // The run lease is taken with the claim, owned by it, so recovery sees it live.
+      const values = (insert as unknown as { values: { mock: { calls: [Array<Record<string, unknown>>][] } } })
+        .values.mock.calls[0][0];
+      expect(values).toEqual([expect.objectContaining({ key: `scheduled-task:${TASK_ID}`, owner: result!.toISOString() })]);
     });
 
     it("returns null when the row was already 'running' (race lost, zero rows updated)", async () => {
       // returning() resolves to [] when WHERE clause filtered out the row
       mockDb.update.mockReturnValue(createChainMock([]) as never);
+      mockDb.insert.mockReset();
 
       const result = await markRunning(TASK_ID, { leaseTtlMs: 60_000 });
 
       expect(result).toBeNull();
+      // A lost race takes no lease: it would cover the run that won.
+      expect(mockDb.insert).not.toHaveBeenCalled();
     });
   });
 

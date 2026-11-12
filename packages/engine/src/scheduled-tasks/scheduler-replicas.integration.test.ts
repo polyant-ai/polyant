@@ -64,8 +64,22 @@ async function rows(ids: string[]) {
   return ids.map((id) => found.find((r) => r.id === id)!);
 }
 
-async function teardown(): Promise<void> {
+/** The suite's tasks and their run leases. */
+async function removeTasks(): Promise<void> {
+  await queryClient`DELETE FROM work_leases WHERE key IN (
+    SELECT 'scheduled-task:' || id::text FROM scheduled_tasks WHERE instance_id = ${SLUG})`;
   await queryClient`DELETE FROM scheduled_tasks WHERE instance_id = ${SLUG}`;
+}
+
+/** The run lease of task `id`, or undefined when it has none. */
+async function runLease(id: string) {
+  const [lease] = await queryClient<{ owner: string | null; live: boolean }[]>`
+    SELECT owner, expires_at > now() AS live FROM work_leases WHERE key = ${"scheduled-task:" + id}`;
+  return lease;
+}
+
+async function teardown(): Promise<void> {
+  await removeTasks();
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -84,7 +98,7 @@ describe.skipIf(!DB_AVAILABLE)("scheduled tasks across replicas (integration)", 
   afterAll(teardown);
 
   beforeEach(async () => {
-    await queryClient`DELETE FROM scheduled_tasks WHERE instance_id = ${SLUG}`;
+    await removeTasks();
     created.length = 0;
     ran.length = 0;
   });
@@ -153,6 +167,7 @@ describe.skipIf(!DB_AVAILABLE)("scheduled tasks across replicas (integration)", 
     await store.claimDueTasks(claim, 1, { leaseTtlMs: 60_000, skip: [] });
     const deadRun = await runLog.createRun(id, asInstanceSlug(SLUG), "scheduled");
     await db.update(scheduledTasks).set({ leaseExpiresAt: sql`now() - interval '1 second'` }).where(eq(scheduledTasks.id, id));
+    await queryClient`UPDATE work_leases SET expires_at = now() - interval '1 second' WHERE key = ${"scheduled-task:" + id}`;
 
     const survivor = newReplica();
     survivor.initialize(handler);
@@ -165,6 +180,50 @@ describe.skipIf(!DB_AVAILABLE)("scheduled tasks across replicas (integration)", 
     const [dead] = await db.select().from(scheduledTaskRuns).where(eq(scheduledTaskRuns.id, deadRun!));
     expect(dead.status).toBe("error");
     expect(dead.error).toContain("interrupted");
+    // The survivor's own run ended and gave its lease back.
+    expect(await runLease(id)).toBeUndefined();
+  });
+
+  it("a claim takes the task's run lease, owned by the claim, in the work leases", async () => {
+    const [id] = await overdueTasks(1);
+    const claim = new Date();
+
+    await store.claimDueTasks(claim, 1, { leaseTtlMs: 60_000, skip: [] });
+
+    expect(await runLease(id)).toEqual({ owner: claim.toISOString(), live: true });
+  });
+
+  it("a run of the previous release, renewing only its column lease, is left to its process", async () => {
+    const [id] = await overdueTasks(1);
+    const claim = new Date();
+    await db.update(scheduledTasks)
+      .set({ lastRunStatus: "running", lastRunAt: claim, leaseExpiresAt: sql`now() + interval '1 minute'`, updatedAt: claim })
+      .where(eq(scheduledTasks.id, id));
+
+    const other = newReplica();
+    other.initialize(handler);
+    await other.tick();
+
+    expect(ran).not.toContain(id);
+    expect((await rows([id]))[0].lastRunStatus).toBe("running");
+  });
+
+  it("a run renewing only its work lease, as the next release will, is left to its process", async () => {
+    const [id] = await overdueTasks(1);
+    const claim = new Date();
+    await store.claimDueTasks(claim, 1, { leaseTtlMs: 60_000, skip: [] });
+    // No column lease and a start past the orphan grace (within its deadline, so the
+    // reaper leaves it): without the work lease this is an orphan.
+    await db.update(scheduledTasks)
+      .set({ leaseExpiresAt: null, updatedAt: sql`now() - interval '20 minutes'`, maxRunMs: 3_600_000 })
+      .where(eq(scheduledTasks.id, id));
+
+    const other = newReplica();
+    other.initialize(handler);
+    await other.tick();
+
+    expect(ran).not.toContain(id);
+    expect((await rows([id]))[0].lastRunStatus).toBe("running");
   });
 
   it("a run a release without leases left running is recovered after the orphan grace without counting a failure", async () => {

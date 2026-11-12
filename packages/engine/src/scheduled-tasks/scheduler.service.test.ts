@@ -26,6 +26,7 @@ const { mockStore, mockRunLog, mockChannelManager } = vi.hoisted(() => ({
     countDueTasks: vi.fn(),
     findExpiredRunLeases: vi.fn(),
     renewRunLease: vi.fn(),
+    releaseRunLease: vi.fn(),
     markRunning: vi.fn(),
     markCompleted: vi.fn(),
     markFailed: vi.fn(),
@@ -105,6 +106,7 @@ describe("SchedulerService", () => {
     mockStore.countDueTasks.mockReset().mockResolvedValue(0);
     mockStore.findExpiredRunLeases.mockReset().mockResolvedValue([]);
     mockStore.renewRunLease.mockReset().mockResolvedValue(true);
+    mockStore.releaseRunLease.mockReset().mockResolvedValue(undefined);
     mockStore.markRunning.mockReset().mockResolvedValue(new Date());
     mockStore.markCompleted.mockReset().mockResolvedValue(new Date());
     mockStore.removeAfterRun.mockReset().mockResolvedValue(true);
@@ -249,7 +251,7 @@ describe("SchedulerService", () => {
       expect(mockStore.claimDueTasks).toHaveBeenCalledWith(expect.any(Date), 3, { leaseTtlMs: 900_000, skip: [] });
     });
 
-    it("renews the lease of a running task every quarter of its TTL, and stops when it ends", async () => {
+    it("renews the lease of a running task every quarter of its TTL, and stops and releases it when it ends", async () => {
       let finish!: () => void;
       schedulerService.initialize(() => new Promise((resolve) => {
         finish = () => resolve({ text: "", toolCalls: [], usage: undefined } as never);
@@ -264,10 +266,15 @@ describe("SchedulerService", () => {
       expect(mockStore.renewRunLease).toHaveBeenCalledTimes(4);
       expect(mockStore.renewRunLease).toHaveBeenCalledWith("task-long", expect.any(Date), 900_000);
 
+      expect(mockStore.releaseRunLease).not.toHaveBeenCalled();
+
       finish();
       await ticking;
       await vi.advanceTimersByTimeAsync(900_000);
       expect(mockStore.renewRunLease).toHaveBeenCalledTimes(4);
+      // The ended run gives its lease back under the claim it renewed it with.
+      const renewedClaim = mockStore.renewRunLease.mock.calls[0][1];
+      expect(mockStore.releaseRunLease).toHaveBeenCalledWith("task-long", renewedClaim);
     });
   });
 

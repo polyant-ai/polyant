@@ -236,6 +236,42 @@ describe("createSkill", () => {
 // =========================================================================
 
 describe("updateSkill", () => {
+  const STORED = {
+    requiredEnv: [{ name: "API_KEY", sensitive: true }],
+    requiredTools: ["web-search"],
+  };
+
+  beforeEach(() => {
+    mockGetSkill.mockResolvedValue(buildRow("my-skill", "d", "c", STORED));
+  });
+
+  /** The metadata the new version is written with. */
+  const writtenMetadata = () => mockUpdateSkill.mock.calls[0]![1].metadata;
+
+  it("keeps the stored requirements when an update leaves them out", async () => {
+    mockUpdateSkill.mockResolvedValue(buildRow("my-skill", "d", "c2", STORED));
+
+    await service.updateSkill("my-skill", { content: "c2" });
+
+    expect(writtenMetadata()).toEqual(STORED);
+  });
+
+  it("replaces a requirement list the update sends and keeps the one it leaves out", async () => {
+    mockUpdateSkill.mockResolvedValue(buildRow("my-skill", "d", "c2"));
+
+    await service.updateSkill("my-skill", { content: "c2", requiredTools: ["fetch-page"] });
+
+    expect(writtenMetadata()).toEqual({ requiredEnv: STORED.requiredEnv, requiredTools: ["fetch-page"] });
+  });
+
+  it("clears a requirement list the update sends empty", async () => {
+    mockUpdateSkill.mockResolvedValue(buildRow("my-skill", "d", "c2"));
+
+    await service.updateSkill("my-skill", { content: "c2", requiredEnv: [], requiredTools: [] });
+
+    expect(writtenMetadata()).toEqual({ requiredEnv: [], requiredTools: [] });
+  });
+
   it("delegates to DB store and returns SkillDetail", async () => {
     const row = buildRow("my-skill", "Updated description", "Updated content.");
     mockUpdateSkill.mockResolvedValue(row);
@@ -269,7 +305,7 @@ describe("updateSkill", () => {
   });
 
   it("returns null when skill does not exist", async () => {
-    mockUpdateSkill.mockResolvedValue(null);
+    mockGetSkill.mockResolvedValue(null);
 
     const result = await service.updateSkill("ghost", {
       description: "d",
@@ -277,6 +313,13 @@ describe("updateSkill", () => {
     });
 
     expect(result).toBeNull();
+    expect(mockUpdateSkill).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the skill disappears between the read and the write", async () => {
+    mockUpdateSkill.mockResolvedValue(null);
+
+    expect(await service.updateSkill("my-skill", { content: "c" })).toBeNull();
   });
 });
 

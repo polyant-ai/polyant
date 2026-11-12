@@ -19,7 +19,13 @@ describe.skipIf(!DB_AVAILABLE)("skill name and description edit (integration)", 
   const service = new SkillsService();
 
   beforeAll(async () => {
-    await service.createSkill({ name: SLUG, description: "before", content: "v1" });
+    await service.createSkill({
+      name: SLUG,
+      description: "before",
+      content: "v1",
+      requiredEnv: [{ name: "API_KEY", sensitive: true }],
+      requiredTools: ["web-search"],
+    });
   });
 
   afterAll(async () => {
@@ -51,5 +57,23 @@ describe.skipIf(!DB_AVAILABLE)("skill name and description edit (integration)", 
     expect(updated).toMatchObject({ description: "again", content: "v4" });
     const [row] = await queryClient<{ description: string }[]>`SELECT description FROM skills WHERE slug = ${SLUG}`;
     expect(row!.description).toBe("again");
+  });
+
+  it("keeps the stored requirements when an update through the API sends none, and clears one sent empty", async () => {
+    const controller = new SkillsController(service);
+    const metadataOfCurrent = async () => {
+      const [row] = await queryClient<{ metadata: unknown }[]>`
+        SELECT v.metadata FROM skills s JOIN skill_versions v ON v.id = s.current_version_id WHERE s.slug = ${SLUG}`;
+      return row!.metadata;
+    };
+
+    await controller.update(SLUG, { content: "v5" } as never);
+    expect(await metadataOfCurrent()).toEqual({
+      requiredEnv: [{ name: "API_KEY", sensitive: true }],
+      requiredTools: ["web-search"],
+    });
+
+    await controller.update(SLUG, { content: "v6", requiredTools: [] } as never);
+    expect(await metadataOfCurrent()).toEqual({ requiredEnv: [{ name: "API_KEY", sensitive: true }], requiredTools: [] });
   });
 });
