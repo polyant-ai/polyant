@@ -120,7 +120,7 @@ export function SkillSheet({
         description,
         content,
         requiredEnv: toRequiredEnv(envVars),
-        requiredTools: requiredTools.length > 0 ? requiredTools : undefined,
+        requiredTools,
         changelog: changelog.trim() || undefined,
       });
       setSkill(updated);

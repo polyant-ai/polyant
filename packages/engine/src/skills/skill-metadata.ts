@@ -18,13 +18,19 @@ export function parseSkillMetadata(raw: unknown): SkillVersionMetadata {
   return raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as SkillVersionMetadata) : {};
 }
 
-/** The `metadata` a skill write stores: only the requirements the caller declared. */
-export function buildSkillMetadata(data: {
-  requiredEnv?: unknown[];
-  requiredTools?: string[];
-}): Record<string, unknown> {
+/**
+ * The `metadata` a skill write stores: the requirements the caller declared. On an
+ * update, `stored` is the current version's metadata, and a requirement the caller
+ * left out keeps its stored value; one it sent, an empty list included, replaces it.
+ */
+export function buildSkillMetadata(
+  data: { requiredEnv?: unknown[]; requiredTools?: string[] },
+  stored: SkillVersionMetadata = {},
+): Record<string, unknown> {
   const metadata: Record<string, unknown> = {};
-  if (data.requiredEnv) metadata.requiredEnv = data.requiredEnv;
-  if (data.requiredTools) metadata.requiredTools = data.requiredTools;
+  const requiredEnv = data.requiredEnv ?? stored.requiredEnv;
+  const requiredTools = data.requiredTools ?? stored.requiredTools;
+  if (requiredEnv) metadata.requiredEnv = requiredEnv;
+  if (requiredTools) metadata.requiredTools = requiredTools;
   return metadata;
 }

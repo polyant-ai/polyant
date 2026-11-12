@@ -25,8 +25,11 @@ export function toEnvVarDefs(requiredEnv: readonly RequiredEnvEntry[] | undefine
   }));
 }
 
-/** What the API receives: rows without a name dropped, blank descriptions left out, `undefined` when none remain. */
-export function toRequiredEnv(envVars: readonly EnvVarDef[]): RequiredEnvEntry[] | undefined {
+/**
+ * What the API receives: rows without a name dropped, blank descriptions left out. An
+ * empty list is sent as such: an update that leaves the list out keeps the stored one.
+ */
+export function toRequiredEnv(envVars: readonly EnvVarDef[]): RequiredEnvEntry[] {
   const valid = envVars
     .filter((e) => e.name.trim())
     .map((e) => ({
@@ -34,7 +37,7 @@ export function toRequiredEnv(envVars: readonly EnvVarDef[]): RequiredEnvEntry[]
       ...(e.description.trim() ? { description: e.description.trim() } : {}),
       sensitive: e.sensitive,
     }));
-  return valid.length > 0 ? valid : undefined;
+  return valid;
 }
 
 /** The "required environment variables" field of a skill: a list of name, description and secret switch. */

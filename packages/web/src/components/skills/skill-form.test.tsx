@@ -208,6 +208,24 @@ describe("SkillForm", () => {
     });
   });
 
+  it("sends an empty env var list when the last variable is removed, so the update clears the stored ones", async () => {
+    const user = userEvent.setup();
+    updateMock.mockResolvedValueOnce({ name: "test" });
+    render(
+      <SkillForm
+        mode="edit"
+        initialData={{ name: "test", description: "", requiredEnv: [{ name: "VAR_A", sensitive: true }], content: "c" }}
+      />,
+    );
+
+    await user.clear(screen.getByPlaceholderText("skills.form.envNamePlaceholder"));
+    await user.click(screen.getByRole("button", { name: "common.saveSingle" }));
+
+    await waitFor(() => {
+      expect(updateMock).toHaveBeenCalledWith("test", expect.objectContaining({ requiredEnv: [] }));
+    });
+  });
+
   describe("env var management", () => {
     it("adds a new env var row when clicking add button", async () => {
       const user = userEvent.setup();

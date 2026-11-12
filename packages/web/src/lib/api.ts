@@ -741,6 +741,7 @@ export const api = {
       displayName?: string;
       description: string;
       content: string;
+      /** Each requirement list replaces the stored one (`[]` clears it); left out, the stored one stays. */
       requiredEnv?: { name: string; description?: string; sensitive: boolean }[];
       requiredTools?: string[];
       changelog?: string;
