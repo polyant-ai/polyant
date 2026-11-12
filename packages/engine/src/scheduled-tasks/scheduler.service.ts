@@ -182,6 +182,9 @@ class SchedulerService {
     } finally {
       stopRenewing();
       this.running.delete(task.id);
+      await store.releaseRunLease(task.id, claim).catch((err) =>
+        scheduledTaskLog.warn("SchedulerService", `run lease release failed for "${task.name}", it frees itself on expiry: ${errMsg(err)}`),
+      );
     }
   }
 
