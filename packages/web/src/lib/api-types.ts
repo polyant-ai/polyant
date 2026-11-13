@@ -879,6 +879,23 @@ export interface AnalyticsResponse {
   latency?: LatencyData;
 }
 
+/**
+ * The two halves of `AnalyticsResponse`, asked for separately with `?part=`:
+ * the summary (KPIs, trends, distributions) comes back fast, the activity (the
+ * hourly grid and the per-tool figures) reads every message of the window and
+ * comes later, so the dashboard draws the first without waiting for the second.
+ */
+export type AnalyticsPart = "summary" | "activity";
+export type AnalyticsSummaryResponse = Omit<AnalyticsResponse, "hourlyDistribution" | "toolUsage" | "latency"> & {
+  latency?: Omit<LatencyData, "slowestTools" | "toolTimings">;
+};
+export type AnalyticsActivityResponse = Pick<AnalyticsResponse, "hourlyDistribution" | "toolUsage"> & {
+  latency?: Pick<LatencyData, "slowestTools" | "toolTimings">;
+};
+export type AnalyticsPartResponse<P extends AnalyticsPart> = P extends "summary"
+  ? AnalyticsSummaryResponse
+  : AnalyticsActivityResponse;
+
 export interface ToolInfo {
   name: string;
   description: string;

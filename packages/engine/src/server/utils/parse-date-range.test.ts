@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
-import { parseDateRange } from "./parse-date-range.js";
+import { parseDashboardPart, parseDateRange } from "./parse-date-range.js";
 
 describe("parseDateRange", () => {
   beforeEach(() => {
@@ -94,5 +94,22 @@ describe("parseDateRange", () => {
 
   it("should_accept_a_range_at_the_limit", () => {
     expect(() => parseDateRange("2025-01-01", "2025-12-31")).not.toThrow();
+  });
+});
+
+describe("parseDashboardPart", () => {
+  it("answers both halves when no part is asked for", () => {
+    expect(parseDashboardPart(undefined)).toBeUndefined();
+    expect(parseDashboardPart("")).toBeUndefined();
+  });
+
+  it("passes a known half through", () => {
+    expect(parseDashboardPart("summary")).toBe("summary");
+    expect(parseDashboardPart("activity")).toBe("activity");
+  });
+
+  it("rejects anything else, arrays included", () => {
+    expect(() => parseDashboardPart("everything")).toThrow(/"part" must be one of: summary, activity/);
+    expect(() => parseDashboardPart(["summary"])).toThrow(BadRequestException);
   });
 });

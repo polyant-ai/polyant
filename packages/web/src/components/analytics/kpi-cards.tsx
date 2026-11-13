@@ -2,16 +2,20 @@
 
 "use client";
 
+import type { ComponentType } from "react";
 import { DollarSign, MessageSquare, Mail, Zap, Database } from "lucide-react";
-import type { AnalyticsResponse } from "@/lib/api";
+import type { AnalyticsSummaryResponse } from "@/lib/api";
 import { formatLatency } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
+import type { TranslationKey } from "@/lib/i18n/types";
 import { useFormat } from "@/lib/use-format";
 import { dailyValues } from "./daily-series";
+import { KpiTileSkeleton } from "./dashboard-skeletons";
 import { KpiTile, type KpiTileProps } from "./kpi-tile";
 
 interface KpiCardsProps {
-  data: AnalyticsResponse;
+  /** The summary half of the dashboard is enough: the tiles never read the activity. */
+  data: AnalyticsSummaryResponse;
   /** Every day of the period, so each sparkline has one point per day. */
   days: readonly string[];
 }
@@ -32,7 +36,7 @@ const rate = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
  * chart below it can be read together. Without traces in the period it falls
  * back to the average model call, with no line to draw.
  */
-function responseTimeTile(data: AnalyticsResponse): Omit<KpiTileProps, "label" | "icon"> {
+function responseTimeTile(data: AnalyticsSummaryResponse): Omit<KpiTileProps, "label" | "icon"> {
   const latency = data.latency;
   if (latency && latency.overview.sampleCount > 0) {
     const previous = latency.previousOverview;
@@ -52,6 +56,29 @@ function responseTimeTile(data: AnalyticsResponse): Omit<KpiTileProps, "label" |
   };
 }
 
+/** The five tiles, in order: shared by the row and its placeholder so the two cannot disagree. */
+const KPI_TILES = {
+  cost: { label: "analytics.kpi.cost", icon: DollarSign },
+  conversations: { label: "analytics.kpi.conversations", icon: MessageSquare },
+  messages: { label: "analytics.kpi.messages", icon: Mail },
+  responseTime: { label: "analytics.kpi.responseTime", icon: Zap },
+  cacheHitRate: { label: "analytics.kpi.cacheHitRate", icon: Database },
+} as const satisfies Record<string, { label: TranslationKey; icon: ComponentType<{ className?: string }> }>;
+
+const KPI_ROW = "grid gap-4 *:min-w-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
+
+/** The KPI row before the overview arrives: each tile's label and icon, the figures still to come. */
+export function KpiCardsSkeleton() {
+  const { t } = useI18n();
+  return (
+    <div className={KPI_ROW}>
+      {Object.values(KPI_TILES).map((tile) => (
+        <KpiTileSkeleton key={tile.label} label={t(tile.label)} icon={tile.icon} />
+      ))}
+    </div>
+  );
+}
+
 export function KpiCards({ data, days }: KpiCardsProps) {
   const { t } = useI18n();
   const fmt = useFormat();
@@ -63,49 +90,49 @@ export function KpiCards({ data, days }: KpiCardsProps) {
 
   const cards: KpiTileProps[] = [
     {
-      label: t("analytics.kpi.cost"),
+      label: t(KPI_TILES.cost.label),
       value: fmt.currency(overview.totalCost),
       trend: overview.trends.cost,
       previous: fmt.currency(previous.totalCost),
       series: dailyValues(dailyTrend, days, (row) => row.cost),
-      icon: DollarSign,
+      icon: KPI_TILES.cost.icon,
     },
     {
-      label: t("analytics.kpi.conversations"),
+      label: t(KPI_TILES.conversations.label),
       value: formatCount(overview.totalConversations),
       trend: overview.trends.conversations,
       previous: formatCount(previous.totalConversations),
       series: dailyValues(dailyTrend, days, (row) => row.conversations),
-      icon: MessageSquare,
+      icon: KPI_TILES.conversations.icon,
     },
     {
-      label: t("analytics.kpi.messages"),
+      label: t(KPI_TILES.messages.label),
       value: formatCount(overview.totalMessages),
       trend: overview.trends.messages,
       previous: formatCount(previous.totalMessages),
       series: dailyValues(dailyTrend, days, (row) => row.messages),
-      icon: Mail,
+      icon: KPI_TILES.messages.icon,
     },
     {
-      label: t("analytics.kpi.responseTime"),
+      label: t(KPI_TILES.responseTime.label),
       ...responseTimeTile(data),
       lowerIsBetter: true,
-      icon: Zap,
+      icon: KPI_TILES.responseTime.icon,
     },
     {
-      label: t("analytics.kpi.cacheHitRate"),
+      label: t(KPI_TILES.cacheHitRate.label),
       value: `${Math.round(cacheRate * 100)}%`,
       // A rate moves in points: 40% to 44% is "+4 pt", where "+10%" would read as a ten-point jump.
       trend: previous.promptTokens > 0 ? (cacheRate - previousCacheRate) * 100 : null,
       trendUnit: "pt",
       // Only the days that sent a prompt, for the same reason.
       series: dailyTrend.filter((row) => row.promptTokens > 0).map((row) => rate(row.cachedInputTokens, row.promptTokens)),
-      icon: Database,
+      icon: KPI_TILES.cacheHitRate.icon,
     },
   ];
 
   return (
-    <div className="grid gap-4 *:min-w-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-tour="dash-tiles">
+    <div className={KPI_ROW} data-tour="dash-tiles">
       {cards.map((card) => (
         <KpiTile key={card.label} {...card} />
       ))}
