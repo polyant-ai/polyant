@@ -10,6 +10,9 @@
  * value below is worked out from the inserted rows, not read back from the
  * code under test.
  *
+ * Another organization has a conversation and a turn on the same days: no
+ * figure of this organization may count them.
+ *
  * The windows: the current one is [2026-06-01, 2026-06-03], the previous one
  * the two days before. A row at 2026-06-01T00:00Z is in the current window, and
  * only there.
@@ -27,6 +30,7 @@ const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-dashboard";
 const AGENT = `${MARKER}-a`;
 const OTHER = `${MARKER}-b`;
+const FOREIGN = `${MARKER}-x`;
 const RANGE = { from: new Date("2026-06-01T00:00:00Z"), to: new Date("2026-06-03T00:00:00Z") };
 
 let scope: TenantScope;
@@ -52,6 +56,18 @@ describe.skipIf(!DB_AVAILABLE)("dashboard figures (integration)", () => {
       INSERT INTO instances (slug, name, workspace_id)
       VALUES (${AGENT}, 'Agent A', ${wsId}), (${OTHER}, 'Agent B', ${wsId})`;
     scope = orgScope(orgId);
+
+    const [{ id: foreignOrgId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO organizations (slug, name, is_default) VALUES (${FOREIGN}, 'x', false) RETURNING id`;
+    const [{ id: foreignWsId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO workspaces (organization_id, slug, name, is_default) VALUES (${foreignOrgId}, ${FOREIGN}, 'x', false) RETURNING id`;
+    await queryClient`INSERT INTO instances (slug, name, workspace_id) VALUES (${FOREIGN}, 'Foreign', ${foreignWsId})`;
+    await queryClient`
+      INSERT INTO conversations (conversation_id, instance_id, channel, user_identifier, message_count, created_at, last_message_at)
+      VALUES (${`${FOREIGN}-c`}, ${FOREIGN}, 'web', 'ux', 2, '2026-06-01T09:00:00Z', '2026-06-01T09:00:00Z')`;
+    await queryClient`
+      INSERT INTO pipeline_traces (conversation_id, instance_id, channel, total_ms, created_at)
+      VALUES (${`${FOREIGN}-c`}, ${FOREIGN}, 'web', 700, '2026-06-01T09:00:00Z')`;
 
     const c1 = `${MARKER}-c1`;
     const c2 = `${MARKER}-c2`;
@@ -155,6 +171,12 @@ describe.skipIf(!DB_AVAILABLE)("dashboard figures (integration)", () => {
       { date: "2026-06-01", cost: expect.closeTo(1.5, 6), tokens: 300, promptTokens: 230, cachedInputTokens: 60, conversations: 1, messages: 4 },
       { date: "2026-06-02", cost: expect.closeTo(0.41, 6), tokens: 620, promptTokens: 595, cachedInputTokens: 0, conversations: 2, messages: 4 },
     ]);
+    // The same conversations by channel; c3 has none and is counted as web, as in the channel breakdown.
+    expect(data.dailyChannels).toEqual([
+      { date: "2026-06-01", channel: "web", conversations: 1 },
+      { date: "2026-06-02", channel: "web", conversations: 1 },
+      { date: "2026-06-02", channel: "whatsapp", conversations: 1 },
+    ]);
     expect(data.previousDailyCost).toEqual([
       { dayOffset: 0, cost: expect.closeTo(0.5, 6) },
       { dayOffset: 1, cost: expect.closeTo(2.0, 6) },
@@ -232,8 +254,8 @@ describe.skipIf(!DB_AVAILABLE)("dashboard figures (integration)", () => {
     expect(latency.overview).toEqual({ p50: 2000, p95: 2900, p99: 2980, avgTotal: 2000, avgTtfb: 200, sampleCount: 3 });
     expect(latency.previousOverview).toEqual({ p50: 5000, p95: 5000, p99: 5000, avgTotal: 5000, avgTtfb: 500, sampleCount: 1 });
     expect(latency.dailyLatency).toEqual([
-      { date: "2026-06-01", p50: 2000, p95: 2900, p99: 2980 },
-      { date: "2026-06-02", p50: 2000, p95: 2000, p99: 2000 },
+      { date: "2026-06-01", p50: 2000, p95: 2900, p99: 2980, turns: 2 },
+      { date: "2026-06-02", p50: 2000, p95: 2000, p99: 2000, turns: 1 },
     ]);
     expect(latency.phaseBreakdown).toEqual([
       { date: "2026-06-01", contextPrep: 20, toolBuilding: 10, llmCall: 1650 },
@@ -246,6 +268,21 @@ describe.skipIf(!DB_AVAILABLE)("dashboard figures (integration)", () => {
     expect(latency.toolTimings).toEqual([
       { tool: "crm__lookup", avgDurationMs: 200, callCount: 2, p95: 290, successRate: 1 },
       { tool: "calendar__book", avgDurationMs: 900, callCount: 1, p95: 900, successRate: 0 },
+    ]);
+  });
+
+  it("keeps another organization's conversations and turns out of the daily splits", async () => {
+    // Organization-wide, so only the scope keeps the foreign rows of 2026-06-01 out.
+    const [data, latency] = await Promise.all([getAnalytics(scope, RANGE), getLatencyAnalytics(scope, RANGE)]);
+
+    expect(data.dailyChannels).toEqual([
+      { date: "2026-06-01", channel: "web", conversations: 1 },
+      { date: "2026-06-02", channel: "web", conversations: 1 },
+      { date: "2026-06-02", channel: "whatsapp", conversations: 1 },
+    ]);
+    expect(latency.dailyLatency.map(({ date, turns }) => ({ date, turns }))).toEqual([
+      { date: "2026-06-01", turns: 2 },
+      { date: "2026-06-02", turns: 1 },
     ]);
   });
 });

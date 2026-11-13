@@ -6,7 +6,8 @@ import { LatencyTrendChart } from "./latency-trend-chart";
 import { KpiTile } from "./kpi-tile";
 import { RankedBars } from "./ranked-bars";
 import { HourlyHeatmap } from "./hourly-heatmap";
-import { dailyValues, dayKey, eachDay } from "./daily-series";
+import { dailyCacheHitRates, dailyCostPerTurn, dailyValues, dayKey, eachDay } from "./daily-series";
+import { channelSeries } from "./channel-trend-chart";
 import type { ToolRow, ToolLatencyRow, LatencyDailyRow } from "@/lib/api";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -43,8 +44,8 @@ const toolLatencyData: ToolLatencyRow[] = [
 ];
 
 const latencyDailyData: LatencyDailyRow[] = [
-  { date: "2026-02-20", p50: 500, p95: 1200, p99: 3000 },
-  { date: "2026-02-21", p50: 450, p95: 1100, p99: 2800 },
+  { date: "2026-02-20", p50: 500, p95: 1200, p99: 3000, turns: 12 },
+  { date: "2026-02-21", p50: 450, p95: 1100, p99: 2800, turns: 9 },
 ];
 
 // ── Daily series ────────────────────────────────────────────────────
@@ -61,6 +62,53 @@ describe("daily series", () => {
 
   it("reads a date the API sent as a full timestamp", () => {
     expect(dayKey("2026-03-01T00:00:00.000Z")).toBe("2026-03-01");
+  });
+
+  it("rates each day's cache reads against its prompt, skipping days that sent none", () => {
+    const rows = [
+      { date: "2026-03-01", promptTokens: 1000, cachedInputTokens: 250 },
+      // A day without a prompt has no rate, where a zero would draw a fall.
+      { date: "2026-03-02", promptTokens: 0, cachedInputTokens: 0 },
+      { date: "2026-03-04T00:00:00.000Z", promptTokens: 400, cachedInputTokens: 400 },
+    ];
+    expect(dailyCacheHitRates(rows, eachDay("2026-03-01", "2026-03-04"))).toEqual([0.25, null, null, 1]);
+  });
+
+  it("divides each day's cost by its turns, skipping days without turns", () => {
+    const costs = [
+      { date: "2026-03-01", cost: 1.5 },
+      // Spend without a turn (a background summary): nothing to divide by.
+      { date: "2026-03-02", cost: 0.2 },
+      { date: "2026-03-03", cost: 0.9 },
+    ];
+    const turns = [
+      { date: "2026-03-01", turns: 3 },
+      { date: "2026-03-03", turns: 6 },
+      // A turn on a day with no cost recorded costs nothing.
+      { date: "2026-03-04", turns: 2 },
+    ];
+    expect(dailyCostPerTurn(costs, turns, eachDay("2026-03-01", "2026-03-05"))).toEqual([0.5, null, 0.15, 0, null]);
+  });
+});
+
+describe("channel series", () => {
+  it("ranks the channels by the period's conversations and folds the ones beyond the palette into one", () => {
+    const rows = ["web", "whatsapp", "voice", "telegram", "slack", "email"].flatMap((channel, i) => [
+      { date: "2026-03-01", channel, conversations: 10 - i },
+      { date: "2026-03-02", channel, conversations: 10 - i },
+    ]);
+    // Whatsapp is behind web on each day they share and ahead over the period: the total decides.
+    rows.push({ date: "2026-03-03", channel: "whatsapp", conversations: 3 });
+
+    const { channels, hasOther } = channelSeries(rows);
+
+    expect(channels.map((c) => c.channel)).toEqual(["whatsapp", "web", "voice", "telegram"]);
+    expect(new Set(channels.map((c) => c.key)).size).toBe(4);
+    expect(hasOther).toBe(true);
+  });
+
+  it("needs no other series when every channel has its colour", () => {
+    expect(channelSeries([{ date: "2026-03-01", channel: "web", conversations: 1 }]).hasOther).toBe(false);
   });
 });
 

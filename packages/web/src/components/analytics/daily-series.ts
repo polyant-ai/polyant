@@ -43,3 +43,36 @@ export function dayTick(day: string): string {
   const [, month, date] = day.split("-");
   return `${Number(date)}/${Number(month)}`;
 }
+
+/**
+ * The share of each day's prompt tokens read from the provider's cache, 0 to 1.
+ * Null on a day that sent no prompt: a quiet day has no rate, and a zero there
+ * would draw a drop that did not happen (the KPI tile's rule).
+ */
+export function dailyCacheHitRates(
+  rows: readonly { date: string; promptTokens: number; cachedInputTokens: number }[],
+  days: readonly string[],
+): (number | null)[] {
+  const byDay = new Map(rows.map((row) => [dayKey(row.date), row]));
+  return days.map((day) => {
+    const row = byDay.get(day);
+    return row && row.promptTokens > 0 ? row.cachedInputTokens / row.promptTokens : null;
+  });
+}
+
+/**
+ * Each day's model cost divided by its turns. The cost is every model call of
+ * the day (replies, service calls such as titles and summaries, embeddings,
+ * failed calls the provider billed); the turns are the replies the agents gave.
+ * So it reads as what one reply cost with everything around it. Null on a day
+ * without turns, which has nothing to divide by.
+ */
+export function dailyCostPerTurn(
+  costs: readonly { date: string; cost: number }[],
+  turns: readonly { date: string; turns: number }[],
+  days: readonly string[],
+): (number | null)[] {
+  const cost = dailyValues(costs, days, (row) => row.cost);
+  const count = dailyValues(turns, days, (row) => row.turns);
+  return days.map((_, i) => (count[i] > 0 ? cost[i] / count[i] : null));
+}

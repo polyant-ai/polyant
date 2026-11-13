@@ -11,7 +11,8 @@ import { DateRangePicker, type DateRange } from "./date-range-picker";
 import { ChartCardSkeleton } from "./dashboard-skeletons";
 import { KpiCards, KpiCardsSkeleton } from "./kpi-cards";
 import { CostTrendChart } from "./cost-trend-chart";
-import { ConversationTrendChart } from "./conversation-trend-chart";
+import { ChannelTrendChart } from "./channel-trend-chart";
+import { CacheHitRateChart, CostPerTurnChart } from "./efficiency-charts";
 import { HourlyHeatmap } from "./hourly-heatmap";
 import { ModelDistributionChart } from "./model-distribution-chart";
 import { ChannelDistributionChart } from "./channel-distribution-chart";
@@ -90,7 +91,7 @@ export function AnalyticsDashboard({
         <DateRangePicker value={range} onChange={setRange} />
       </div>
 
-      {/* Summary first, then one row per question: what it cost, how much it was used, how well it answered, when. */}
+      {/* Summary first, then one row per question: what it cost, how much it was used, how efficiently, how well it answered, when. */}
       {data ? <KpiCards data={data} days={days} /> : <KpiCardsSkeleton />}
 
       <div className="grid gap-4 *:min-w-0 xl:grid-cols-3">
@@ -111,15 +112,28 @@ export function AnalyticsDashboard({
       <div className="grid gap-4 *:min-w-0 xl:grid-cols-3">
         <div className="xl:col-span-2 *:h-full">
           {data ? (
-            <ConversationTrendChart data={data.dailyTrend} days={days} />
+            <ChannelTrendChart data={data.dailyChannels} days={days} />
           ) : (
-            <ChartCardSkeleton title={t("analytics.charts.conversationTrend")} shape={{ kind: "line", height: 260 }} />
+            <ChartCardSkeleton title={t("analytics.charts.channelTrend")} shape={{ kind: "columns", height: 260 }} />
           )}
         </div>
         {data ? (
           <ChannelDistributionChart data={data.channelDistribution} />
         ) : (
           <ChartCardSkeleton title={t("analytics.charts.channelDistribution")} shape={{ kind: "bars" }} />
+        )}
+      </div>
+
+      <div className="grid gap-4 *:min-w-0 xl:grid-cols-2">
+        {data ? (
+          <CacheHitRateChart data={data.dailyTrend} days={days} />
+        ) : (
+          <ChartCardSkeleton title={t("analytics.charts.cacheHitRate")} shape={{ kind: "line", height: 260 }} />
+        )}
+        {data ? (
+          <CostPerTurnChart data={data.dailyTrend} latency={data.latency?.dailyLatency ?? []} days={days} />
+        ) : (
+          <ChartCardSkeleton title={t("analytics.charts.costPerTurn")} shape={{ kind: "line", height: 260 }} />
         )}
       </div>
 

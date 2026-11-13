@@ -8,12 +8,11 @@ import type { ChannelRow } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
 import { RankedBars } from "./ranked-bars";
+import { channelLabel } from "./channels";
 
 interface ChannelDistributionChartProps {
   data: ChannelRow[];
 }
-
-const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Conversations per channel, busiest first. */
 export function ChannelDistributionChart({ data }: ChannelDistributionChartProps) {
@@ -24,7 +23,7 @@ export function ChannelDistributionChart({ data }: ChannelDistributionChartProps
     () =>
       [...data]
         .sort((a, b) => b.conversations - a.conversations)
-        .map((row) => ({ key: row.channel, label: capitalise(row.channel), value: row.conversations })),
+        .map((row) => ({ key: row.channel, label: channelLabel(row.channel), value: row.conversations })),
     [data],
   );
 
