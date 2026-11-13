@@ -18,7 +18,8 @@ vi.mock("./kpi-cards", async (original) => ({
   KpiCards: drawn("kpis"),
 }));
 vi.mock("./cost-trend-chart", () => ({ CostTrendChart: drawn("cost") }));
-vi.mock("./conversation-trend-chart", () => ({ ConversationTrendChart: drawn("conversations") }));
+vi.mock("./channel-trend-chart", () => ({ ChannelTrendChart: drawn("channelTrend") }));
+vi.mock("./efficiency-charts", () => ({ CacheHitRateChart: drawn("cacheRate"), CostPerTurnChart: drawn("costPerTurn") }));
 vi.mock("./latency-trend-chart", () => ({ LatencyTrendChart: drawn("latency") }));
 vi.mock("./model-distribution-chart", () => ({ ModelDistributionChart: drawn("models") }));
 vi.mock("./channel-distribution-chart", () => ({ ChannelDistributionChart: drawn("channels") }));
@@ -47,6 +48,9 @@ describe("AnalyticsDashboard", () => {
     // Before anything arrives: the layout with its real titles, every card a placeholder.
     expect(screen.getByText("analytics.kpi.cost")).toBeInTheDocument();
     expect(screen.getByText("analytics.charts.costTrend")).toBeInTheDocument();
+    expect(screen.getByText("analytics.charts.channelTrend")).toBeInTheDocument();
+    expect(screen.getByText("analytics.charts.cacheHitRate")).toBeInTheDocument();
+    expect(screen.getByText("analytics.charts.costPerTurn")).toBeInTheDocument();
     expect(screen.getByText("analytics.charts.tools")).toBeInTheDocument();
     expect(screen.getByText("analytics.charts.hourlyDistribution")).toBeInTheDocument();
     expect(screen.getByText("analytics.charts.instanceComparison")).toBeInTheDocument();
@@ -57,8 +61,11 @@ describe("AnalyticsDashboard", () => {
     await act(async () => summary.resolve({ overview: {}, dailyTrend: [], latency: {} }));
 
     // The summary's cards are drawn; the two activity cards still wait, titled.
-    for (const name of ["kpis", "cost", "conversations", "latency", "models", "channels", "agents"]) {
+    for (const name of ["kpis", "cost", "channelTrend", "cacheRate", "costPerTurn", "latency", "models", "channels", "agents"]) {
       expect(screen.getByTestId(`chart-${name}`)).toBeInTheDocument();
+    }
+    for (const title of ["analytics.charts.channelTrend", "analytics.charts.cacheHitRate", "analytics.charts.costPerTurn"]) {
+      expect(screen.queryByText(title)).not.toBeInTheDocument();
     }
     expect(screen.queryByTestId("chart-tools")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chart-heatmap")).not.toBeInTheDocument();

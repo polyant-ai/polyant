@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 /**
  * What a dashboard card shows before its data arrives: the card's real title,
  * and inside it the outline of what will be drawn there (a curve, ranked bars,
- * table rows, the hour grid), at the height the real content takes. The page
+ * columns, table rows, the hour grid), at the height the real content takes. The page
  * keeps its layout from the first frame, and each card fills in as its own
  * answer lands, without anything below it moving.
  */
@@ -44,6 +44,26 @@ function LineShape({ height }: { height: number }) {
   return (
     <div className="flex flex-col gap-2" style={{ height }}>
       <Bone className="min-h-0 flex-1 rounded-none" style={{ clipPath: CURVE }} />
+      <div className="flex justify-between">
+        {Array.from({ length: 5 }, (_, i) => (
+          <Bone key={i} className="h-2.5 w-10" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Daily columns of uneven height, as a stacked daily count usually draws.
+const COLUMN_HEIGHTS = [48, 62, 40, 70, 56, 82, 64, 44, 72, 90, 60, 52, 78, 66];
+
+function ColumnsShape({ height }: { height: number }) {
+  return (
+    <div className="flex flex-col gap-2" style={{ height }}>
+      <div className="flex min-h-0 flex-1 items-end gap-1.5">
+        {COLUMN_HEIGHTS.map((h, i) => (
+          <Bone key={i} className="flex-1 rounded-b-none rounded-t-[3px]" style={{ height: `${h}%` }} />
+        ))}
+      </div>
       <div className="flex justify-between">
         {Array.from({ length: 5 }, (_, i) => (
           <Bone key={i} className="h-2.5 w-10" />
@@ -109,6 +129,7 @@ function HeatmapShape() {
 
 export type ChartSkeletonShape =
   | { kind: "line"; height: number }
+  | { kind: "columns"; height: number }
   | { kind: "bars" }
   | { kind: "table"; rows: number }
   | { kind: "heatmap" };
@@ -122,6 +143,7 @@ export function ChartCardSkeleton({ title, shape }: { title: string; shape: Char
       </CardHeader>
       <CardContent>
         {shape.kind === "line" && <LineShape height={shape.height} />}
+        {shape.kind === "columns" && <ColumnsShape height={shape.height} />}
         {shape.kind === "bars" && <BarsShape />}
         {shape.kind === "table" && <TableShape rows={shape.rows} />}
         {shape.kind === "heatmap" && <HeatmapShape />}

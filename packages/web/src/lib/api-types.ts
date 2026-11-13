@@ -792,6 +792,13 @@ export interface ChannelRow {
   messages: number;
 }
 
+/** Conversations started on a day through one channel, named as `ChannelRow` names it. */
+export interface DailyChannelRow {
+  date: string;
+  channel: string;
+  conversations: number;
+}
+
 export interface ModelRow {
   provider: string;
   model: string;
@@ -839,6 +846,8 @@ export interface LatencyDailyRow {
   p50: number;
   p95: number;
   p99: number;
+  /** The day's turns. */
+  turns: number;
 }
 
 export interface PhaseBreakdownRow {
@@ -872,6 +881,7 @@ export interface AnalyticsResponse {
   previousDailyCost: PreviousDailyCostRow[];
   hourlyDistribution: HourlyRow[];
   channelDistribution: ChannelRow[];
+  dailyChannels: DailyChannelRow[];
   modelDistribution: ModelRow[];
   tierDistribution: TierRow[];
   toolUsage: ToolRow[];

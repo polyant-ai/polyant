@@ -53,6 +53,7 @@ export type {
   PreviousDailyCostRow,
   HourlyRow,
   ChannelRow,
+  DailyChannelRow,
   ModelRow,
   TierRow,
   ToolRow,
