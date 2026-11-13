@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   turns. The summary response gains `dailyChannels`, and the latency summary's
   daily rows a `turns` count.
 
+### Changed
+
+- The analytics pool opens up to 6 connections per engine process by default,
+  up from 3: an organization dashboard's reads queued for seconds on 3. Each
+  process may now hold up to 16 connections to Postgres; on a server with a
+  tight `max_connections`, set `POSTGRES_ANALYTICS_POOL_MAX` back to 3.
+
 ## [1.3.6] - 2026-11-11
 
 ### Added
