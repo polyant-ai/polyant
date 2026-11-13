@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The analytics dashboard draws the daily conversations stacked by channel (in
+  place of the conversation trend), the daily cache hit rate and the daily cost
+  per turn: the day's model cost, every call included, divided by the day's
+  turns. The summary response gains `dailyChannels`, and the latency summary's
+  daily rows a `turns` count.
+
 ## [1.3.6] - 2026-11-11
 
 ### Added
