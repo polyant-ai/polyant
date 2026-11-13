@@ -215,21 +215,45 @@ async function readToolTimings(
 
 // ── Main Aggregator ──────────────────────────────────────────────────
 
-export async function getLatencyAnalytics(
+/** The response-time figures, from the traces' own columns. */
+export type LatencySummary = Omit<LatencyData, "slowestTools" | "toolTimings">;
+/** The per-tool timings, which unnest every trace's `tool_calls` and so cost more. */
+export type LatencyActivity = Pick<LatencyData, "slowestTools" | "toolTimings">;
+
+export async function getLatencySummary(
   scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-): Promise<LatencyData> {
-  const [{ overview, dailyLatency, phaseBreakdown }, previousOverview, tools] = await Promise.all([
+): Promise<LatencySummary> {
+  const [{ overview, dailyLatency, phaseBreakdown }, previousOverview] = await Promise.all([
     readCurrentLatency(scope, range, instanceId),
     readPreviousLatency(scope, range, instanceId),
-    readToolTimings(scope, range, instanceId),
   ]);
+  return { overview, previousOverview, dailyLatency, phaseBreakdown };
+}
+
+export async function getLatencyActivity(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: string,
+): Promise<LatencyActivity> {
+  const tools = await readToolTimings(scope, range, instanceId);
   const slowestTools = [...tools].sort((a, b) => b.avgDurationMs - a.avgDurationMs).slice(0, 10);
   const toolTimings = [...tools]
     .sort((a, b) => b.callCount - a.callCount)
     .slice(0, 20)
     .map((row) => ({ ...row, tool: toModelToolName(row.tool) }));
+  return { slowestTools, toolTimings };
+}
 
-  return { overview, previousOverview, dailyLatency, phaseBreakdown, slowestTools, toolTimings };
+export async function getLatencyAnalytics(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: string,
+): Promise<LatencyData> {
+  const [summary, activity] = await Promise.all([
+    getLatencySummary(scope, range, instanceId),
+    getLatencyActivity(scope, range, instanceId),
+  ]);
+  return { ...summary, ...activity };
 }

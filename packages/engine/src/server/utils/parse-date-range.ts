@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { BadRequestException } from "@nestjs/common";
+import { DASHBOARD_PARTS, type DashboardPart } from "../../analytics/dashboard-read.js";
 
 /** Widest window the analytics aggregates may be asked for in one request. */
 const MAX_RANGE_DAYS = 366;
@@ -44,4 +45,13 @@ export function parseDateRange(from?: unknown, to?: unknown) {
   }
 
   return { from: fromDate, to: toDate };
+}
+
+/** `?part=` of the analytics dashboard routes: one half of the response, or both when absent. */
+export function parseDashboardPart(value: unknown): DashboardPart | undefined {
+  if (value === undefined || value === "") return undefined;
+  if (typeof value === "string" && (DASHBOARD_PARTS as readonly string[]).includes(value)) {
+    return value as DashboardPart;
+  }
+  throw new BadRequestException(`"part" must be one of: ${DASHBOARD_PARTS.join(", ")}`);
 }

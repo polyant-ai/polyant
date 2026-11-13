@@ -653,41 +653,64 @@ async function getInstanceComparison(
 
 // ── Main Aggregator ─────────────────────────────────────────────────
 
+/**
+ * The dashboard split in two by cost. The summary reads `ai_logs` and the
+ * conversations' own counters through their indexes; the activity reads the
+ * MESSAGES — the hourly grid and the tool counts that unnest every message's
+ * `steps` — and is what grows with the volume. The panel asks for the two
+ * separately, so the numbers on top do not wait for the slow half.
+ */
+export type AnalyticsSummary = Omit<AnalyticsData, "hourlyDistribution" | "toolUsage">;
+export type AnalyticsActivity = Pick<AnalyticsData, "hourlyDistribution" | "toolUsage">;
+
+export async function getAnalyticsSummary(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: InstanceSlug,
+  includeInstanceComparison = false,
+): Promise<AnalyticsSummary> {
+  const [current, previous, [convStats, prevConv], dailyConversations, channelDistribution, instanceComparison] =
+    await Promise.all([
+      readCurrentAiLogs(scope, range, instanceId),
+      readPreviousAiLogs(scope, range, instanceId),
+      readConversationTotals(scope, range, instanceId),
+      readDailyConversations(scope, range, instanceId),
+      getChannelDistribution(scope, range, instanceId),
+      includeInstanceComparison ? getInstanceComparison(scope, range) : Promise.resolve(undefined),
+    ]);
+
+  return {
+    overview: overviewFromRows(current.overview, convStats, previous.overview, prevConv),
+    dailyTrend: mergeDailyTrend(current.daily, dailyConversations),
+    previousDailyCost: previous.dailyCost,
+    channelDistribution,
+    modelDistribution: current.models,
+    tierDistribution: current.tiers,
+    ...(instanceComparison ? { instanceComparison } : {}),
+  };
+}
+
+export async function getAnalyticsActivity(
+  scope: TenantScope,
+  range: DateRange,
+  instanceId?: InstanceSlug,
+): Promise<AnalyticsActivity> {
+  const [hourlyDistribution, toolUsage] = await Promise.all([
+    getHourlyDistribution(scope, range, instanceId),
+    getToolUsage(scope, range, instanceId),
+  ]);
+  return { hourlyDistribution, toolUsage };
+}
+
 export async function getAnalytics(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
   includeInstanceComparison = false,
 ): Promise<AnalyticsData> {
-  const [
-    current,
-    previous,
-    [convStats, prevConv],
-    dailyConversations,
-    hourlyDistribution,
-    channelDistribution,
-    toolUsage,
-    instanceComparison,
-  ] = await Promise.all([
-    readCurrentAiLogs(scope, range, instanceId),
-    readPreviousAiLogs(scope, range, instanceId),
-    readConversationTotals(scope, range, instanceId),
-    readDailyConversations(scope, range, instanceId),
-    getHourlyDistribution(scope, range, instanceId),
-    getChannelDistribution(scope, range, instanceId),
-    getToolUsage(scope, range, instanceId),
-    includeInstanceComparison ? getInstanceComparison(scope, range) : Promise.resolve(undefined),
+  const [summary, activity] = await Promise.all([
+    getAnalyticsSummary(scope, range, instanceId, includeInstanceComparison),
+    getAnalyticsActivity(scope, range, instanceId),
   ]);
-
-  return {
-    overview: overviewFromRows(current.overview, convStats, previous.overview, prevConv),
-    dailyTrend: mergeDailyTrend(current.daily, dailyConversations),
-    previousDailyCost: previous.dailyCost,
-    hourlyDistribution,
-    channelDistribution,
-    modelDistribution: current.models,
-    tierDistribution: current.tiers,
-    toolUsage,
-    ...(instanceComparison ? { instanceComparison } : {}),
-  };
+  return { ...summary, ...activity };
 }

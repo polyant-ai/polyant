@@ -9,12 +9,11 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { Response } from "express";
-import { getAnalytics } from "../../analytics/analytics.store.js";
-import { getLatencyAnalytics } from "../../analytics/latency.store.js";
+import { readDashboard } from "../../analytics/dashboard-read.js";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { callerTenantScope } from "../utils/caller-tenant-scope.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
-import { parseDateRange } from "../utils/parse-date-range.js";
+import { parseDashboardPart, parseDateRange } from "../utils/parse-date-range.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -26,8 +25,10 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * user sees on login and on every org switch — and it fires about sixteen
  * aggregate queries. Message totals come from the conversations' own counters
  * and the message-level scans are bounded to the conversations active in the
- * window (migration conversation_message_counters), but there is no rollup table and no client-side
- * cache, so every mount still recomputes.
+ * window (migration conversation_message_counters). There is no rollup table:
+ * `readDashboard` shares one computation among the readers of the same scope
+ * and period for two minutes, and this header saves the request altogether on a
+ * reload or a back-navigation.
  *
  * `private` is not optional: this is tenant-scoped data and must never be held
  * by a shared proxy. 30s is chosen to absorb a reload and a back-navigation
@@ -49,18 +50,17 @@ export class AnalyticsController {
   async global(
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("part") part?: string,
     @CurrentUser() user?: AuthenticatedUser,
     @Res({ passthrough: true }) res?: Response,
   ) {
     const range = parseDateRange(from, to);
+    const dashboardPart = parseDashboardPart(part);
     const scope = await callerTenantScope(user);
-    const [analytics, latency] = await Promise.all([
-      getAnalytics(scope, range, undefined, true),
-      getLatencyAnalytics(scope, range),
-    ]);
+    const body = await readDashboard({ scope, range, includeInstanceComparison: true }, dashboardPart);
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
     res?.setHeader("Vary", ANALYTICS_CACHE_VARY);
-    return { ...analytics, latency };
+    return body;
   }
 
   // GET /api/instances/:slug/analytics — per-instance
@@ -70,6 +70,7 @@ export class AnalyticsController {
     @Param("slug") slug: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("part") part?: string,
     @CurrentUser() user?: AuthenticatedUser,
     @Res({ passthrough: true }) res?: Response,
   ) {
@@ -77,15 +78,16 @@ export class AnalyticsController {
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
     const range = parseDateRange(from, to);
+    const dashboardPart = parseDashboardPart(part);
     const scope = await callerTenantScope(user);
     // The scope is ANDed in the store: a foreign-org slug yields empty analytics
     // (param-IDOR closed at the store layer, not by an extra ownership check).
-    const [analytics, latency] = await Promise.all([
-      getAnalytics(scope, range, instance.slug),
-      getLatencyAnalytics(scope, range, instance.slug),
-    ]);
+    const body = await readDashboard(
+      { scope, range, instanceId: instance.slug, includeInstanceComparison: false },
+      dashboardPart,
+    );
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
     res?.setHeader("Vary", ANALYTICS_CACHE_VARY);
-    return { ...analytics, latency };
+    return body;
   }
 }
