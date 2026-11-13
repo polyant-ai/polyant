@@ -81,8 +81,14 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      * aggregates queue among themselves instead of taking the connections a
      * conversation turn waits for. Measured: 50 panel users on the shared pool
      * raised a turn's p95 overhead from 270 ms to 1 s.
+     *
+     * 6, not 3: one opening of the organization dashboard runs about twenty
+     * reads on this pool, and on 3 connections they queued for seconds although
+     * none took more than half a second. Still well under the main pool, so a
+     * crowd of dashboards waits among itself before it competes with the turns
+     * for the database.
      */
-    analyticsPoolMax: z.coerce.number().int().min(1).default(3),
+    analyticsPoolMax: z.coerce.number().int().min(1).default(6),
     /** Per-statement cap on that pool, so one runaway aggregate cannot hold a connection. */
     analyticsStatementTimeoutMs: z.coerce.number().int().min(1000).default(15_000),
     /**
