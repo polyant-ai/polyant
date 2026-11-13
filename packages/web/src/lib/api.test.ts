@@ -338,17 +338,25 @@ describe("api.analytics", () => {
   it("global() passes from/to as URLSearchParams", async () => {
     const fetchFn = mockFetch(mockResponse({ overview: {}, dailyTrend: [] }));
 
-    await api.analytics.global("2026-01-01", "2026-01-31");
+    await api.analytics.global("2026-01-01", "2026-01-31", "summary");
 
     const { searchParams } = sentUrl(fetchFn);
     expect(searchParams.get("from")).toBe("2026-01-01");
     expect(searchParams.get("to")).toBe("2026-01-31");
   });
 
+  it("asks for the half of the dashboard it was given", async () => {
+    const fetchFn = mockFetch(mockResponse({ hourlyDistribution: [], toolUsage: [] }));
+
+    await api.analytics.global("2026-01-01", "2026-01-31", "activity");
+
+    expect(sentUrl(fetchFn).searchParams.get("part")).toBe("activity");
+  });
+
   it("instance() passes slug and from/to as URLSearchParams", async () => {
     const fetchFn = mockFetch(mockResponse({ overview: {}, dailyTrend: [] }));
 
-    await api.analytics.instance("my-bot", "2026-02-01", "2026-02-28");
+    await api.analytics.instance("my-bot", "2026-02-01", "2026-02-28", "summary");
 
     const url = sentUrl(fetchFn);
     expect(url.pathname).toContain("/my-bot/");

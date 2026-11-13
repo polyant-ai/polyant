@@ -63,6 +63,10 @@ export type {
   ToolLatencyRow,
   LatencyData,
   AnalyticsResponse,
+  AnalyticsPart,
+  AnalyticsSummaryResponse,
+  AnalyticsActivityResponse,
+  AnalyticsPartResponse,
   ToolInfo,
   MonitorOutcome,
   MonitorItem,
@@ -120,7 +124,8 @@ import type {
   Memory,
   KnowledgeDocument,
   KnowledgeDocumentDetail,
-  AnalyticsResponse,
+  AnalyticsPart,
+  AnalyticsPartResponse,
   ToolInfo,
   MonitorDetail,
   MonitorOutcome,
@@ -614,12 +619,10 @@ export const api = {
       ),
   },
   analytics: {
-    global: (from: string, to: string) => {
-      return request<AnalyticsResponse>(withQuery("/api/analytics", { from, to }));
-    },
-    instance: (slug: string, from: string, to: string) => {
-      return request<AnalyticsResponse>(withQuery(urlPath`/api/instances/${slug}/analytics`, { from, to }));
-    },
+    global: <P extends AnalyticsPart>(from: string, to: string, part: P) =>
+      request<AnalyticsPartResponse<P>>(withQuery("/api/analytics", { from, to, part })),
+    instance: <P extends AnalyticsPart>(slug: string, from: string, to: string, part: P) =>
+      request<AnalyticsPartResponse<P>>(withQuery(urlPath`/api/instances/${slug}/analytics`, { from, to, part })),
   },
   conversations: {
     list: (params?: {
