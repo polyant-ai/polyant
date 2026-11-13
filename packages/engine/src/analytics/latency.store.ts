@@ -22,6 +22,12 @@ export interface LatencyDailyRow {
   p50: number;
   p95: number;
   p99: number;
+  /**
+   * The day's turns: one `pipeline_traces` row is one turn (the pipeline and
+   * the direct turns each record one per reply; replay passes add up into it;
+   * auto-tasks record none). The panel divides the day's cost by it.
+   */
+  turns: number;
 }
 
 export interface PhaseBreakdownRow {
@@ -126,6 +132,7 @@ async function readCurrentLatency(
       p50: r.p50 ?? 0,
       p95: r.p95 ?? 0,
       p99: r.p99 ?? 0,
+      turns: r.sample_count ?? 0,
     })),
     phaseBreakdown: days.map((r) => ({
       date: String(r.date),

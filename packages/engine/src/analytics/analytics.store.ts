@@ -102,6 +102,13 @@ export interface HourlyRow {
   count: number;
 }
 
+/** Conversations started on a day through one channel. */
+export interface DailyChannelRow {
+  date: string;
+  channel: string;
+  conversations: number;
+}
+
 export interface ChannelRow {
   channel: string;
   conversations: number;
@@ -145,6 +152,8 @@ export interface AnalyticsData {
   previousDailyCost: PreviousDailyCostRow[];
   hourlyDistribution: HourlyRow[];
   channelDistribution: ChannelRow[];
+  /** `dailyTrend`'s conversations split by channel, named as `channelDistribution` names them. */
+  dailyChannels: DailyChannelRow[];
   modelDistribution: ModelRow[];
   tierDistribution: TierRow[];
   toolUsage: ToolRow[];
@@ -159,6 +168,9 @@ export interface AnalyticsData {
  * so the cost grew with its history instead of with the window.
  */
 const ACTIVE_IN_WINDOW = (range: DateRange) => sql`AND c.last_message_at >= ${toISO(range.from)}`;
+
+/** A conversation's channel as the dashboard names it: the web chat and the OpenAI-compatible API are one. */
+const CHANNEL = sql`CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END`;
 
 // ── ai_logs: one read per window ────────────────────────────────────
 
@@ -440,33 +452,57 @@ export function overviewFromRows(
 
 // ── Daily Trends ────────────────────────────────────────────────────
 
+interface DailyConversationRow {
+  date: string;
+  conversations: number;
+  messages: number;
+}
+
+/**
+ * The conversations started each day, per channel, and the day's totals summed
+ * from them: one scan serves both the trend and its split by channel.
+ */
 async function readDailyConversations(
   scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-): Promise<{ date: string; conversations: number; messages: number }[]> {
+): Promise<{ daily: DailyConversationRow[]; byChannel: DailyChannelRow[] }> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
-  return asRows(
+  const rows = asRows<DailyConversationRow & { channel: string }>(
     await analyticsDb.execute(sql`
       SELECT
         DATE(c.created_at) AS date,
+        ${CHANNEL} AS channel,
         COUNT(*)::int AS conversations,
         COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
-      GROUP BY DATE(c.created_at)
-      ORDER BY date
+      GROUP BY 1, 2
+      ORDER BY 1, 2
     `),
   );
+
+  const daily = new Map<string, DailyConversationRow>();
+  for (const r of rows) {
+    const date = String(r.date);
+    const day = daily.get(date) ?? { date, conversations: 0, messages: 0 };
+    day.conversations += r.conversations;
+    day.messages += r.messages;
+    daily.set(date, day);
+  }
+  return {
+    daily: [...daily.values()],
+    byChannel: rows.map((r) => ({ date: String(r.date), channel: r.channel, conversations: r.conversations })),
+  };
 }
 
 /** The day's spend from `ai_logs` beside the day's conversations, every day either has. */
 function mergeDailyTrend(
   aiRows: readonly CurrentAiLogsRow[],
-  convRows: readonly { date: string; conversations: number; messages: number }[],
+  convRows: readonly DailyConversationRow[],
 ): DailyTrendRow[] {
   const dateMap = new Map<string, DailyTrendRow>();
 
@@ -553,13 +589,13 @@ async function getChannelDistribution(
   return asRows<ChannelRow>(
     await analyticsDb.execute(sql`
       SELECT
-        CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END AS channel,
+        ${CHANNEL} AS channel,
         COUNT(*)::int AS conversations,
         COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
-      GROUP BY CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END
+      GROUP BY 1
       ORDER BY conversations DESC
     `),
   );
@@ -681,9 +717,10 @@ export async function getAnalyticsSummary(
 
   return {
     overview: overviewFromRows(current.overview, convStats, previous.overview, prevConv),
-    dailyTrend: mergeDailyTrend(current.daily, dailyConversations),
+    dailyTrend: mergeDailyTrend(current.daily, dailyConversations.daily),
     previousDailyCost: previous.dailyCost,
     channelDistribution,
+    dailyChannels: dailyConversations.byChannel,
     modelDistribution: current.models,
     tierDistribution: current.tiers,
     ...(instanceComparison ? { instanceComparison } : {}),
