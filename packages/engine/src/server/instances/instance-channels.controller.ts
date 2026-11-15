@@ -16,13 +16,14 @@ import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
   CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
-  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE, WEB_CHANNEL_TYPE,
+  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE,
   type ChannelType, type SetChannelConfigResult, type SetChannelConfigOptions,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
-import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
+import { applyChannelSideEffects, assertChannelCanBeEnabled } from "../../instances/agent-channels.js";
+import { refusalsAsHttp } from "./refusal-to-http.js";
 import { isMaskedPlaceholder } from "./secret-mask.js";
 import { asInstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -238,25 +239,6 @@ export class InstanceChannelsController {
     return typeof secret === "string" && secret ? await buildTwilioWhatsAppWebhookUrl(slug, secret) : undefined;
   }
 
-  /** Start/stop the channel adapter and mirror the virtual `agent` channel into the tools catalog. */
-  private async syncChannelSideEffects(
-    slug: string,
-    channelType: ChannelType,
-    enabled: boolean,
-    config: Record<string, unknown>,
-    instanceDescription: string | null,
-  ): Promise<void> {
-    if (enabled) {
-      await channelManager.startChannel(slug, channelType, config);
-    } else {
-      await channelManager.stopChannel(slug, channelType, { deregister: true });
-    }
-    await channelManager.announceChange(slug, channelType);
-    if (channelType === AGENT_CHANNEL_TYPE) {
-      await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
-    }
-  }
-
   /** Build the masked channel + optional webhookUrl response shape shared by `setChannel`. */
   private async buildChannelResponse(
     slug: string,
@@ -291,12 +273,7 @@ export class InstanceChannelsController {
 
     // Web switched on while authentication is on and no key exists would publish
     // an endpoint that refuses everyone: the panel generates the key first.
-    if (type === WEB_CHANNEL_TYPE && body.enabled) {
-      const cfg = await resolveInstanceConfig(asInstanceSlug(slug));
-      if (cfg.authEnabled && !cfg.authApiKey) {
-        throw new BadRequestException("Web needs the agent's API key while authentication is on: save a key first");
-      }
-    }
+    await refusalsAsHttp(() => assertChannelCanBeEnabled(slug, type, body.enabled));
 
     const existing = await getChannelConfig(asInstanceSlug(slug), type);
     const mergedConfig = this.mergeAllowedConfig(existing?.config ?? {}, body.config, type);
@@ -313,7 +290,7 @@ export class InstanceChannelsController {
     // happened, so the audit row must exist even if the side effect fails.
     if (result.mintedWebhookSecret) this.auditWebhookSecretWrite(slug, user);
     this.auditWebhookSecretDeleteIfDiscarded(slug, existing?.config, finalConfig, user);
-    await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
+    await applyChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
 
     return this.buildChannelResponse(slug, type, body.enabled, finalConfig);
   }
