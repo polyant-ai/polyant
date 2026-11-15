@@ -13,7 +13,6 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { basename } from "path";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import {
   createDocument,
@@ -22,7 +21,6 @@ import {
   deleteDocument,
   setDocumentEnabled,
   hashContent,
-  countDocuments,
   countDocumentOutcomes,
   getKnowledgeForExport,
   listDocumentFilenames,
@@ -31,8 +29,10 @@ import {
 import { processDocument } from "../../knowledge/ingestion.js";
 import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
 import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
-import { documentSizeWithinLimit, prepareImportDocuments } from "../utils/import-bundle.js";
+import { prepareImportDocuments } from "../utils/import-bundle.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { addAgentKnowledgeText } from "../../knowledge/agent-documents.js";
+import { refusalsAsHttp } from "./refusal-to-http.js";
 import { DEFAULT_KNOWLEDGE_DOC_CAP, resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import { createLogger } from "../../utils/create-logger.js";
@@ -142,52 +142,7 @@ export class InstanceKnowledgeController {
   ) {
     const instance = await findInstanceOrFail(slug);
 
-    if (!instance.knowledgeEnabled) {
-      throw new BadRequestException("Knowledge is not enabled for this instance");
-    }
-
-    if (!body.filename?.trim()) throw new BadRequestException("filename is required");
-    if (!body.content?.trim()) throw new BadRequestException("content is required");
-
-    // Enforce the per-agent document cap before doing anything else. The cap is
-    // the organization's entitlement, resolved in one place, with the env var as
-    // the default for an organization that declares none.
-    const maxDocs = await resolveKnowledgeDocCap(instance.slug);
-    const existingCount = await countDocuments(instance.slug);
-    if (existingCount >= maxDocs) {
-      throw new BadRequestException(
-        `Knowledge document limit reached for this instance (cap: ${maxDocs})`,
-      );
-    }
-
-    // Sanitize filename: strip directory components to prevent path traversal
-    const sanitizedFilename = basename(body.filename.trim());
-    if (!sanitizedFilename || sanitizedFilename !== body.filename.trim()) {
-      throw new BadRequestException("Filename must not contain path separators or directory components");
-    }
-
-    const content = body.content.trim();
-
-    const sizeBytes = documentSizeWithinLimit("File size", content);
-
-    // Verify the embedding provider is configured before accepting the upload.
-    // The gateway resolves provider-specific credentials (OpenAI key or Bedrock region).
-    await requireEmbeddingContext(instance.slug);
-
-    const doc = await createDocument({
-      instanceId: instance.slug,
-      filename: sanitizedFilename,
-      mimeType: mimeForFilename(sanitizedFilename),
-      sizeBytes,
-      rawContent: content,
-      contentHash: hashContent(content),
-      source: "upload",
-    });
-
-    // Ingest asynchronously
-    processDocument(doc.id, instance.slug, content).catch((err) => {
-      log.error("knowledge", `Ingestion failed for doc ${doc.id}`, err);
-    });
+    const doc = await refusalsAsHttp(() => addAgentKnowledgeText(instance, body));
 
     return {
       document: {
