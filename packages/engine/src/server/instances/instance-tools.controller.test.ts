@@ -38,7 +38,9 @@ vi.mock("../../agents/tools/registry.js", () => ({
 }));
 
 import { BadRequestException } from "@nestjs/common";
-import { assertAgentTargetsAreSiblings, InstanceToolsController } from "./instance-tools.controller.js";
+import { InstanceToolsController } from "./instance-tools.controller.js";
+import { assertAgentTargetsAreSiblings } from "../../instances/agent-tools.js";
+import { AgentRequestRefusedError } from "../../instances/agent-refusal.js";
 
 describe("PATCH /api/instances/:slug/tools body", () => {
   const controller = new InstanceToolsController();
@@ -90,7 +92,7 @@ describe("assertAgentTargetsAreSiblings", () => {
 
     await expect(
       assertAgentTargetsAreSiblings("caller-agent", ["agent:victim-of-org-b"]),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(AgentRequestRefusedError);
   });
 
   it("should_accept_when_the_agent_entry_targets_a_tenant_sibling", async () => {
@@ -120,7 +122,7 @@ describe("assertAgentTargetsAreSiblings", () => {
         "agent:sibling",
         "agent:victim-of-org-b",
       ]),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(AgentRequestRefusedError);
   });
 
   it("should_not_reveal_whether_a_rejected_target_exists", async () => {
