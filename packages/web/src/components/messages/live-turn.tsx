@@ -4,6 +4,7 @@
 
 import { Brain, CheckCircle2, Loader2, Wrench, XCircle } from "lucide-react";
 import { ActivityRow } from "./activity-row";
+import { AttachmentKinds } from "./attachment-kinds";
 import { StreamingText } from "./streaming-text";
 import { useI18n } from "@/lib/i18n/context";
 import { eventKind, type EventKind, type FeedEvent } from "@/lib/activity-stream/types";
@@ -99,8 +100,14 @@ export function LiveTurn({ events, showActivity }: { events: FeedEvent[]; showAc
           <div key={inbound?.id ?? `segment-${index}`} className="space-y-4">
             {inbound && (
               <div className="flex animate-conversation-enter justify-end">
-                <div className="min-w-0 max-w-[75%] overflow-hidden break-words rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">
-                  <p className="whitespace-pre-wrap">{inbound.responsePreview ?? inbound.text}</p>
+                <div className="min-w-0 max-w-[75%] overflow-hidden break-words rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground space-y-2">
+                  {inbound.responsePreview && <p className="whitespace-pre-wrap">{inbound.responsePreview}</p>}
+                  {inbound.attachmentKinds?.length ? (
+                    <AttachmentKinds kinds={inbound.attachmentKinds} isUser />
+                  ) : (
+                    // An event from before the kinds were sent: its summary is all there is.
+                    !inbound.responsePreview && <p className="whitespace-pre-wrap">{inbound.text}</p>
+                  )}
                 </div>
               </div>
             )}
