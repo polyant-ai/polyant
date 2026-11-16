@@ -239,17 +239,17 @@ async function readCurrentAiLogs(
         call_type,
         tier,
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
-        COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
-        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
-        COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
+        COALESCE(SUM(total_tokens), 0)::float8 AS tokens,
+        COALESCE(SUM(prompt_tokens), 0)::float8 AS prompt_tokens,
+        COALESCE(SUM(completion_tokens), 0)::float8 AS completion_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::float8 AS cached_input_tokens,
+        COALESCE(SUM(cache_creation_input_tokens), 0)::float8 AS cache_creation_input_tokens,
         (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration,
         (COUNT(*) ${MODEL_CALLS})::int AS model_call_rows,
         (COUNT(*) ${ANSWERED_MODEL_CALLS})::int AS model_calls,
         COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS model_avg_duration,
-        COALESCE(SUM(total_tokens) ${MODEL_CALLS}, 0)::int AS model_call_tokens,
+        COALESCE(SUM(total_tokens) ${MODEL_CALLS}, 0)::float8 AS model_call_tokens,
         COALESCE(SUM(estimated_cost_usd::float8) ${MODEL_CALLS}, 0)::float AS model_call_cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
@@ -320,8 +320,8 @@ async function readPreviousAiLogs(
         GROUPING(DATE(created_at)) AS grouping_set,
         (DATE(created_at) - DATE(${toISO(from)}::timestamptz))::int AS day_offset,
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
-        COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
-        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
+        COALESCE(SUM(prompt_tokens), 0)::float8 AS prompt_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::float8 AS cached_input_tokens,
         COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS model_avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(from)} AND created_at < ${toISO(to)}
@@ -668,7 +668,7 @@ async function getInstanceComparison(
           al.instance_id,
           (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
           COALESCE(SUM(al.estimated_cost_usd::float8), 0)::float AS cost,
-          COALESCE(SUM(al.total_tokens), 0)::int AS tokens
+          COALESCE(SUM(al.total_tokens), 0)::float8 AS tokens
         FROM ai_logs al
         WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
           AND al.instance_id IS NOT NULL

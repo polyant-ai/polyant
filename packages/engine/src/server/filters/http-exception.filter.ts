@@ -78,9 +78,21 @@ function handleValidationError(exception: TypeError | RangeError, method: string
   };
 }
 
+/**
+ * The underlying error a wrapper carries in `cause`, with its SQLSTATE when it
+ * has one. Drizzle's "Failed query" message names the query but not why
+ * Postgres rejected it; that reason lives only on the cause.
+ */
+function describeCause(exception: unknown): string {
+  if (!(exception instanceof Error) || exception.cause === undefined) return "";
+  const cause = exception.cause;
+  const code = typeof cause === "object" && cause !== null && "code" in cause ? cause.code : undefined;
+  return ` | cause: ${typeof code === "string" ? `[${code}] ` : ""}${errMsg(cause)}`;
+}
+
 /** Unknown error — logged server-side in full, never leaked to the client. */
 function handleUnknownError(exception: unknown, method: string, path: string): HandledError {
-  const errorMessage = errMsg(exception);
+  const errorMessage = errMsg(exception) + describeCause(exception);
   console.error(`[${method}] ${path} -> 500 (unhandled): ${errorMessage}`);
   return {
     status: 500,
