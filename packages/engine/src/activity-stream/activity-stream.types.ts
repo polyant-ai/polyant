@@ -157,6 +157,12 @@ export interface FeedEvent {
   resultPreview?: string;
   /** Reasoning body or final assistant text (≤ 600 chars). */
   responsePreview?: string;
+  /**
+   * Inbound only: the kinds of the files that came with the message ("image",
+   * "audio"…), never the files. Lets a message sent with no text show what it
+   * carried while the turn is still live.
+   */
+  attachmentKinds?: string[];
   /** Duration of the originating step. */
   durationMs?: number;
   /** Source conversation, exposed so the UI can deep-link to the transcript. */

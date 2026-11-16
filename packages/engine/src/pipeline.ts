@@ -297,6 +297,7 @@ export async function preparePipeline(
             channelId: msg.channelId,
             sender: msg.userName,
             text: msg.text,
+            attachmentKinds: msg.attachments?.map((att) => att.type),
             conversationId,
             instance,
           });

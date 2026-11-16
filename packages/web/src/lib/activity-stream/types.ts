@@ -91,6 +91,8 @@ export interface FeedEvent {
   resultPreview?: string;
   /** Reasoning body or final assistant text (≤ 600 chars). */
   responsePreview?: string;
+  /** Inbound only: the kinds of the files that came with the message, never the files. */
+  attachmentKinds?: string[];
   /** Step duration. */
   durationMs?: number;
   /** Source conversation, exposed so the UI can deep-link to the transcript. */

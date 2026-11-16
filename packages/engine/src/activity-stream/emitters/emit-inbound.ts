@@ -21,13 +21,16 @@ export interface InboundInput {
   taskName?: string;
   /** User-typed text. */
   text: string;
+  /** The kinds of the files that came with the message, when any. */
+  attachmentKinds?: string[];
   conversationId: string;
   instance?: InstanceMeta;
 }
 
 export function emitInbound(input: InboundInput): void {
   const trimmed = (input.text ?? "").trim();
-  const summary = trimmed.length > 0 ? trimmed : "(nessun testo)";
+  const kinds = input.attachmentKinds?.length ? input.attachmentKinds : undefined;
+  const summary = trimmed.length > 0 ? trimmed : kinds ? `[${kinds.join(", ")}]` : "(nessun testo)";
   const evt: FeedEvent = {
     id: makeEventId("inbound", input.conversationId),
     ts: nowIso(),
@@ -36,6 +39,7 @@ export function emitInbound(input: InboundInput): void {
     text: `${input.channelType}: ${truncate(summary, SUMMARY_CHARS)}`,
     status: "success",
     responsePreview: trimmed ? truncate(trimmed, PREVIEW_CHARS) : undefined,
+    attachmentKinds: kinds,
     conversationId: input.conversationId,
     instance: input.instance,
     channel: {

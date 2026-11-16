@@ -70,6 +70,14 @@ describe("emitInbound", () => {
     expect(e.text).toContain("(nessun testo)");
     expect(e.responsePreview).toBeUndefined();
   });
+
+  it("names the kinds of the files when the message has no text", () => {
+    emitInbound({ channelType: "whatsapp", channelId: "c", text: "", attachmentKinds: ["image", "image"], conversationId: "c" });
+    const e = captured();
+    expect(e.text).toBe("whatsapp: [image, image]");
+    expect(e.attachmentKinds).toEqual(["image", "image"]);
+    expect(e.responsePreview).toBeUndefined();
+  });
 });
 
 describe("emitOutbound", () => {

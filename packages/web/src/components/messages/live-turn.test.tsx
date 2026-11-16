@@ -26,6 +26,14 @@ describe("LiveTurn", () => {
     expect(screen.getByLabelText("conversations.detail.liveWorking")).toBeInTheDocument();
   });
 
+  it("shows what a message with no text carried instead of the event summary", () => {
+    const photo: FeedEvent = { ...inbound, id: "photo", text: "whatsapp: [image]", responsePreview: undefined, attachmentKinds: ["image"] };
+    render(<LiveTurn events={[photo]} showActivity />);
+
+    expect(screen.getByText("conversations.detail.attachedImage")).toBeInTheDocument();
+    expect(screen.queryByText("whatsapp: [image]")).not.toBeInTheDocument();
+  });
+
   it("drops the working indicator once the reply is in", () => {
     render(<LiveTurn events={[inbound, reply]} showActivity />);
 
