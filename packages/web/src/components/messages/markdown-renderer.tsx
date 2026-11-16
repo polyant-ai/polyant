@@ -114,7 +114,9 @@ const MARKDOWN_COMPONENTS: Components = {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-accent-strong underline underline-offset-4 hover:text-accent-strong/80"
+        // The message's own colour, underlined, like every other link in the
+        // panel: the lime accent as text reads at about 1.6:1 on the light bubble.
+        className="underline underline-offset-4 hover:text-accent-strong"
         {...props}
       >
         {children}
