@@ -253,5 +253,18 @@ describe("GlobalExceptionFilter", () => {
 
       restoreAll(spies);
     });
+
+    it("logs the cause and its SQLSTATE on the unhandled -> 500 branch", () => {
+      const spies = spyAllConsoleChannels();
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("GET", "/api/analytics"));
+      const cause = Object.assign(new Error("integer out of range"), { code: "22003" });
+
+      filter.catch(new Error("Failed query: SELECT 1", { cause }), host);
+
+      expect(allLoggedText(spies)).toContain("cause: [22003] integer out of range");
+
+      restoreAll(spies);
+    });
   });
 });
