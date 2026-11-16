@@ -384,8 +384,26 @@ export async function preparePipeline(
     langsmith,
     userAttachments: msg.attachments,
     isAutoTaskTurn,
-    inboundMetadata: Object.keys(msg.metadata).length > 0 ? msg.metadata : undefined,
+    inboundMetadata: inboundMetadataOf(msg),
   };
+}
+
+/**
+ * The inbound metadata recorded on the user row. The kinds of the attachments
+ * that came with the text are always recorded, even when the agent does not
+ * store the files: without them a photo sent with no caption leaves an empty
+ * message in the conversation.
+ */
+export function inboundMetadataOf(msg: Pick<IncomingMessage, "metadata" | "attachments">): Record<string, unknown> | undefined {
+  const attachmentKinds = msg.attachments?.map((att) => att.type) ?? [];
+  const metadata = attachmentKinds.length > 0 ? { ...msg.metadata, attachmentKinds } : msg.metadata;
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+/** The user's side of the exchange the title is generated from, attachments named. */
+export function titleUserLine(text: string, attachments: Pick<Attachment, "type">[] | undefined): string {
+  const note = attachments?.length ? `[attached: ${attachments.map((att) => att.type).join(", ")}]` : "";
+  return `User: ${[text, note].filter(Boolean).join(" ")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,7 +1030,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
         conversationId: ctx.conversationId,
         instanceId: ctx.instanceId,
         instanceConfig: ctx.instanceConfig,
-        titleContent: `User: ${opts.messageText}\nAssistant: ${finalText}`,
+        titleContent: `${titleUserLine(opts.messageText, ctx.userAttachments)}\nAssistant: ${finalText}`,
         existingSummary: ctx.conversationSummary,
         summaryFold: ctx.summaryFold,
       });

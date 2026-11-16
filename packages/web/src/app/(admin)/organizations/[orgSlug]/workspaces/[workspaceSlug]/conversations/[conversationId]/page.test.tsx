@@ -200,6 +200,22 @@ describe("ConversationDetailPage", () => {
     search.current = new URLSearchParams();
   });
 
+  it("names what a message brought when its files were not stored", async () => {
+    mockMessages.mockResolvedValue({
+      messages: [makeMessage({ id: "m1", content: "", metadata: { attachmentKinds: ["image", "image"] } })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      order: "desc",
+    });
+
+    await renderLoaded();
+
+    // A photo with no caption used to leave an empty bubble.
+    expect(screen.getByText("conversations.detail.attachedImage")).toBeInTheDocument();
+    expect(screen.getByTitle("conversations.detail.attachmentNotStored")).toBeInTheDocument();
+  });
+
   it("says so when the conversation has no messages", async () => {
     mockMessages.mockResolvedValue({ messages: [], total: 0, limit: 50, offset: 0, order: "desc" });
 

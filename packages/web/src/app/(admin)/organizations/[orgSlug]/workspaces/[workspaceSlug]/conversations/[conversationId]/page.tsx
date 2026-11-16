@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil, ArrowLeft, Copy, MoreHorizontal } from "lucide-react";
+import { Trash2, Loader2, FileText, Image as ImageIcon, Video, Mic, SearchCode, Database, Webhook, Link2, Pencil, ArrowLeft, Copy, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConversationSummary } from "@/components/conversations/conversation-summary";
 import {
@@ -125,6 +125,44 @@ function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMet
               </span>
             )}
           </a>
+        );
+      })}
+    </div>
+  );
+}
+
+const ATTACHMENT_KINDS = {
+  image: { icon: ImageIcon, label: "conversations.detail.attachedImage" },
+  video: { icon: Video, label: "conversations.detail.attachedVideo" },
+  audio: { icon: Mic, label: "conversations.detail.attachedAudio" },
+  file: { icon: FileText, label: "conversations.detail.attachedFile" },
+} as const;
+
+/**
+ * What came with a message whose files the agent did not store: the kinds and
+ * how many, so a photo sent with no caption does not read as an empty message.
+ */
+function UnstoredAttachments({ kinds, isUser }: { kinds: unknown; isUser: boolean }) {
+  const { t } = useI18n();
+  if (!Array.isArray(kinds)) return null;
+  const counts = new Map<keyof typeof ATTACHMENT_KINDS, number>();
+  for (const kind of kinds) {
+    const known = typeof kind === "string" && kind in ATTACHMENT_KINDS ? (kind as keyof typeof ATTACHMENT_KINDS) : "file";
+    counts.set(known, (counts.get(known) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-sm ${isUser ? "text-primary-foreground/80" : "text-muted-foreground"}`}
+      title={t("conversations.detail.attachmentNotStored")}
+    >
+      {[...counts].map(([kind, count]) => {
+        const { icon: Icon, label } = ATTACHMENT_KINDS[kind];
+        return (
+          <span key={kind} className="inline-flex items-center gap-1.5">
+            <Icon className="h-4 w-4 shrink-0" aria-hidden />
+            {t(label, { count })}
+          </span>
         );
       })}
     </div>
@@ -649,6 +687,9 @@ export default function ConversationDetailPage() {
                   {msg.attachments && msg.attachments.length > 0 && (
                     <AttachmentDisplay attachments={msg.attachments} isUser={msg.role === "user"} />
                   )}
+                  {!msg.attachments?.length && msg.metadata?.attachmentKinds !== undefined && (
+                    <UnstoredAttachments kinds={msg.metadata.attachmentKinds} isUser={msg.role === "user"} />
+                  )}
                   {msg.metadata?.originalKind === "audio" && (
                     <span
                       className={`mb-1 inline-flex items-center gap-1 text-xs ${
@@ -677,7 +718,7 @@ export default function ConversationDetailPage() {
                       {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
                     </span>
                   )}
-                  <MarkdownRenderer content={msg.content} />
+                  {msg.content.trim() !== "" && <MarkdownRenderer content={msg.content} />}
                   {msg.role !== "user" && detailed && (
                     <MessageMetadataPills message={msg} />
                   )}
