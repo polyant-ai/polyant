@@ -16,50 +16,12 @@ import { findInstanceOrFail } from "./instance-helpers.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import * as runLogStore from "../../scheduled-tasks/run-log.store.js";
-import { parseRelativeDuration, parseSchedule, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
-import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
+import { formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
-import { createLogger } from "../../utils/create-logger.js";
 import { isUuid } from "../../utils/uuid.js";
-
-const log = createLogger();
-
-/** Floor for an API-provided run deadline. Below a second no run can complete. */
-const MIN_MAX_RUN_MS = 1_000;
-
-/**
- * Validate an API-provided `maxRunMs`.
- *
- * The value drives the reaper, so a zero or negative deadline would make every run of that
- * task reapable the instant it starts — a task that can never succeed, failing with
- * `orphaned` forever. Rejected rather than clamped: a silently corrected deadline is a
- * deadline nobody can reason about from the outside.
- */
-function assertMaxRunMs(value: number | null | undefined): number | null | undefined {
-  if (value === undefined || value === null) return value;
-  if (!Number.isInteger(value) || value < MIN_MAX_RUN_MS) {
-    throw new BadRequestException(
-      `Field 'maxRunMs' must be an integer of at least ${MIN_MAX_RUN_MS} ms (or null to use the server default)`,
-    );
-  }
-  return value;
-}
-
-/**
- * Validate an API-provided schedule with the rule every writer shares, and resolve a
- * relative one-shot ("+20m") to its timestamp. An interval below the minimum, or zero,
- * would otherwise be stored and computed on every tick.
- */
-function assertSchedule(raw: unknown): ScheduleConfig {
-  const parsed = parseSchedule(raw);
-  if ("error" in parsed) throw new BadRequestException(parsed.error);
-  const { schedule } = parsed;
-  if (schedule.type === "one-shot" && schedule.runAt.startsWith("+")) {
-    return { ...schedule, runAt: parseRelativeDuration(schedule.runAt).toISOString() };
-  }
-  return schedule;
-}
+import { createAgentTask, runAgentTaskNow, updateAgentTask } from "../../scheduled-tasks/agent-tasks.js";
+import { refusalsAsHttp } from "./refusal-to-http.js";
 
 @Controller("api/instances")
 export class InstanceScheduledTasksController {
@@ -211,27 +173,7 @@ export class InstanceScheduledTasksController {
   ) {
     const instance = await findInstanceOrFail(slug);
 
-    if (!body.name || !body.prompt || !body.schedule) {
-      throw new BadRequestException("Fields 'name', 'prompt', and 'schedule' are required");
-    }
-
-    const schedule = assertSchedule(body.schedule);
-
-    const task = await scheduledTaskStore.create({
-      instanceId: instance.slug,
-      name: body.name,
-      prompt: body.prompt,
-      schedule,
-      description: body.description,
-      deleteAfterRun: body.deleteAfterRun,
-      maxRetries: body.maxRetries,
-      createdBy: "api",
-      keepHistory: body.keepHistory,
-      outboundChannel: body.outboundChannel,
-      outboundTarget: body.outboundTarget,
-      enabled: body.enabled,
-      maxRunMs: assertMaxRunMs(body.maxRunMs),
-    });
+    const task = await refusalsAsHttp(() => createAgentTask(instance.slug, { ...body, createdBy: "api" }));
 
     return {
       task: {
@@ -272,17 +214,7 @@ export class InstanceScheduledTasksController {
   ) {
     const instance = await findInstanceOrFail(slug);
 
-    const existing = await scheduledTaskStore.getById(id);
-    if (!existing || existing.instanceId !== instance.slug) {
-      throw new NotFoundException(`Scheduled task "${id}" not found`);
-    }
-
-    const updated = await scheduledTaskStore.update(id, {
-      ...body,
-      schedule: body.schedule === undefined ? undefined : assertSchedule(body.schedule),
-      maxRunMs: assertMaxRunMs(body.maxRunMs),
-    });
-    if (!updated) throw new NotFoundException(`Scheduled task "${id}" not found`);
+    const updated = await refusalsAsHttp(() => updateAgentTask(instance.slug, id, body));
 
     return {
       task: {
@@ -322,15 +254,7 @@ export class InstanceScheduledTasksController {
   async runNow(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
 
-    const task = await scheduledTaskStore.getById(id);
-    if (!task || task.instanceId !== instance.slug) {
-      throw new NotFoundException(`Scheduled task "${id}" not found`);
-    }
-
-    // Execute immediately with "manual" trigger type (fire-and-forget)
-    schedulerService.runNow(task).catch((err) =>
-      log.error("scheduled-tasks", `RunNow: task "${task.name}" failed`, err),
-    );
+    const task = await refusalsAsHttp(() => runAgentTaskNow(instance.slug, id));
 
     return {
       message: `Task "${task.name}" execution started.`,

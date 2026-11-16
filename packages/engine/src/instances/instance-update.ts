@@ -157,3 +157,23 @@ export async function resetPlannedEmbeddingSpace(
   invalidateEmbeddingContext(instance.id, instance.slug);
   return { instance: (await findInstanceBySlug(instance.slug)) ?? instance, wiped };
 }
+
+/**
+ * Apply a settings patch to an agent: validate it, plan it (an embedding change
+ * may wipe the agent's memories and knowledge index), write it, then reset the
+ * embedding space the plan called for. The one path for every caller that edits
+ * an agent's settings. Undefined when the
+ * agent does not exist; an invalid patch throws InvalidInstanceSettingsError.
+ */
+export async function updateAgentSettings(
+  slug: Instance["slug"],
+  rawPatch: InstancePatch,
+): Promise<InstancePatchResult | undefined> {
+  const patch = normalizeInstancePatch(rawPatch);
+  const before = await findInstanceBySlug(slug);
+  if (!before) return undefined;
+  const plan = await planInstancePatch(before, patch);
+  const written = await writeInstancePatch(before, patch);
+  if (!written) return undefined;
+  return resetPlannedEmbeddingSpace(written, plan);
+}

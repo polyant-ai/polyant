@@ -2,26 +2,23 @@
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { z } from "zod";
-import { getPrompts, getPromptSection, upsertPrompt, invalidatePromptsCache } from "../../instances/prompts.store.js";
+import {
+  PROMPT_SECTION_KEYS,
+  PROMPT_SECTION_MAX_CHARS,
+  readAgentPrompt,
+  writeAgentPrompt,
+} from "../../instances/agent-prompts.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-const PromptSectionKeys = z.enum([
-  "01-identity",
-  "02-soul",
-  "03-tooling",
-  "04-safety",
-  "05-skills",
-  "06-memory",
-  "07-user-identity",
-]);
+const PromptSectionKeys = z.enum(PROMPT_SECTION_KEYS);
 
 const PatchPromptsSchema = z.object({
   sections: z
     .array(
       z.object({
         key: PromptSectionKeys,
-        content: z.string().max(32_768),
+        content: z.string().max(PROMPT_SECTION_MAX_CHARS),
       }),
     )
     .min(1)
@@ -34,14 +31,7 @@ export class InstancePromptsController {
   @Get(":slug/prompts")
   async getPrompts(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-    const rows = await getPrompts(instance.id);
-    const prompts = rows.map((r) => ({
-      key: r.sectionKey,
-      filename: `${r.sectionKey}.md`,
-      title: r.title,
-      content: r.content,
-    }));
-    return { prompts };
+    return { prompts: await readAgentPrompt(instance.id) };
   }
 
   @RequirePermission(Permission.PROMPT_WRITE)
@@ -59,23 +49,6 @@ export class InstancePromptsController {
 
     const instance = await findInstanceOrFail(slug);
 
-    for (const section of parsed.data.sections) {
-      // Preserve existing title if the section already exists
-      const existing = await getPromptSection(instance.id, section.key);
-      const title = existing?.title ?? section.key;
-      await upsertPrompt(instance.id, section.key, title, section.content);
-    }
-
-    // Invalidate cache after batch update
-    invalidatePromptsCache(instance.id);
-
-    const rows = await getPrompts(instance.id);
-    const prompts = rows.map((r) => ({
-      key: r.sectionKey,
-      filename: `${r.sectionKey}.md`,
-      title: r.title,
-      content: r.content,
-    }));
-    return { prompts };
+    return { prompts: await writeAgentPrompt(instance.id, parsed.data.sections) };
   }
 }

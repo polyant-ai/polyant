@@ -25,9 +25,18 @@ import {
 } from "./entitlement.service.js";
 import type { AgentScope } from "./authz.store.js";
 import type { PermissionKey } from "./permissions.js";
+import { decideUserPermission, type UserPermissionReason } from "./user-permission.js";
 
 const logger = createLogger();
 const LOG_PREFIX = "authz";
+
+/** The log wording each user decision has always carried. */
+const USER_DECISION_REASON: Record<UserPermissionReason, string> = {
+  platform_admin: "platform admin",
+  permission_check: "permission check",
+  unresolved_scope: "unresolved scope",
+  cross_org: "cross-org scope mismatch",
+};
 
 /** Shape of the per-instance API-key (service) principal set by AuthGuard. */
 interface InstancePrincipal {
@@ -89,10 +98,10 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
  *      the key's own permission set AND the addressed agent belongs to the
  *      key's organization.
- *   5. Platform admin (DB-backed) → bypass all permission checks.
- *   6. InstancePrincipal (per-instance API key) → allow only for its own agent.
- *   7. Resolve the agent/org scope; a cross-org mismatch denies before `can()`.
- *   8. `can()` decides.
+ *   5. InstancePrincipal (per-instance API key) → allow only for its own agent.
+ *   6. A human user → `decideUserPermission` (platform-admin bypass, agent/org
+ *      scope, cross-org denial, then `can()`), the same function every other
+ *      caller uses, so none authorizes a user more loosely than this guard.
  *
  * THERE IS NO SHADOW MODE. Every denial is a denial.
  *
@@ -180,11 +189,14 @@ export class PermissionGuard implements CanActivate {
       return this.decide(false, permission, "no authenticated principal");
     }
 
-    if (await this.authz.isPlatformAdmin(principal.userId)) {
-      return true;
-    }
-
-    return this.evaluateUser(principal, agentSlug, permission, addressedAgentScope);
+    const decision = await decideUserPermission(
+      this.authz,
+      principal,
+      permission,
+      agentSlug,
+      addressedAgentScope,
+    );
+    return this.decide(decision.allowed, permission, USER_DECISION_REASON[decision.reason]);
   }
 
   // -- branches ---------------------------------------------------------------
@@ -294,26 +306,6 @@ export class PermissionGuard implements CanActivate {
       reason,
       addressedAgentScope,
     );
-  }
-
-  private async evaluateUser(
-    principal: UserPrincipal,
-    agentSlug: string | undefined,
-    permission: PermissionKey,
-    addressedAgentScope: AgentScope | undefined,
-  ): Promise<boolean> {
-    const scope = await this.resolveScope(principal.orgId, agentSlug, addressedAgentScope);
-    if (!scope) {
-      return this.decide(false, permission, "unresolved scope");
-    }
-
-    // Cross-org isolation: the caller's token org must match the target scope.
-    if (principal.orgId && principal.orgId !== scope.organizationId) {
-      return this.decide(false, permission, "cross-org scope mismatch");
-    }
-
-    const allowed = await this.authz.can(principal.userId, scope, permission);
-    return this.decide(allowed, permission, "permission check");
   }
 
   // -- helpers ----------------------------------------------------------------

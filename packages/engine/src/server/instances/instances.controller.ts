@@ -20,7 +20,6 @@ import {
   listAllInstances,
   findInstanceBySlug,
   findInstanceIcon,
-  createInstanceWithDefaults,
   updateInstance,
   deleteInstance,
   resolvePrincipalOrgId,
@@ -32,11 +31,7 @@ import {
 } from "../../instances/config-resolver.js";
 import {
   InvalidInstanceSettingsError,
-  assertModelConfig,
-  normalizeInstancePatch,
-  planInstancePatch,
-  resetPlannedEmbeddingSpace,
-  writeInstancePatch,
+  updateAgentSettings,
 } from "../../instances/instance-update.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, fastSupported, isThinkingCapable, isReasoningAlwaysOn, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
@@ -44,7 +39,6 @@ import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { knownEmbeddingProviders, supportedDimsFor } from "../../embeddings-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
-import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { prepareAttachmentCleanup } from "../../attachments/attachment-cleanup.js";
 import { invalidateAgentS3 } from "../../attachments/agent-storage.js";
@@ -62,6 +56,7 @@ import {
 import { createLogger } from "../../utils/create-logger.js";
 import { parseBody } from "../utils/parse-body.js";
 import { PatchInstanceSchema } from "./instance-patch.schema.js";
+import { AgentCreateRefusedError, agentSlugProblem, createAgent } from "../../instances/create-agent.js";
 
 const log = createLogger();
 
@@ -304,47 +299,12 @@ export class InstancesController {
     @CurrentUser() user?: AuthenticatedUser,
     @WorkspaceSlug() workspaceSlug?: string,
   ) {
-    this.validateSlug(body.slug);
-    await refusingInvalidSettings(() => assertModelConfig(body.provider, body.model));
-    // Resolve the owning organization up front: the store fails closed on an
-    // unresolvable one, and that is a caller-side condition (a principal with no
-    // org claim on a multi-org deployment), not a server fault — surface it as a
-    // 400 rather than letting the throw escape as a 500.
-    const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
-    if (!orgId) {
-      throw new BadRequestException(
-        "Cannot resolve the caller's organization — the agent has no workspace to be created in.",
-      );
-    }
-    // Rely on the DB unique constraint as the authoritative duplicate check.
-    // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      // `orgId` last: it comes from the authenticated principal and must never be
-      // overridable by a field of the request body. `workspaceSlug` comes from a
-      // header, not the body, for the same reason — and it is validated against
-      // `orgId` inside the store before it decides anything.
-      // Atomic: the instances row and its prompt / tool / skill seeds land
-      // together or not at all. They used to be four independent statements, so
-      // a failure between any two committed an agent with no prompt sections or
-      // no enabled tools — a state nothing repairs, whose slug is taken, and
-      // whose natural retry returns 409.
-      instance = await createInstanceWithDefaults({
-        ...body,
-        slug: asInstanceSlug(body.slug),
-        orgId,
-        workspaceSlug,
-      });
+      instance = await createAgent(body, { orgId: user?.orgId, workspaceSlug });
     } catch (err: unknown) {
-      if (isUniqueViolation(err)) {
-        throw new ConflictException(`Slug "${body.slug}" already exists`);
-      }
-      // An addressed workspace that is not the caller's own is a caller-side
-      // condition, not a server fault: the agent is deliberately NOT filed under
-      // the organization default, because creating it somewhere other than the
-      // address bar says is the bug this path exists to prevent.
-      if (err instanceof Error && err.message.includes("does not belong to the caller")) {
-        throw new BadRequestException(err.message);
+      if (err instanceof AgentCreateRefusedError) {
+        throw err.reason === "conflict" ? new ConflictException(err.message) : new BadRequestException(err.message);
       }
       throw err;
     }
@@ -364,13 +324,10 @@ export class InstancesController {
   @Patch(":slug")
   async update(@Param("slug") slug: string, @Body() rawBody: unknown) {
     this.validateSlug(slug);
-    const body = await refusingInvalidSettings(() => normalizeInstancePatch(parseBody(PatchInstanceSchema, rawBody)));
-    const before = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
-    const plan = await refusingInvalidSettings(() => planInstancePatch(before, body));
-    const written = await writeInstancePatch(before, body);
-    if (!written) throw new NotFoundException(`Instance "${slug}" not found`);
-    const { instance, wiped } = await resetPlannedEmbeddingSpace(written, plan);
+    const body = parseBody(PatchInstanceSchema, rawBody);
+    const result = await refusingInvalidSettings(() => updateAgentSettings(asInstanceSlug(slug), body));
+    if (!result) throw new NotFoundException(`Instance "${slug}" not found`);
+    const { instance, wiped } = result;
 
     return {
       instance: {
@@ -449,13 +406,7 @@ export class InstancesController {
    * so callers get a 400 instead of a 500 on pathologically long inputs.
    */
   private validateSlug(slug: string): void {
-    if (typeof slug !== "string" || slug.length === 0 || slug.length > 100) {
-      throw new BadRequestException(`Invalid slug: must be 1-100 characters.`);
-    }
-    if (!/^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/.test(slug)) {
-      throw new BadRequestException(
-        `Invalid slug format. Use lowercase alphanumeric, hyphens, or underscores (e.g. "my-assistant").`,
-      );
-    }
+    const problem = agentSlugProblem(slug);
+    if (problem) throw new BadRequestException(problem);
   }
 }
