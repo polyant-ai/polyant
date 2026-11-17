@@ -5,9 +5,8 @@ import { pgTable, uuid, text, integer, jsonb, timestamp, index } from "drizzle-o
 /**
  * What the engine sent the provider and what came back, one row per model
  * request: each step of a call, and each retry of a step. Written only while
- * the agent's debug flag is on, and cleared with the debug payloads after
- * `DEBUG_PAYLOAD_RETENTION_DAYS`: the request is the prompt, with whatever
- * personal data the conversation holds.
+ * the agent's debug flag is on, and deleted with its conversation: the request
+ * is the prompt, with whatever personal data the conversation holds.
  *
  * `response` is the provider's body for a buffered call. A streamed call has
  * no body to keep, so it holds the step the SDK assembled from the stream

@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process may now hold up to 16 connections to Postgres; on a server with a
   tight `max_connections`, set `POSTGRES_ANALYTICS_POOL_MAX` back to 3.
 
+### Fixed
+
+- What debug mode records is no longer deleted by age. Since 1.3.6 the daily
+  housekeeping cleared every debug request older than
+  `DEBUG_PAYLOAD_RETENTION_DAYS` (7 days by default) and deleted the raw model
+  exchanges with it, on every agent, without an operator ever choosing it. The
+  setting is gone: the debug request and the raw exchanges stay with their
+  conversation and are deleted with it. Only the raw exchanges of a call with no
+  conversation age out, with the analytics window. What earlier passes deleted
+  cannot be brought back.
+
 ## [1.3.6] - 2026-11-11
 
 ### Added

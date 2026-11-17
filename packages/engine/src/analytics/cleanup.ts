@@ -16,10 +16,10 @@
  * NOT included, deliberately: `conversation_messages`, `memories` and the
  * knowledge tables. Those are product data, not telemetry — ageing them out
  * would change what the product does, which is a decision for an operator and
- * not for a housekeeping job. The one exception is the request a debug-mode
- * turn stores beside its message (`debug_payload`), cleared after its own short
- * window (`config.retention.debugPayloadDays`): it is diagnostic, and it copies
- * the whole prompt and conversation at every turn.
+ * not for a housekeeping job. The same holds for what debug mode records beside
+ * a conversation (`conversation_messages.debug_payload`, `model_exchanges`): it
+ * goes with its conversation, never by age here. Only the raw exchanges of a
+ * call with no conversation age out, with `ai_logs`.
  *
  * Pure functions, no scheduling and no side-state: they are wired into the
  * existing daily branch of `RoomScheduler` so there is no second timer.
@@ -27,7 +27,6 @@
 
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { config } from "../config.js";
 import { DELIVERY_KEY_TTL } from "../webhooks/webhook-deliveries.store.js";
 
 export interface AnalyticsCleanupResult {
@@ -37,7 +36,6 @@ export interface AnalyticsCleanupResult {
   hookExecutionsDeleted: number;
   scheduledTaskRunsDeleted: number;
   eventBacklogDeleted: number;
-  debugPayloadsCleared: number;
   modelExchangesDeleted: number;
   webhookDeliveriesDeleted: number;
   cutoff: Date;
@@ -116,29 +114,10 @@ export function deleteExpiredWebhookDeliveries(): Promise<number> {
   return deleteInBatches("webhook_deliveries", sql`received_at < now() - ${DELIVERY_KEY_TTL}::interval`);
 }
 
-/** Debug payloads cleared per statement: each one is the whole request of a turn. */
-const DEBUG_PAYLOAD_BATCH = 1000;
-
-/** Clear the debug payload of messages older than `cutoff`, a batch per statement; the messages stay. */
-export async function clearOldDebugPayloads(cutoff: Date): Promise<number> {
-  let cleared = 0;
-  for (;;) {
-    const result = await db.execute(sql`
-      update conversation_messages set debug_payload = null
-      where id in (
-        select id from conversation_messages
-        where debug_payload is not null and created_at < ${cutoff.toISOString()}::timestamptz
-        limit ${DEBUG_PAYLOAD_BATCH}
-      )`);
-    const count = (result as unknown as { count?: number }).count ?? 0;
-    cleared += count;
-    if (count < DEBUG_PAYLOAD_BATCH) return cleared;
-  }
+/** Raw exchanges of model calls outside any conversation (debug mode); those of a conversation go with it. */
+export function deleteOldUnlinkedModelExchanges(cutoff: Date): Promise<number> {
+  return deleteInBatches("model_exchanges", sql`conversation_id is null and created_at < ${cutoff.toISOString()}::timestamptz`);
 }
-
-/** Raw model exchanges hold the prompt, like the debug payloads: they go with them. */
-export const deleteOldModelExchanges = (cutoff: Date): Promise<number> =>
-  deleteOlderThan("model_exchanges", "created_at", cutoff);
 
 /** Run a full cleanup pass. Safe to call repeatedly (idempotent). */
 export async function runAnalyticsCleanup(retentionDays: number): Promise<AnalyticsCleanupResult> {
@@ -150,7 +129,6 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
-    debugPayloadsCleared,
     modelExchangesDeleted,
     webhookDeliveriesDeleted,
   ] = await Promise.all([
@@ -160,8 +138,7 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     deleteOldHookExecutions(cutoff),
     deleteOldScheduledTaskRuns(cutoff),
     deleteOldCompletedBacklog(cutoff),
-    clearOldDebugPayloads(computeCutoff(config.retention.debugPayloadDays)),
-    deleteOldModelExchanges(computeCutoff(config.retention.debugPayloadDays)),
+    deleteOldUnlinkedModelExchanges(cutoff),
     deleteExpiredWebhookDeliveries(),
   ]);
   return {
@@ -171,7 +148,6 @@ export async function runAnalyticsCleanup(retentionDays: number): Promise<Analyt
     hookExecutionsDeleted,
     scheduledTaskRunsDeleted,
     eventBacklogDeleted,
-    debugPayloadsCleared,
     modelExchangesDeleted,
     webhookDeliveriesDeleted,
     cutoff,
