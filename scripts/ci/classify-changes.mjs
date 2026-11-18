@@ -64,19 +64,36 @@ export function isDockerInput(file) {
   return dockerInputs.some((pattern) => pattern.test(file));
 }
 
+const panelInputs = [
+  /^packages\/web\//,
+  /^packages\/engine\//,
+  /^package(-lock)?\.json$/,
+  /^\.github\/workflows\/ci\.yml$/,
+];
+
+/**
+ * What the panel suites (every page in a browser, against the engine) can see
+ * change: the panel, the engine that answers it, the dependencies of both,
+ * and the job itself. A voice-only or tooling-only change cannot alter a page.
+ */
+export function isPanelInput(file) {
+  return !isDocumentation(file) && panelInputs.some((pattern) => pattern.test(file));
+}
+
 export function classify(files) {
   const changed = files.map((file) => file.trim()).filter(Boolean);
   if (changed.length === 0 || changed.length >= API_FILE_LIMIT) {
-    return { code: true, docker: true };
+    return { code: true, docker: true, panel: true };
   }
   return {
     code: changed.some((file) => !isDocumentation(file)),
     docker: changed.some(isDockerInput),
+    panel: changed.some(isPanelInput),
   };
 }
 
-function print({ code, docker }) {
-  process.stdout.write(`code=${code}\ndocker=${docker}\n`);
+function print({ code, docker, panel }) {
+  process.stdout.write(`code=${code}\ndocker=${docker}\npanel=${panel}\n`);
 }
 
 async function readStdin() {
@@ -87,11 +104,11 @@ async function readStdin() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("--all")) {
-    print({ code: true, docker: true });
+    print({ code: true, docker: true, panel: true });
   } else {
     const files = (await readStdin()).split("\n");
     const result = classify(files);
-    console.error(`${files.filter(Boolean).length} changed paths: code=${result.code} docker=${result.docker}`);
+    console.error(`${files.filter(Boolean).length} changed paths: code=${result.code} docker=${result.docker} panel=${result.panel}`);
     print(result);
   }
 }

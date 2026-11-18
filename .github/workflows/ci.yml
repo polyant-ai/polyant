@@ -37,6 +37,7 @@ jobs:
     outputs:
       code: ${{ steps.classify.outputs.code }}
       docker: ${{ steps.classify.outputs.docker }}
+      panel: ${{ steps.classify.outputs.panel }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -189,6 +190,59 @@ jobs:
       - run: npm run ci:schema-drift
       - run: npm run test:integration -w @polyant/engine
 
+  # Every page of the panel in a real browser, against the engine and a
+  # production build of the web on a migrated and seeded database: the page
+  # catalog's own checks and axe (WCAG 2.2 A/AA) in both themes. It runs when
+  # a change could alter a page; the RBAC specs stay in the nightly E2E.
+  panel:
+    name: Panel pages (accessibility)
+    needs: changes
+    if: needs.changes.outputs.panel == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: polyant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # e2e/setup/test-env.ts reads the server coordinates from here; the
+      # migration step validates the engine config, hence the two secrets.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+      AUTH_SECRET: polyant-e2e-auth-secret-at-least-32-characters-long
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      # The panel suites only read, as their own user.
+      E2E_WORKERS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Check every panel page
+        run: npm run test:e2e:panel -w @polyant/web
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: panel-report
+          path: |
+            packages/web/playwright-report
+            packages/web/test-results
+          retention-days: 14
+
   build:
     name: Build
     needs: changes
@@ -235,7 +289,7 @@ jobs:
   # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
-    needs: [changes, repository, static, test, test-web, integration, build, docker]
+    needs: [changes, repository, static, test, test-web, integration, panel, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
