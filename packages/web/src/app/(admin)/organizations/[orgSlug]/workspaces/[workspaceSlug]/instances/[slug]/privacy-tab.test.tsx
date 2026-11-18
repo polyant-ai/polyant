@@ -128,7 +128,7 @@ describe("PrivacyTab", () => {
 
     // The manual opt-out lives in a drawer; Radix SelectTrigger exposes role="combobox".
     await userEvent.click(screen.getByRole("button", { name: "privacy.add" }));
-    expect(within(await screen.findByRole("dialog")).getByRole("combobox")).toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog")).getByRole("combobox", { name: "privacy.channel" })).toBeInTheDocument();
   });
 
   it("registers a header save action that is not dirty initially", async () => {
@@ -149,7 +149,7 @@ describe("PrivacyTab", () => {
       expect(mockOptoutsList).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "privacy.enable" }));
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
@@ -165,7 +165,7 @@ describe("PrivacyTab", () => {
       expect(mockOptoutsList).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "privacy.enable" }));
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {

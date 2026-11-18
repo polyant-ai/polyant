@@ -129,6 +129,7 @@ export function MemoryView({
           <OptionalSelect
             value={instanceFilter}
             onChange={(instance) => { setInstanceFilter(instance); setPage(1); }}
+            label={t("common.agent")}
             allLabel={t("memory.selectInstance")}
             options={instances.map((inst) => ({ value: inst.slug, label: inst.name }))}
           />
@@ -137,6 +138,7 @@ export function MemoryView({
         <OptionalSelect
           value={categoryFilter}
           onChange={(category) => { setCategoryFilter(category); setPage(1); }}
+          label={t("memory.table.category")}
           allLabel={t("memory.allCategories")}
           options={CATEGORIES.filter(Boolean).map((c) => ({ value: c, label: c }))}
           className="w-[180px]"

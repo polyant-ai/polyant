@@ -83,7 +83,7 @@ export function SecretField({
             type="button"
             onClick={onToggleVisibility}
             aria-label={t(visible ? "common.hide" : "common.show")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-1 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
           >
             {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>

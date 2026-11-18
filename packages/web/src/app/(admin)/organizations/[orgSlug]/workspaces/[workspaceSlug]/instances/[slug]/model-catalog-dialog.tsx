@@ -181,7 +181,7 @@ export function ModelCatalogDialog({ modelsData, providerNames, selectedProvider
           <div>
           <ListToolbar value={catalogSearch} onChange={setCatalogSearch} label={t("settings.tab.catalogSearchPlaceholder")}>
             <Select value={catalogProvider} onValueChange={setCatalogProvider}>
-              <SelectTrigger className="sm:w-52">
+              <SelectTrigger className="sm:w-52" aria-label={t("settings.tab.provider")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

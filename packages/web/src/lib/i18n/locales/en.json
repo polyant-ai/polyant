@@ -796,6 +796,7 @@
   "common.activeNamed": "Active: {name}",
   "common.name": "Name",
   "common.role": "Role",
+  "common.agent": "Agent",
   "common.toggleTheme": "Toggle theme",
   "skills.fetchFailed": "Failed to load skills",
   "skills.deleteFailed": "Failed to delete skill",

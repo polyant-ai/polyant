@@ -68,9 +68,10 @@ describe("PromptsTab", () => {
   it("shows every section's prompt in its own editor, with an anchor to each", () => {
     renderTab();
 
-    expect(screen.getByDisplayValue("You are a helpful assistant.")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Be warm and concise.")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Never share secrets.")).toBeInTheDocument();
+    // Each editor is named by its section title, so a screen reader says which prompt it is.
+    expect(screen.getByRole("textbox", { name: "prompts.section.identity" })).toHaveValue("You are a helpful assistant.");
+    expect(screen.getByRole("textbox", { name: "prompts.section.soul" })).toHaveValue("Be warm and concise.");
+    expect(screen.getByRole("textbox", { name: "prompts.section.safety" })).toHaveValue("Never share secrets.");
 
     const nav = screen.getByRole("navigation", { name: "prompts.sidebarTitle" });
     // The seeded sections carry English titles in the database; the panel shows its own labels.

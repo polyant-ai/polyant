@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NavUser } from "./nav-user";
 
@@ -16,7 +16,10 @@ describe("NavUser", () => {
   it("opens a menu with the name, the email and a way out", async () => {
     render(<NavUser user={{ name: "Ada Lovelace", email: "ada@example.com" }} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "user.menu" }));
+    // The initials are decorative: the visible text must not contradict the button's name.
+    const trigger = screen.getByRole("button", { name: "user.menu" });
+    expect(within(trigger).getByText("AL").closest("[aria-hidden=true]")).not.toBeNull();
+    await userEvent.click(trigger);
 
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("menuitem", { name: "user.logout" }));

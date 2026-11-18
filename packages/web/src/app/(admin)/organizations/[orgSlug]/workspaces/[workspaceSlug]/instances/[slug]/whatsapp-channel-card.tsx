@@ -172,7 +172,7 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Label className="text-base font-medium">{t("channels.tab.whatsapp")}</Label>
+            <Label htmlFor="whatsapp-enabled" className="text-base font-medium">{t("channels.tab.whatsapp")}</Label>
             {channel && (
               <Badge variant={channel.enabled ? "default" : "secondary"} className="text-xs">
                 {channel.enabled ? t("channels.tab.enabled") : t("channels.tab.disabled")}
@@ -207,6 +207,7 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
             </AlertDialog>
           )}
           <Switch
+            id="whatsapp-enabled"
             checked={enabled}
             onCheckedChange={(checked) => {
               setEnabled(checked);
@@ -254,7 +255,8 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
                 <button
                   type="button"
                   onClick={() => setVisible((prev) => ({ ...prev, [field.key]: !prev[field.key] }))}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={t(isVisible ? "common.hide" : "common.show")}
+                  className="absolute right-1 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
                 >
                   {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
