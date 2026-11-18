@@ -11,15 +11,17 @@ import { createLogger } from "../utils/create-logger.js";
 const log = createLogger();
 
 // Engine version, read lazily so merely importing this module touches no fs
-// (keeps partial fs mocks in tests working). Fail-closed to "0.0.0" so an
-// unreadable package.json makes realistic engine ranges fail → incompatible
-// plugins are skipped rather than wrongly loaded.
+// (keeps partial fs mocks in tests working). The repository root manifest is
+// the only one carrying the release version; the workspace manifests declare
+// none. Fail-closed to "0.0.0" so an unreadable package.json makes realistic
+// engine ranges fail → incompatible plugins are skipped rather than wrongly
+// loaded.
 let _engineVersion: string | undefined;
 export function getEngineVersion(): string {
   if (_engineVersion !== undefined) return _engineVersion;
   try {
     _engineVersion = JSON.parse(
-      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+      readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
     ).version as string;
   } catch {
     _engineVersion = "0.0.0";

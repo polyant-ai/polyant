@@ -4,10 +4,11 @@ import path from "node:path";
 import { releaseFacts, releaseNoteHeading } from "../release/release-facts.mjs";
 
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-// The manifest list and the product name are the only things this check knows
-// about the product, and both come from release-facts.mjs, shared with the
+// The manifest lists and the product name are the only things this check knows
+// about the product, and they come from release-facts.mjs, shared with the
 // release preparer and auditor so the three cannot disagree.
 const manifestPaths = releaseFacts.manifests;
+const unversionedManifestPaths = releaseFacts.unversionedManifests ?? [];
 
 async function readManifest(rootDir, relativePath) {
   const manifestPath = path.join(rootDir, relativePath);
@@ -47,6 +48,15 @@ export async function validateReleaseMetadata(rootDir) {
     }
   }
 
+  for (const relativePath of unversionedManifestPaths) {
+    const manifest = await readManifest(rootDir, relativePath);
+    if ("version" in manifest) {
+      throw new Error(
+        `${relativePath} must not declare a version: the release version lives only in ${manifestPaths[0]}.`,
+      );
+    }
+  }
+
   const changelog = await readRequiredFile(
     path.join(rootDir, "CHANGELOG.md"),
     "CHANGELOG.md",
@@ -79,7 +89,7 @@ export async function validateReleaseMetadata(rootDir) {
   const readme = await readRequiredFile(path.join(rootDir, "README.md"), "README.md");
   for (const reference of [
     "CHANGELOG.md",
-    `/releases/tag/v${rootVersion}`,
+    "/releases/latest",
     "/about",
   ]) {
     if (!readme.includes(reference)) {
