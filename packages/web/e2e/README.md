@@ -35,6 +35,7 @@ npm install                            # picks up @playwright/test + tsx
 
 ```bash
 npm run test:e2e -w @polyant/web        # prepare DB, boot engine+web, run specs
+npm run test:e2e:panel -w @polyant/web  # only the panel suites (what CI runs on pull requests)
 npm run test:e2e:ui -w @polyant/web     # interactive UI mode
 npm run test:e2e:report -w @polyant/web # open the last HTML report
 ```
@@ -52,6 +53,12 @@ specs. Dedicated ports mean it won't collide with a running dev stack.
 | `setup/seed-rbac.ts` | Seed the 3 privilege-ladder users (Owner/Member/Viewer). |
 | `fixtures/auth.ts` | `loginAs(page, role)` — drives the real /login form. |
 | `rbac/members-access.spec.ts` | First DB-integrated test: members-management access per role. |
+| `setup/seed-panel.ts` | Seed the panel user and the showcase agent's history (fixed timestamps). |
+| `support/page-catalog.ts` | Every page of the panel, discovered from `src/app` plus one entry per agent section, with the declared redirects. |
+| `support/panel.ts` | Browser setup of the panel suites: frozen clock, theme, viewport, `settle()`. |
+| `panel/panel.setup.ts` | Signs the panel user in once and saves the session. |
+| `panel/catalog.spec.ts` | Keeps the catalog honest: segments filled, redirects landing where declared, pages rendering in place. |
+| `a11y/a11y.spec.ts` | axe (WCAG 2.2 A/AA) on every catalog page, light and dark, against `known-violations.json`. |
 | `rbac/tenant-urls.spec.ts` | Tenant-scoped URL routing: root resolution, canonical render, 404 on foreign slugs (there are no legacy redirects — the tenant-scoped URLs are the only ones). |
 
 ## Seeded users (default org)
@@ -61,6 +68,22 @@ specs. Dedicated ports mean it won't collide with a running dev stack.
 | Owner | `owner@e2e.polyant.test` | 200 — can manage |
 | Member | `member@e2e.polyant.test` | 403 — denied |
 | Viewer | `viewer@e2e.polyant.test` | 403 — denied |
+
+## Panel suites
+
+The `panel` project visits every page of the panel as `panel@e2e.polyant.test`
+(a Platform Admin who owns the default organization), over the data
+`seed-panel.ts` writes, with the browser clock stopped at `PANEL_NOW`.
+
+- **A new page** joins on its own. If it has a dynamic segment the catalog has
+  no value for, or it redirects, `catalog.spec.ts` fails and says what to add
+  to `support/page-catalog.ts`.
+- **An accessibility failure** names the rule, the element and the page. Fix
+  the page; `known-violations.json` is only for what predates a rule, and an
+  entry that no longer matches fails until it is removed, so the list only
+  shrinks.
+- **More data on a page**: extend `seed-panel.ts`, keeping every timestamp
+  before `PANEL_NOW`.
 
 ## Known caveat
 
