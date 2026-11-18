@@ -24,14 +24,18 @@ import {
   WEB_PORT,
   WEB_URL,
 } from "./e2e/setup/test-env.js";
+import { PANEL_STATE, PANEL_VIEWPORT } from "./e2e/support/panel";
 
 const isCI = !!process.env.CI;
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "**/*.spec.ts",
-  // Shared test database → serialize to keep state deterministic.
-  workers: 1,
+  /*
+    One worker by default: the RBAC specs share users and rewrite their
+    guidance state. The panel suites only read, as their own user, so a run
+    of just those (`--project=panel`) can raise it with E2E_WORKERS.
+  */
+  workers: Number(process.env.E2E_WORKERS ?? 1),
   fullyParallel: false,
   forbidOnly: isCI,
   retries: isCI ? 1 : 0,
@@ -45,7 +49,25 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
 
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", testMatch: "rbac/**/*.spec.ts", use: { ...devices["Desktop Chrome"] } },
+    // Signs the panel user in once; the panel suites reuse the session.
+    { name: "panel-setup", testMatch: "panel/panel.setup.ts", use: { ...devices["Desktop Chrome"] } },
+    {
+      // Every page of the panel: the catalog's own checks and accessibility.
+      name: "panel",
+      testMatch: ["panel/**/*.spec.ts", "a11y/**/*.spec.ts"],
+      dependencies: ["panel-setup"],
+      fullyParallel: true,
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: PANEL_STATE,
+        viewport: PANEL_VIEWPORT,
+        locale: "en-US",
+        timezoneId: "Europe/Rome",
+      },
+    },
+  ],
 
   // Boot both services. Playwright waits for each `url` to answer before tests.
   webServer: [
