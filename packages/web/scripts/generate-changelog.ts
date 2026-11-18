@@ -17,7 +17,8 @@ import type { ChangelogData } from "../src/lib/changelog-types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHANGELOG_PATH = resolve(__dirname, "../../../CHANGELOG.md");
-const PACKAGE_JSON_PATH = resolve(__dirname, "../package.json");
+// The repository root manifest is the only one carrying the release version.
+const PACKAGE_JSON_PATH = resolve(__dirname, "../../../package.json");
 const OUTPUT_PATH = resolve(__dirname, "../public/changelog.json");
 
 function main() {
@@ -32,7 +33,12 @@ function main() {
     process.exit(1);
   }
 
-  const packageJson = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as { version: string };
+  const packageJson = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as { version?: unknown };
+  // A missing version would ship a changelog the "what's new" check cannot compare against.
+  if (typeof packageJson.version !== "string") {
+    console.error(`No version in ${PACKAGE_JSON_PATH}`);
+    process.exit(1);
+  }
   const latest = changelog[0]!;
 
   const data: ChangelogData = {

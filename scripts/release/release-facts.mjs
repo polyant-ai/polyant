@@ -26,9 +26,10 @@ export const releaseFacts = {
   manifests: ["package.json"],
 
   /**
-   * Manifests that must declare NO version. They are private and never
-   * published, and the code that needs the version reads the root manifest, so
-   * a version here could only be a stale copy. The verifier refuses one.
+   * Manifests that must declare NO version. None of these packages is
+   * published to npm, and the code that needs the version reads the root
+   * manifest, so a version here could only be a stale copy. The verifier
+   * refuses one.
    */
   unversionedManifests: [
     "packages/engine/package.json",
