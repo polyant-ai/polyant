@@ -22,7 +22,8 @@
  *
  * A build with more pages (more groups, more agent sections) declares their
  * exceptions in `page-catalog.extra.ts` next to this file, which this module
- * reads when it exists.
+ * reads when it exists. Its entries win over these; a redirect set to null
+ * there is a route that renders in place in that build.
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -47,7 +48,7 @@ export interface CatalogPage {
 
 export interface CatalogExtension {
   readonly params?: Readonly<Record<string, string>>;
-  readonly redirects?: Readonly<Record<string, string>>;
+  readonly redirects?: Readonly<Record<string, string | null>>;
   readonly skipped?: Readonly<Record<string, string>>;
 }
 
@@ -92,7 +93,9 @@ function loadExtension(): CatalogExtension {
 
 const extension = loadExtension();
 const params = { ...PARAMS, ...extension.params };
-const redirects = { ...REDIRECTS, ...extension.redirects };
+const redirects: Record<string, string> = Object.fromEntries(
+  Object.entries({ ...REDIRECTS, ...extension.redirects }).filter((e): e is [string, string] => e[1] !== null),
+);
 const skipped = { ...SKIPPED, ...extension.skipped };
 
 const APP_DIR = join(WEB_PACKAGE_ROOT, "src", "app");
