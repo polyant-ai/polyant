@@ -11,6 +11,7 @@
  *   1. CREATE DATABASE polyant_e2e (if absent) on the dev PostgreSQL server.
  *   2. Apply the real Drizzle migrations (full schema + default org + roles).
  *   3. Seed the three RBAC test users.
+ *   4. Seed what the panel suites look at (seed-panel.ts).
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,6 +23,7 @@ import {
   TEST_DB_NAME,
 } from "./test-env.js";
 import { seedRbacUsers } from "./seed-rbac.js";
+import { seedPanel } from "./seed-panel.js";
 
 async function ensureDatabaseExists(): Promise<void> {
   const admin = postgres(ADMIN_DATABASE_URL, { max: 1, onnotice: () => {} });
@@ -56,6 +58,7 @@ async function main(): Promise<void> {
   await ensureDatabaseExists();
   runMigrations();
   await seedRbacUsers(TEST_DATABASE_URL);
+  await seedPanel(TEST_DATABASE_URL);
   console.log("[prepare-db] test database ready.");
 }
 

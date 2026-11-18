@@ -88,6 +88,33 @@ export function getTestUser(key: RbacRoleKey): RbacTestUser {
   return user;
 }
 
+/* ------------------------------------------------------------------------- *
+ * Panel fixtures: the accessibility and screenshot suites
+ *
+ * They visit every page of the panel as one person who can open all of them
+ * — a Platform Admin who owns the default organization — over a fixed set of
+ * data, with the browser clock stopped at PANEL_NOW. Every timestamp the seed
+ * writes sits before that instant, so date ranges, charts and "3 days ago"
+ * labels render the same on every run. The RBAC specs keep their own users.
+ * ------------------------------------------------------------------------- */
+
+export const PANEL_USER = {
+  email: "panel@e2e.polyant.test",
+  name: "Panel Admin",
+  password: "e2e-panel-password",
+} as const;
+
+/** The instant the browser clock is frozen at in the panel suites. */
+export const PANEL_NOW = new Date("2026-03-16T10:00:00.000Z");
+
+/** The organization, workspace and agent the panel suites open. */
+export const PANEL_ORG_SLUG = "default";
+export const PANEL_WORKSPACE_SLUG = "general";
+export const PANEL_AGENT_SLUG = "e2e-showcase";
+export const PANEL_AGENT_NAME = "Showcase Agent";
+/** The conversation the seed writes for the conversation detail page. */
+export const PANEL_CONVERSATION_ID = `${PANEL_AGENT_SLUG}:web:panel-1`;
+
 /**
  * PostgreSQL connection parts. Read from the repo-root `.env` (the dev stack's
  * source of truth for `POSTGRES_PASSWORD` etc.) so the harness never hardcodes
