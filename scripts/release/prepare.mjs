@@ -2,12 +2,11 @@
 // release:prepare — write every mechanical mirror of a release version
 // ---------------------------------------------------------------------------
 //
-// A release version is restated in a surprising number of places: four
-// manifests, two lockfiles, the Docker stubs,
-// the CHANGELOG heading, the release-note filename and its H1, and the README
-// paragraph. `release:verify` already refuses a release where those disagree —
-// this is the half that WRITES them, so agreeing is the default rather than the
-// reward for remembering a list.
+// A release version is stated in the root manifest, its lockfile entries, the
+// CHANGELOG heading and the release-note filename and H1 — nowhere else, so a
+// release diff stays small enough to read. `release:verify` refuses a release
+// where those disagree; this is the half that WRITES them, so agreeing is the
+// default rather than the reward for remembering a list.
 //
 // It deliberately stops at the prose. The heading, the file and the paragraph
 // are created; what a release actually changed is written by a human (or by an
@@ -41,12 +40,11 @@ function quote(value) {
 }
 
 // ---------------------------------------------------------------------------
-// Versions: manifests + Docker stubs
+// Versions: manifests
 // ---------------------------------------------------------------------------
 
 /**
- * Set `version` in every manifest and in every Docker stub, and return the
- * files actually rewritten.
+ * Set `version` in every versioned manifest, and return the files rewritten.
  *
  * The manifests are edited textually rather than through `JSON.parse` +
  * `stringify`: a reserialise reformats the whole file, so the diff of a version
@@ -69,26 +67,12 @@ export async function applyVersion(rootDir, version, facts = releaseFacts) {
     changed.push(manifest);
   }
 
-  for (const stub of facts.dockerStubs) {
-    const before = await read(rootDir, stub.file);
-    // Anchored on the package name: a stub restates the OTHER workspace's
-    // manifest, and both stages of a multi-stage build carry the same line.
-    const pattern = new RegExp(`("name":"${quote(stub.package)}","version":")[^"]*(")`, "g");
-    if (!pattern.test(before)) {
-      throw new Error(`${stub.file} carries no stub for ${stub.package}.`);
-    }
-    pattern.lastIndex = 0;
-    const after = before.replace(pattern, `$1${version}$2`);
-    if (after !== before) await write(rootDir, stub.file, after);
-    changed.push(stub.file);
-  }
-
   return changed;
 }
 
 /**
- * Set `version` on the lockfiles' own entries: the file's top level, the root
- * package and every workspace (`packages/*`), and return the lockfiles rewritten.
+ * Set `version` on the lockfiles' own entries: the file's top level and the root
+ * package (workspaces declare no version), and return the lockfiles rewritten.
  *
  * Textual for the same reason as the manifests, and because `npm install
  * --package-lock-only` with whichever npm happens to be installed also rewrites
@@ -107,7 +91,7 @@ export async function applyLockfileVersions(rootDir, version, facts = releaseFac
       entries += 1;
       return `${head}"${version}"`;
     });
-    // `packages` entries that are not dependencies: "" and the workspaces.
+    // `packages` entries that are not dependencies and carry a version: the root "".
     after = after.replace(
       /^(    "(?![^"]*node_modules\/)[^"]*": \{\n      "name": "[^"]*",\n      "version": )"[^"]*"/gm,
       (_, head) => {
@@ -219,36 +203,6 @@ export async function ensureReleaseNote(rootDir, version, facts = releaseFacts) 
 }
 
 // ---------------------------------------------------------------------------
-// README
-// ---------------------------------------------------------------------------
-
-/**
- * Point the README's release paragraph at the new version.
- *
- * Scoped to the lines that carry a release POINTER (`/releases/tag/v…` or
- * `docs/releases/v…`) and their paragraph, never the whole file: a README also
- * discusses older versions in prose ("upgrading from 1.0.0"), and rewriting
- * those would turn a version bump into a false statement.
- */
-export async function retargetReadmeRelease(rootDir, previousVersion, version) {
-  const readme = await read(rootDir, "README.md");
-  const paragraphs = readme.split(/\n\n/);
-  let touched = false;
-
-  const updated = paragraphs.map((paragraph) => {
-    if (!/\/releases\/tag\/v|docs\/releases\/v/.test(paragraph)) return paragraph;
-    touched = true;
-    return paragraph.replaceAll(`v${previousVersion}`, `v${version}`);
-  });
-
-  if (!touched) {
-    throw new Error("README.md has no release paragraph (no /releases/tag/v… or docs/releases/v… link).");
-  }
-
-  await write(rootDir, "README.md", updated.join("\n\n"));
-}
-
-// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
@@ -263,9 +217,7 @@ export function ownedPaths(version, facts = releaseFacts) {
   return new Set([
     ...facts.manifests,
     ...facts.lockfileRoots.map((root) => path.posix.join(root === "." ? "" : root, "package-lock.json")),
-    ...facts.dockerStubs.map((stub) => stub.file),
     "CHANGELOG.md",
-    "README.md",
     path.posix.join("docs", "releases", `v${version}.md`),
   ]);
 }
@@ -323,7 +275,6 @@ async function main() {
 
   await assertTreeCleanOutsideOwned(rootDir, version, facts);
 
-  const previous = JSON.parse(await read(rootDir, "package.json")).version;
   const changed = await applyVersion(rootDir, version, facts);
   console.log(`versions   ${version} in ${changed.length} file(s)`);
 
@@ -335,9 +286,6 @@ async function main() {
 
   const note = await ensureReleaseNote(rootDir, version, facts);
   console.log(`notes      ${note.path} ${note.created ? "created" : "left alone (already written)"}`);
-
-  await retargetReadmeRelease(rootDir, previous, version);
-  console.log(`readme     release paragraph points at v${version}`);
 
   const { validateReleaseMetadata } = await import("../ci/verify-release-metadata.mjs");
   await validateReleaseMetadata(rootDir);

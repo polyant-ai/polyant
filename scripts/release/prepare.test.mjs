@@ -12,7 +12,6 @@ import {
   applyLockfileVersions,
   ensureChangelogSection,
   ensureReleaseNote,
-  retargetReadmeRelease,
 } from "./prepare.mjs";
 import { validateReleaseMetadata } from "../ci/verify-release-metadata.mjs";
 
@@ -22,21 +21,21 @@ const OLD = "1.1.0";
 const NEW = "1.2.0";
 const STALE = "1.0.0";
 
-/** A repository shaped like this one, at OLD, with the Docker stubs deliberately
- *  left behind at an older version — the drift this tool exists to end. */
+/** A repository shaped like this one, at OLD: the version only in the root
+ *  manifest and its lockfile entries, the workspaces declaring none. */
 async function writeFixture(rootDir) {
   const json = async (rel, contents) => {
     await mkdir(path.dirname(path.join(rootDir, rel)), { recursive: true });
     await writeFile(path.join(rootDir, rel), `${JSON.stringify(contents, null, 2)}\n`);
   };
   await json("package.json", { name: "polyant", version: OLD, scripts: { build: "x" } });
-  await json("packages/engine/package.json", { name: releaseFacts.engineWorkspace, version: OLD });
-  await json("packages/web/package.json", { name: "web", version: OLD });
-  await json("infra/package.json", { name: "polyant-infra", version: OLD });
+  await json("packages/engine/package.json", { name: releaseFacts.engineWorkspace });
+  await json("packages/web/package.json", { name: "web" });
+  await json("infra/package.json", { name: "polyant-infra" });
 
-  // Lockfiles as npm writes them: the version on the file, on the root package and on
-  // each workspace, plus dependency entries (one of them at the same version as the
-  // release, and one carrying a `libc` field the local npm would drop).
+  // The lockfile as npm writes it: the version on the file and on the root package,
+  // none on the workspaces, plus a dependency entry at the same version as the
+  // release and carrying a `libc` field the local npm would drop.
   const dependency = {
     "node_modules/left-pad": { version: OLD, resolved: "https://registry.example/left-pad.tgz", libc: ["glibc"] },
   };
@@ -49,25 +48,10 @@ async function writeFixture(rootDir) {
       "": { name: "polyant", version: OLD, workspaces: ["packages/*"] },
       ...dependency,
       "node_modules/@polyant/engine": { resolved: "packages/engine", link: true },
-      "packages/engine": { name: releaseFacts.engineWorkspace, version: OLD },
-      "packages/web": { name: "web", version: OLD },
+      "packages/engine": { name: releaseFacts.engineWorkspace },
+      "packages/web": { name: "web" },
     },
   });
-  await json("infra/package-lock.json", {
-    name: "polyant-infra",
-    version: OLD,
-    lockfileVersion: 3,
-    requires: true,
-    packages: { "": { name: "polyant-infra", version: OLD }, ...dependency },
-  });
-
-  // Two stages of one Dockerfile restate the same stub, and both are left at an
-  // older version than the manifests — the drift a hand-maintained mirror list
-  // produces, and which this repository actually carried.
-  const stub = (pkg) => `RUN echo '{"name":"${pkg}","version":"${STALE}","private":true}' > packages/x/package.json\n`;
-  for (const { file, package: pkg } of releaseFacts.dockerStubs) {
-    await writeFile(path.join(rootDir, file), `FROM node:22-alpine\n${stub(pkg)}RUN npm ci\n${stub(pkg)}`);
-  }
 
   await writeFile(
     path.join(rootDir, "CHANGELOG.md"),
@@ -104,14 +88,8 @@ async function writeFixture(rootDir) {
     [
       "# Polyant",
       "",
-      `${releaseFacts.productName} v${OLD} is the current stable release. Review the [changelog](CHANGELOG.md), the`,
-      `[release notes](docs/releases/v${OLD}.md), and the`,
-      `[GitHub release](${releaseFacts.repositoryUrl}/releases/tag/v${OLD}). In a running`,
-      "admin installation, details are at [/about](/about).",
-      "",
-      "## Upgrading",
-      "",
-      "Upgrading from 1.0.0 needs operator action.",
+      `The current release is on the [GitHub releases page](${releaseFacts.repositoryUrl}/releases/latest),`,
+      "with the [changelog](CHANGELOG.md). In a running admin installation, details are at [/about](/about).",
       "",
     ].join("\n"),
   );
@@ -144,20 +122,15 @@ test("releaseNoteHeading names the product", () => {
   assert.equal(releaseNoteHeading("1.2.0", { ...releaseFacts, productName: "Polyant" }), "# Polyant v1.2.0");
 });
 
-test("applyVersion rewrites every manifest AND every Docker stub", async () => {
+test("applyVersion rewrites the root manifest and leaves the workspaces without a version", async () => {
   await withFixture(async (rootDir) => {
     const changed = await applyVersion(rootDir, NEW, releaseFacts);
 
-    for (const manifest of releaseFacts.manifests) {
-      assert.equal((await readJson(rootDir, manifest)).version, NEW, manifest);
+    assert.deepEqual(changed, ["package.json"]);
+    assert.equal((await readJson(rootDir, "package.json")).version, NEW);
+    for (const manifest of releaseFacts.unversionedManifests) {
+      assert.equal("version" in (await readJson(rootDir, manifest)), false, manifest);
     }
-    // The stubs were at 1.0.0 while the manifests were at 1.1.0 — the drift a
-    // hand-maintained mirror list produces. Every occurrence must move.
-    for (const { file } of releaseFacts.dockerStubs) {
-      assert.ok((await read(rootDir, file)).includes(`"version":"${NEW}"`), file);
-      assert.ok(!(await read(rootDir, file)).includes(`"version":"${STALE}"`), `${file} still stale`);
-    }
-    assert.equal(changed.length, releaseFacts.manifests.length + releaseFacts.dockerStubs.length);
   });
 });
 
@@ -172,25 +145,23 @@ test("applyVersion leaves everything it does not own untouched, and is idempoten
   });
 });
 
-test("applyLockfileVersions bumps the file, the root and the workspaces, and nothing else", async () => {
+test("applyLockfileVersions bumps the file and the root package, and nothing else", async () => {
   await withFixture(async (rootDir) => {
     const before = await read(rootDir, "package-lock.json");
     const changed = await applyLockfileVersions(rootDir, NEW, releaseFacts);
-    assert.deepEqual(changed, ["package-lock.json", "infra/package-lock.json"]);
+    assert.deepEqual(changed, ["package-lock.json"]);
 
     const lock = await readJson(rootDir, "package-lock.json");
     assert.equal(lock.version, NEW);
     assert.equal(lock.packages[""].version, NEW);
-    assert.equal(lock.packages["packages/engine"].version, NEW);
-    assert.equal(lock.packages["packages/web"].version, NEW);
+    assert.equal("version" in lock.packages["packages/engine"], false, "a workspace gains no version");
     assert.equal(lock.packages["node_modules/left-pad"].version, OLD, "a dependency that shares the version is not ours");
     assert.deepEqual(lock.packages["node_modules/left-pad"].libc, ["glibc"], "fields npm 10 would drop survive");
-    assert.equal((await readJson(rootDir, "infra/package-lock.json")).packages[""].version, NEW);
 
-    // Only the four version lines differ, so the release commit shows nothing else.
+    // Only the two version lines differ, so the release commit shows nothing else.
     const after = await read(rootDir, "package-lock.json");
     const diff = before.split("\n").filter((line, i) => line !== after.split("\n")[i]);
-    assert.equal(diff.length, 4);
+    assert.equal(diff.length, 2);
     assert.ok(diff.every((line) => line.includes(`"version": "${OLD}"`)));
 
     await applyLockfileVersions(rootDir, NEW, releaseFacts);
@@ -266,29 +237,28 @@ test("ensureReleaseNote writes the exact H1 the verifier demands, and never over
   });
 });
 
-test("retargetReadmeRelease moves only the release paragraph, not every version in the file", async () => {
-  await withFixture(async (rootDir) => {
-    await retargetReadmeRelease(rootDir, OLD, NEW);
-    const readme = await read(rootDir, "README.md");
-
-    assert.match(readme, new RegExp(`docs/releases/v${quote(NEW)}\\.md`));
-    assert.match(readme, new RegExp(`/releases/tag/v${quote(NEW)}`));
-    assert.doesNotMatch(readme, new RegExp(`v${quote(OLD)}`), "no stale reference to the previous release");
-    // "Upgrading from 1.0.0" is prose about an older release: it is not a
-    // pointer at the current one and must survive untouched.
-    assert.match(readme, /Upgrading from 1\.0\.0 needs operator action\./);
-  });
-});
-
 test("after a full prepare the metadata verifier passes", async () => {
   await withFixture(async (rootDir) => {
     await applyVersion(rootDir, NEW, releaseFacts);
     await applyLockfileVersions(rootDir, NEW, releaseFacts);
     await ensureChangelogSection(rootDir, NEW, "2026-09-01");
     await ensureReleaseNote(rootDir, NEW, releaseFacts);
-    await retargetReadmeRelease(rootDir, OLD, NEW);
 
     await validateReleaseMetadata(rootDir);
+  });
+});
+
+test("the metadata verifier refuses a workspace manifest that declares a version again", async () => {
+  await withFixture(async (rootDir) => {
+    await applyVersion(rootDir, NEW, releaseFacts);
+    await ensureChangelogSection(rootDir, NEW, "2026-09-01");
+    await ensureReleaseNote(rootDir, NEW, releaseFacts);
+    await writeFile(
+      path.join(rootDir, "packages/web/package.json"),
+      `${JSON.stringify({ name: "web", version: NEW }, null, 2)}\n`,
+    );
+
+    await assert.rejects(() => validateReleaseMetadata(rootDir), /packages\/web\/package\.json must not declare a version/);
   });
 });
 
@@ -309,8 +279,6 @@ test("foreignChanges reports tracked work in progress, and ignores untracked fil
 test("ownedPaths covers every mirror the command writes", () => {
   const owned = ownedPaths(NEW, releaseFacts);
   for (const manifest of releaseFacts.manifests) assert.ok(owned.has(manifest), manifest);
-  for (const stub of releaseFacts.dockerStubs) assert.ok(owned.has(stub.file), stub.file);
   assert.ok(owned.has("package-lock.json"));
-  assert.ok(owned.has("infra/package-lock.json"));
   assert.ok(owned.has(`docs/releases/v${NEW}.md`));
 });
