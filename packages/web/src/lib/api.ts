@@ -23,6 +23,7 @@ export type {
   RequiredSecretSpec,
   RequiredEnvEntry,
   SkillState,
+  AgentSkillContent,
   SkillEnvStatus,
   LibrarySkillSummary,
   LibrarySkillDetail,
@@ -114,6 +115,7 @@ import type {
   LibrarySkillSummary,
   LibrarySkillDetail,
   SkillUpdateResponse,
+  AgentSkillContent,
   SkillVersion,
   ScheduledTask,
   ScheduledTaskSchedule,
@@ -479,6 +481,8 @@ export const api = {
   skills: {
     list: (slug: string) =>
       request<{ skills: SkillState[] }>(urlPath`/api/instances/${slug}/skills`),
+    get: (slug: string, skillSlug: string) =>
+      request<AgentSkillContent>(urlPath`/api/instances/${slug}/skills/${skillSlug}`),
     update: (slug: string, enabled: string[]) =>
       request<SkillUpdateResponse>(urlPath`/api/instances/${slug}/skills`, json("PATCH", { enabled })),
     upgrade: (slug: string, skillSlug: string) =>
