@@ -14,7 +14,7 @@
  *
  * - REDIRECTS: routes that send the browser elsewhere. They are visited to
  *   check that they still land where they say, and the destination is what
- *   the suites scan.
+ *   the suites scan (added to the list when it is a variant, such as a tab).
  * - SKIPPED: routes that render nothing a person reads (a catch-all, a page
  *   that signs out).
  * - A dynamic segment with no value in PARAMS fails catalog.spec.ts, naming
@@ -184,6 +184,16 @@ export function catalogPages(): CatalogPage[] {
       continue;
     }
     pages.push({ path: route.path, source: route.source, anonymous: route.group === "(auth)" });
+  }
+  // A redirect can land on a variant of a page the list does not have yet (a
+  // tab, a preselected filter): that variant is a page people see, so it joins.
+  const listed = new Set(pages.map((p) => p.path));
+  const routeByPath = new Map(discoverRoutes().flatMap((r) => (r.path ? [[r.path, r] as const] : [])));
+  for (const destination of Object.values(redirects)) {
+    const route = routeByPath.get(new URL(destination, "http://catalog").pathname);
+    if (!route || listed.has(destination) || destination in redirects) continue;
+    listed.add(destination);
+    pages.push({ path: destination, source: `${route.source} (via redirect)`, anonymous: route.group === "(auth)" });
   }
   return pages;
 }
