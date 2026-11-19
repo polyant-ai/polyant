@@ -124,9 +124,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install
-      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
-      # fails the build if a PR lowers coverage. Local runs stay fast without it.
-      - run: npm run test:unit -w @polyant/engine -- --coverage
+      # Coverage into a blob report and no floor: the floors in
+      # vitest.config.ts apply to the unit and integration tiers merged, in
+      # the Unit coverage job.
+      - run: >-
+          npm run test:unit -w @polyant/engine --
+          --coverage --coverage.thresholds=false
+          --reporter=default --reporter=blob --outputFile.blob=coverage-blobs/unit.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unit-blob
+          path: packages/engine/coverage-blobs/unit.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # The engine's coverage ratchet, on the unit and integration tiers merged:
+  # code only an integration test exercises counts as covered, so replacing a
+  # chained database mock with a real test does not lower the total. Merging
+  # also re-reports every test, so a failure shows up here too.
+  unit-coverage:
+    name: Unit coverage
+    needs: [changes, test, integration]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "*-blob"
+          merge-multiple: true
+          path: packages/engine/coverage-blobs
+      - name: Merge the tiers and check the coverage floors
+        working-directory: packages/engine
+        run: npx vitest --merge-reports=coverage-blobs --coverage --coverage.reporter=text-summary --reporter=dot
 
   test-web:
     name: Web Tests
@@ -189,7 +221,16 @@ jobs:
       # On the freshly migrated database, before any test writes to it: a column
       # added to a schema file without its migration fails here, not in production.
       - run: npm run ci:schema-drift
-      - run: npm run test:integration -w @polyant/engine
+      - run: >-
+          npm run test:integration -w @polyant/engine --
+          --coverage --coverage.thresholds=false
+          --reporter=default --reporter=blob --outputFile.blob=coverage-blobs/integration.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: integration-blob
+          path: packages/engine/coverage-blobs/integration.json
+          if-no-files-found: error
+          retention-days: 1
 
   # Every page of the panel in a real browser, against the engine and a
   # production build of the web on a migrated and seeded database: the page
@@ -335,7 +376,7 @@ jobs:
   # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
-    needs: [changes, repository, static, test, test-web, integration, panel, upgrade, build, docker]
+    needs: [changes, repository, static, test, unit-coverage, test-web, integration, panel, upgrade, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
