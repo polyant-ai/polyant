@@ -17,6 +17,7 @@ import {
   upgradeSkill,
   rollbackSkill,
   getPinnedSkillMetadata,
+  getAgentSkillContent,
 } from "../../instances/instance-skills.store.js";
 import { getSkill as getSkillFromStore } from "../../skills/skills.store.js";
 import { setSkillEnv, getSkillEnv, deleteSkillEnv } from "../../instances/skill-env.store.js";
@@ -87,6 +88,20 @@ export class InstanceSkillsController {
     const instance = await findInstanceOrFail(slug);
     const skills = await listAgentSkills(asInstanceSlug(slug), instance.id);
     return { skills };
+  }
+
+  /**
+   * One of the agent's skills, read for its drawer: the text of the version the agent
+   * runs. Answers `agent.skill:read`, the permission the list answers; a skill the
+   * list does not show is a 404.
+   */
+  @RequirePermission(Permission.SKILL_INSTANCE_READ)
+  @Get(":slug/skills/:skillSlug")
+  async getSkill(@Param("slug") slug: string, @Param("skillSlug") skillSlug: string) {
+    const instance = await findInstanceOrFail(slug);
+    const skill = await getAgentSkillContent(instance.id, skillSlug);
+    if (!skill) throw new NotFoundException(`Skill "${skillSlug}" not found`);
+    return { name: skillSlug, ...skill };
   }
 
   @RequirePermission(Permission.SKILL_INSTANCE_WRITE)

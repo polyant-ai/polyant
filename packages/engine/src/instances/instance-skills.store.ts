@@ -130,6 +130,48 @@ export async function getPinnedSkillMetadata(instanceId: InstanceUuid, skillSlug
   return row?.metadata ?? null;
 }
 
+/** What the panel shows of one of the agent's skills: the text of the version it would run. */
+export interface AgentSkillContent {
+  version: string;
+  content: string;
+  requiredTools: string[];
+}
+
+/**
+ * The content of a skill as this agent sees it: the version the agent is pinned to
+ * when it has one, else the skill's current version (the one enabling it would pin).
+ * `null` when the skill does not exist or is archived — the same rule
+ * `listAgentSkills` lists by, so the panel never reads a skill it cannot list.
+ */
+export async function getAgentSkillContent(
+  instanceId: InstanceUuid,
+  skillSlug: string,
+): Promise<AgentSkillContent | null> {
+  const [skill] = await db
+    .select({
+      currentVersionId: skills.currentVersionId,
+      pinnedVersionId: instanceSkills.skillVersionId,
+    })
+    .from(skills)
+    .leftJoin(
+      instanceSkills,
+      and(eq(instanceSkills.skillId, skills.id), eq(instanceSkills.instanceId, instanceId)),
+    )
+    .where(and(eq(skills.slug, skillSlug), eq(skills.status, "active")))
+    .limit(1);
+  const versionId = skill?.pinnedVersionId ?? skill?.currentVersionId;
+  if (!versionId) return null;
+
+  const [version] = await db
+    .select({ version: skillVersions.version, content: skillVersions.content, metadata: skillVersions.metadata })
+    .from(skillVersions)
+    .where(eq(skillVersions.id, versionId))
+    .limit(1);
+  if (!version) return null;
+  const meta = version.metadata as { requiredTools?: string[] } | null;
+  return { version: version.version, content: version.content, requiredTools: meta?.requiredTools ?? [] };
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------

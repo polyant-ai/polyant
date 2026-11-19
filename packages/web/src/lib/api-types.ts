@@ -389,6 +389,17 @@ export interface SkillState {
   hasUpdate?: boolean;
 }
 
+/**
+ * `GET /api/instances/:slug/skills/:skillSlug` — the text of one of the agent's skills:
+ * the version the agent is pinned to, else the current one (what enabling it would pin).
+ */
+export interface AgentSkillContent {
+  name: string;
+  version: string;
+  content: string;
+  requiredTools: string[];
+}
+
 export interface SkillUpdateResponse {
   skills: SkillState[];
   toolsChanged?: {

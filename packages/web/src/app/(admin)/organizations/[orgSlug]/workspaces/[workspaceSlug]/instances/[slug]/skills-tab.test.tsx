@@ -7,7 +7,8 @@ import type { SkillState } from "@/lib/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSetAutoLoad, mockUpgrade, mockToolsUpdate } = vi.hoisted(() => ({
+const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSkillGet, mockSetAutoLoad, mockUpgrade, mockToolsUpdate } = vi.hoisted(() => ({
+  mockSkillGet: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
   mockSkillsUpdate: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("@/lib/api", () => ({
     skills: {
       update: (...args: unknown[]) => mockSkillsUpdate(...args),
       list: (...args: unknown[]) => mockSkillsList(...args),
+      get: (...args: unknown[]) => mockSkillGet(...args),
       getEnv: vi.fn().mockResolvedValue({ env: [] }),
       setEnv: vi.fn(),
       setAutoLoad: (...args: unknown[]) => mockSetAutoLoad(...args),
@@ -107,6 +109,7 @@ const switchOf = (name: string) => screen.getByRole("switch", { name: `Attivo: $
 describe("SkillsTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSkillGet.mockResolvedValue({ name: "x", version: "0.1.0", content: "", requiredTools: [] });
   });
 
   it("renders the empty state when no skills exist", () => {
@@ -231,6 +234,24 @@ describe("SkillsTab", () => {
     await user.click(within(rowOf("web-search")).getByText("Search the web for information"));
     const drawer = await screen.findByRole("dialog");
     expect(within(drawer).getByRole("heading", { name: "web-search" })).toBeInTheDocument();
+  });
+
+  it("shows the text and the required tools of a skill the agent has not enabled", async () => {
+    mockSkillGet.mockResolvedValue({
+      name: "code-review",
+      version: "0.3.0",
+      content: "Read the diff before commenting.",
+      requiredTools: ["fetchPullRequest"],
+    });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(screen.getByRole("button", { name: "code-review" }));
+    const drawer = await screen.findByRole("dialog");
+
+    expect(await within(drawer).findByText("Read the diff before commenting.")).toBeInTheDocument();
+    expect(within(drawer).getByText("fetchPullRequest")).toBeInTheDocument();
+    expect(within(drawer).getByText("v0.3.0")).toBeInTheDocument();
+    expect(mockSkillGet).toHaveBeenCalledWith("test-instance", "code-review");
   });
 
   it("keeps the per-skill controls in the drawer, not on the row", async () => {
