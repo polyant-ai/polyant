@@ -50,6 +50,7 @@ test("Docker inputs are recognised", () => {
     "packages/web/next.config.ts",
     "packages/web/scripts/generate-changelog.ts",
     "scripts/collect-plugin-system-requirements.mjs",
+    "scripts/ci/smoke-images.sh",
     ".github/workflows/ci.yml",
   ]) {
     assert.equal(isDockerInput(file), true, file);

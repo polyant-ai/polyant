@@ -263,24 +263,29 @@ jobs:
       - run: diff -r packages/engine/src/database/migrations packages/engine/dist/database/migrations
 
   docker:
-    name: Docker build (${{ matrix.image }})
+    name: Docker images
     needs: changes
     if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        image: [engine, web]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      # Build only, no push: catches a Dockerfile that no longer builds from a
-      # clean checkout (missing dirs, stray context files) before a release does.
+      # Build, no push: catches a Dockerfile that no longer builds from a clean
+      # checkout (missing dirs, stray context files) before a release does.
       # Plain `docker build`: this repository allows only GitHub-owned actions
       # and a short list of others, so the Docker build actions (and their
       # layer cache) are not available here. The path filter above is what
       # keeps this job off most pull requests.
-      - run: docker build -f Dockerfile.${{ matrix.image }} .
+      - name: Build the engine image
+        run: docker build -t polyant-smoke-engine -f Dockerfile.engine .
+      # The web's rewrites are fixed at build time, so this one points at the
+      # engine's name on the smoke test's network.
+      - name: Build the web image
+        run: docker build -t polyant-smoke-web --build-arg NEXT_PUBLIC_API_URL=http://engine:4000 -f Dockerfile.web .
+      # Then runs them as an installation does: migrations on an empty
+      # database, the engine healthy, the web serving and reaching the engine.
+      - name: Smoke-test the images
+        run: scripts/ci/smoke-images.sh polyant-smoke-engine polyant-smoke-web
 
   # The single required check. It needs every job above (Repository checks
   # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of

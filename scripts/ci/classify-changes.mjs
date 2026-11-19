@@ -51,6 +51,7 @@ const dockerInputs = [
   /^packages\/web\/(next\.config\.ts|tsconfig\.json|postcss\.config\.mjs)$/,
   /^packages\/web\/scripts\//,
   /^scripts\/collect-plugin-system-requirements\.mjs$/,
+  /^scripts\/ci\/smoke-images\.sh$/,
   // The Docker job itself.
   /^\.github\/workflows\/ci\.yml$/,
 ];
