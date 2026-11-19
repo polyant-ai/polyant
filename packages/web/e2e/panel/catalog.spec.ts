@@ -22,6 +22,9 @@ import { expect, openSettled, test } from "../support/panel";
 
 const routes = discoverRoutes();
 
+/** How long a page must stay on its URL to count as rendering in place. */
+const REDIRECT_GRACE_MS = 1_500;
+
 test.describe("page catalog", () => {
   test("discovers the panel's routes and agent sections", () => {
     // Non-vacuity: a broken discovery would turn both suites into no-ops.
@@ -61,6 +64,10 @@ for (const anonymous of [false, true]) {
     for (const entry of catalogPages().filter((p) => p.anonymous === anonymous)) {
       test(`page ${entry.path} renders in place`, async ({ page }) => {
         await openSettled(page, entry.path);
+        // A server redirect inside a streamed page arrives after a 200 and
+        // moves the browser a moment later; give it that moment, so it shows
+        // up here instead of letting the other suites judge the page it leaves.
+        await page.waitForTimeout(REDIRECT_GRACE_MS);
         const url = new URL(page.url());
         expect(url.pathname + url.search, "an undeclared redirect: add it to REDIRECTS").toBe(entry.path);
       });
