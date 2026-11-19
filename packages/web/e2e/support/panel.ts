@@ -3,7 +3,8 @@
 /**
  * The browser setup shared by the suites that visit every page: signed in as
  * the panel user (panel.setup.ts saves the session), clock stopped at
- * PANEL_NOW, a fixed viewport, locale and time zone, and a chosen theme.
+ * PANEL_NOW, reduced motion, a fixed viewport, locale and time zone, and a
+ * chosen theme.
  *
  * `settle()` decides when a page is ready to be judged. The panel never
  * reaches `networkidle` on every page (some keep a stream open), so it waits
@@ -26,6 +27,9 @@ export const test = base.extend<{ theme: Theme }>({
   theme: ["light", { option: true }],
   page: async ({ page, theme }, use) => {
     await page.clock.setFixedTime(PANEL_NOW);
+    // The panel turns its entrance animations off under reduced motion, so a
+    // page is judged at rest, not halfway through fading in.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     // next-themes reads this key before the first paint, so the page never
     // flashes the other theme.
     await page.addInitScript((value) => window.localStorage.setItem("theme", value), theme);
