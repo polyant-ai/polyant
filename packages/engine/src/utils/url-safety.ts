@@ -37,7 +37,7 @@ const PRIVATE_IP_RANGES = [
   /^::1$/,                                                            // Loopback
   /^0:0:0:0:0:0:0:1$/,                                                // Loopback, long form
   /^f[cd][0-9a-f]{2}:/i,                                              // Unique local fc00::/7 (fc00–fdff) — includes fd00:ec2::254 (AWS/Azure IPv6 IMDS)
-  /^fe80:/i,                                                          // Link-local
+  /^fe[89ab][0-9a-f]:/i,                                              // Link-local fe80::/10 (fe80–febf)
   // IPv4-mapped IPv6 — block the same IPv4 ranges when expressed as ::ffff:a.b.c.d
   /^::ffff:(?:127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|192\.0\.[02]\.|198\.51\.100\.|203\.0\.113\.)/,
 ];
