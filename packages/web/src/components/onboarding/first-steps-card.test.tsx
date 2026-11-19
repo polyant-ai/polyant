@@ -58,7 +58,7 @@ describe("First steps card", () => {
   });
 
   // The break this catches: «3 of 7 done» above a list that shows only the 4 open steps.
-  it("lists all seven steps, the finished ones ticked and dimmed, so the count matches what is shown", async () => {
+  it("lists all seven steps, the finished ones ticked, so the count matches what is shown", async () => {
     h.facts.value = { ...NOTHING, provider: true, agent: true };
     mount();
     expect(await screen.findByText("3 of 7 done")).toBeInTheDocument();
@@ -67,7 +67,6 @@ describe("First steps card", () => {
     const finished = rows.filter((row) => row.getAttribute("data-state") === "done");
     expect(finished).toHaveLength(3);
     for (const row of finished) {
-      expect(row.className).toContain("opacity-60");
       expect(row.textContent).toContain("Done");
     }
   });

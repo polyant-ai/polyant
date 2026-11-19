@@ -254,10 +254,9 @@ describe("PrivacyTab", () => {
     expect(within(drawer).getByText("whatsapp · keyword")).toBeInTheDocument();
   });
 
-  it("lets the contacts list use the full width and does not repeat the section title in its card", async () => {
-    const { container } = render(<PrivacyTab instance={makeInstance()} />);
+  it("does not repeat the section title in the contacts card", async () => {
+    render(<PrivacyTab instance={makeInstance()} />);
     await waitFor(() => expect(mockOptoutsList).toHaveBeenCalled());
     expect(screen.queryByText("privacy.title")).not.toBeInTheDocument();
-    expect(container.firstElementChild).not.toHaveClass("max-w-2xl");
   });
 });

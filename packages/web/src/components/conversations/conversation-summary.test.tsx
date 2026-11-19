@@ -16,19 +16,19 @@ describe("ConversationSummary", () => {
   it("shows a short description whole, with no toggle", () => {
     layout(40, 40);
     renderWithProviders(<ConversationSummary summary="Richiesta di preventivo" />);
-    expect(screen.getByText("Richiesta di preventivo")).toHaveClass("line-clamp-2");
+    expect(screen.getByText("Richiesta di preventivo")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("clamps a long description to two lines and expands and collapses it", async () => {
     layout(120, 40);
     renderWithProviders(<ConversationSummary summary="Una descrizione lunga" />);
-    const text = screen.getByText("Una descrizione lunga");
+    expect(screen.getByRole("button", { name: "Mostra di più" })).toHaveAttribute("aria-expanded", "false");
 
     await userEvent.click(screen.getByRole("button", { name: "Mostra di più" }));
-    expect(text).not.toHaveClass("line-clamp-2");
+    expect(screen.getByRole("button", { name: "Nascondi" })).toHaveAttribute("aria-expanded", "true");
 
     await userEvent.click(screen.getByRole("button", { name: "Nascondi" }));
-    expect(text).toHaveClass("line-clamp-2");
+    expect(screen.getByRole("button", { name: "Mostra di più" })).toHaveAttribute("aria-expanded", "false");
   });
 });

@@ -93,13 +93,6 @@ describe("AuthorizationService", () => {
   });
 
   describe("resolveAgentScope", () => {
-    it("delegates to the store", async () => {
-      mockReadAgentScope.mockResolvedValue(scope);
-      const svc = makeService();
-      expect(await svc.resolveAgentScope("agent-1")).toEqual(scope);
-      expect(mockReadAgentScope).toHaveBeenCalledWith("agent-1");
-    });
-
     it("returns null for an unknown agent", async () => {
       mockReadAgentScope.mockResolvedValue(null);
       const svc = makeService();

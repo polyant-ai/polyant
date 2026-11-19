@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Integration test for syncToolsToDb() namespaced-orphan pruning against a live
- * Postgres. Unlike the unit test (which mocks drizzle and only inspects the
- * query shape), this exercises the real DELETE + the enabled-anywhere guard and
- * proves the safety contract:
+ * The tool catalog sync and its on-demand repair against a live Postgres. It
+ * exercises the real upsert, DELETE and enabled-anywhere guard and proves the
+ * safety contract:
  *   - a namespaced plugin tool ENABLED on an instance is preserved (no FK wipe);
  *   - a namespaced tool referenced by NOBODY is pruned;
  *   - virtual `agent:*` rows are never touched;
@@ -27,7 +26,7 @@ import { workspaces } from "../../organizations/organization.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "./tools.schema.js";
 import { skills, skillTools } from "../../skills/schema.js";
-import { syncToolsToDb } from "./tools-sync.js";
+import { resolveCatalogToolIds, syncToolsToDb } from "./tools-sync.js";
 import { _resetRegistryForTests, _registerToolForTests } from "./registry.js";
 import { asInstanceUuid, type InstanceUuid } from "../../instances/identifiers.js";
 import { lockToolsTable, resolveDatabaseAvailability } from "../../database/test-db.js";
@@ -40,7 +39,9 @@ const SKILL_LINKED = "itestsync:skillLinked"; // namespaced, linked only by a sk
 const AGENT = "agent:itestsync-fake"; // virtual agent row → kept
 const FLAT_GONE = "itestSyncFlatGone"; // flat, absent from registry, unreferenced → pruned
 const FLAT_ENABLED = "itestSyncFlatEnabled"; // flat, absent from registry, enabled → kept
-const ALL_NAMES = [CORE, ORPHAN, KEPT, SKILL_LINKED, AGENT, FLAT_GONE, FLAT_ENABLED];
+const META = "itestSyncMeta"; // in registry, every flag set → its row carries them
+const REPAIRABLE = "itestSyncRepairable"; // in registry, row missing → resolve rebuilds it
+const ALL_NAMES = [CORE, ORPHAN, KEPT, SKILL_LINKED, AGENT, FLAT_GONE, FLAT_ENABLED, META, REPAIRABLE];
 const SKILL_SLUG = "itest-tools-sync-skill";
 
 /** Seed instance + catalog rows at module load (top-level await) so `it.skipIf`
@@ -69,6 +70,21 @@ async function setup(): Promise<InstanceUuid> {
   _resetRegistryForTests();
   _registerToolForTests(
     defineTool({ name: CORE, description: "core", parameters: z.object({}), execute: async () => ({}) }),
+  );
+  _registerToolForTests(
+    defineTool({
+      name: META,
+      description: "meta harness tool",
+      category: "room",
+      requiredSecrets: ["ITEST_SYNC_KEY"],
+      metaTool: true,
+      harness: true,
+      parameters: z.object({}),
+      execute: async () => ({}),
+    }),
+  );
+  _registerToolForTests(
+    defineTool({ name: REPAIRABLE, description: "repairable", parameters: z.object({}), execute: async () => ({}) }),
   );
 
   // Clean leftovers from a prior failed run, then seed catalog rows + enable KEPT.
@@ -154,4 +170,68 @@ describe("syncToolsToDb (integration): namespaced-orphan pruning", () => {
       expect(enabled.map((r) => r.name).sort()).toEqual([FLAT_ENABLED, KEPT].sort());
     },
   );
+
+  it.skipIf(!instanceUuid)("writes each registry definition's flags into its catalog row", async () => {
+    await syncToolsToDb();
+
+    const rows = await db
+      .select({
+        name: tools.name,
+        category: tools.category,
+        requiredSecrets: tools.requiredSecrets,
+        isMeta: tools.isMeta,
+        isHarness: tools.isHarness,
+        isGlobal: tools.isGlobal,
+      })
+      .from(tools)
+      .where(inArray(tools.name, [CORE, META]));
+    expect(rows.find((r) => r.name === META)).toEqual({
+      name: META,
+      category: "room",
+      requiredSecrets: ["ITEST_SYNC_KEY"],
+      isMeta: true,
+      isHarness: true,
+      isGlobal: false,
+    });
+    // A definition that declares nothing gets the defaults.
+    expect(rows.find((r) => r.name === CORE)).toEqual({
+      name: CORE,
+      category: "general",
+      requiredSecrets: [],
+      isMeta: false,
+      isHarness: false,
+      isGlobal: false,
+    });
+  });
+});
+
+describe("resolveCatalogToolIds (integration)", () => {
+  it.skipIf(!instanceUuid)("returns the id of a row the catalog already holds", async () => {
+    await syncToolsToDb();
+    const [row] = await db.select({ id: tools.id }).from(tools).where(eq(tools.name, CORE));
+
+    expect((await resolveCatalogToolIds([CORE])).get(CORE)).toBe(row!.id);
+  });
+
+  // The panel offers what the REGISTRY holds, the write resolves through the
+  // CATALOG: a missing mirror row used to resolve nothing and report success.
+  it.skipIf(!instanceUuid)("rebuilds a catalog row the registry holds but the catalog is missing", async () => {
+    await db.delete(tools).where(eq(tools.name, REPAIRABLE));
+
+    const id = (await resolveCatalogToolIds([REPAIRABLE])).get(REPAIRABLE);
+
+    const [row] = await db.select({ id: tools.id, description: tools.description }).from(tools).where(eq(tools.name, REPAIRABLE));
+    expect(row).toEqual({ id, description: "repairable" });
+  });
+
+  it.skipIf(!instanceUuid)("leaves a name neither the catalog nor the registry holds unresolved, and writes no row", async () => {
+    const ghost = "itestSyncGhost";
+
+    expect((await resolveCatalogToolIds([ghost])).has(ghost)).toBe(false);
+    expect(await db.select({ id: tools.id }).from(tools).where(eq(tools.name, ghost))).toEqual([]);
+  });
+
+  it("resolves an empty list to an empty map", async () => {
+    expect((await resolveCatalogToolIds([])).size).toBe(0);
+  });
 });
