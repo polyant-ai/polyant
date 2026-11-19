@@ -81,20 +81,37 @@ export function isPanelInput(file) {
   return !isDocumentation(file) && panelInputs.some((pattern) => pattern.test(file));
 }
 
+const schemaInputs = [
+  /^packages\/engine\/src\/database\//,
+  /^packages\/engine\/src\/[^/]+\/schema\.ts$/,
+  /^scripts\/ci\/upgrade-from-release\.mts$/,
+  /^\.github\/workflows\/ci\.yml$/,
+];
+
+/**
+ * What can change how a database of the previous release upgrades: the
+ * migrations and the schema files they are generated from, the upgrade check
+ * itself and the job that runs it.
+ */
+export function isSchemaInput(file) {
+  return schemaInputs.some((pattern) => pattern.test(file));
+}
+
 export function classify(files) {
   const changed = files.map((file) => file.trim()).filter(Boolean);
   if (changed.length === 0 || changed.length >= API_FILE_LIMIT) {
-    return { code: true, docker: true, panel: true };
+    return { code: true, docker: true, panel: true, schema: true };
   }
   return {
     code: changed.some((file) => !isDocumentation(file)),
     docker: changed.some(isDockerInput),
     panel: changed.some(isPanelInput),
+    schema: changed.some(isSchemaInput),
   };
 }
 
-function print({ code, docker, panel }) {
-  process.stdout.write(`code=${code}\ndocker=${docker}\npanel=${panel}\n`);
+function print({ code, docker, panel, schema }) {
+  process.stdout.write(`code=${code}\ndocker=${docker}\npanel=${panel}\nschema=${schema}\n`);
 }
 
 async function readStdin() {
@@ -105,11 +122,11 @@ async function readStdin() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("--all")) {
-    print({ code: true, docker: true, panel: true });
+    print({ code: true, docker: true, panel: true, schema: true });
   } else {
     const files = (await readStdin()).split("\n");
     const result = classify(files);
-    console.error(`${files.filter(Boolean).length} changed paths: code=${result.code} docker=${result.docker} panel=${result.panel}`);
+    console.error(`${files.filter(Boolean).length} changed paths: code=${result.code} docker=${result.docker} panel=${result.panel} schema=${result.schema}`);
     print(result);
   }
 }

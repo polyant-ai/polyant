@@ -56,3 +56,4 @@ packages/web/playwright-report/
 packages/web/.playwright/
 packages/web/blob-report/
 packages/web/.next-e2e/
+packages/web/e2e/.upgrade/

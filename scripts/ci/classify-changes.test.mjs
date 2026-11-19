@@ -3,12 +3,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { API_FILE_LIMIT, classify, isDockerInput, isDocumentation, isPanelInput } from "./classify-changes.mjs";
+import { API_FILE_LIMIT, classify, isDockerInput, isDocumentation, isPanelInput, isSchemaInput } from "./classify-changes.mjs";
 
 test("documentation-only changes skip code and Docker jobs", () => {
   assert.deepEqual(
     classify(["docs/plugins.md", "README.md", "CONTRIBUTING.md", ".claude/skills/release/SKILL.md", ".github/PULL_REQUEST_TEMPLATE.md"]),
-    { code: false, docker: false, panel: false },
+    { code: false, docker: false, panel: false, schema: false },
   );
 });
 
@@ -32,7 +32,7 @@ test("non-markdown files under .claude are documentation, but not its rules", ()
 });
 
 test("a source change alongside docs runs the code jobs", () => {
-  assert.deepEqual(classify(["docs/plugins.md", "packages/engine/src/index.ts"]), { code: true, docker: false, panel: true });
+  assert.deepEqual(classify(["docs/plugins.md", "packages/engine/src/index.ts"]), { code: true, docker: false, panel: true, schema: false });
 });
 
 test("Docker inputs are recognised", () => {
@@ -75,12 +75,27 @@ test("the panel suites run when a page could change", () => {
   }
 });
 
+test("the upgrade check runs when the schema or its migrations change", () => {
+  for (const file of [
+    "packages/engine/src/database/migrations/0118_x.sql",
+    "packages/engine/src/database/migrations/meta/_journal.json",
+    "packages/engine/src/conversations/schema.ts",
+    "scripts/ci/upgrade-from-release.mts",
+  ]) {
+    assert.equal(isSchemaInput(file), true, file);
+  }
+  for (const file of ["packages/engine/src/pipeline.ts", "packages/web/src/app/page.tsx", "docs/plugins.md"]) {
+    assert.equal(isSchemaInput(file), false, file);
+  }
+});
+
 test("an unknown change set runs everything", () => {
-  assert.deepEqual(classify([]), { code: true, docker: true, panel: true });
-  assert.deepEqual(classify(["", "  "]), { code: true, docker: true, panel: true });
+  assert.deepEqual(classify([]), { code: true, docker: true, panel: true, schema: true });
+  assert.deepEqual(classify(["", "  "]), { code: true, docker: true, panel: true, schema: true });
   assert.deepEqual(classify(Array.from({ length: API_FILE_LIMIT }, (_, i) => `docs/page-${i}.md`)), {
     code: true,
     docker: true,
     panel: true,
+    schema: true,
   });
 });

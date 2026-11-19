@@ -38,6 +38,7 @@ jobs:
       code: ${{ steps.classify.outputs.code }}
       docker: ${{ steps.classify.outputs.docker }}
       panel: ${{ steps.classify.outputs.panel }}
+      schema: ${{ steps.classify.outputs.schema }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -243,6 +244,45 @@ jobs:
             packages/web/test-results
           retention-days: 14
 
+  # A database built by the previous release, with its seed data, upgraded to
+  # this version: every migration recorded as applied (drizzle skips entries
+  # under its watermark and still reports success) and no table losing rows
+  # without a migration of this version deleting them.
+  upgrade:
+    name: Upgrade from the previous release
+    needs: changes
+    if: needs.changes.outputs.schema == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: polyant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The previous release is found among the tags.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: ./.github/actions/install
+      - run: npx tsx scripts/ci/upgrade-from-release.mts
+
   build:
     name: Build
     needs: changes
@@ -294,7 +334,7 @@ jobs:
   # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
-    needs: [changes, repository, static, test, test-web, integration, panel, build, docker]
+    needs: [changes, repository, static, test, test-web, integration, panel, upgrade, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
