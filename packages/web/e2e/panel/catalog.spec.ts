@@ -27,7 +27,7 @@ test.describe("page catalog", () => {
     // Non-vacuity: a broken discovery would turn both suites into no-ops.
     expect(routes.length).toBeGreaterThan(15);
     expect(agentTabs().length).toBeGreaterThan(10);
-    expect(catalogPages().length).toBeGreaterThan(routes.length);
+    expect(catalogPages().length).toBeGreaterThan(agentTabs().length + 5);
   });
 
   test("fills every dynamic segment or skips the route on purpose", () => {
