@@ -185,10 +185,12 @@ describe.skipIf(!DB_AVAILABLE)("conversation store (integration)", () => {
         { role: "assistant", content: "With tools", steps, reasoning },
       ]);
 
+      // One insert stamps both rows with the same time, so their relative order
+      // is not defined: read them by role.
       const { messages } = await conversationStore.getMessages(id);
-      expect(messages.map((m) => [m.role, m.content])).toEqual([["user", "Hello"], ["assistant", "With tools"]]);
-      expect(messages[0]).toMatchObject({ steps: null, reasoning: null, attachments: null, metadata: null });
-      expect(messages[1]).toMatchObject({ steps, reasoning });
+      expect(messages.map((m) => [m.role, m.content]).sort()).toEqual([["assistant", "With tools"], ["user", "Hello"]]);
+      expect(messages.find((m) => m.role === "user")).toMatchObject({ steps: null, reasoning: null, attachments: null, metadata: null });
+      expect(messages.find((m) => m.role === "assistant")).toMatchObject({ steps, reasoning });
       const [row] = await queryClient<{ updated_at: Date }[]>`SELECT updated_at FROM conversations WHERE conversation_id = ${id}`;
       expect(new Date(row!.updated_at).getTime()).toBeGreaterThan(Date.parse("2020-01-02T00:00:00Z"));
     });
