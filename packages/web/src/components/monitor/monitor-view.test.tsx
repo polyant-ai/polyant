@@ -96,7 +96,7 @@ describe("MonitorView", () => {
     renderWithProviders(<Harness initial={{ ...NO_FILTERS, group: "agents", type: "tool_call" }} />);
     await screen.findByText("crm: create_contact");
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ group: "agents", types: ["tool_call"] }));
-    await user.click(screen.getByRole("button", { name: "Togli il filtro" }));
+    await user.click(screen.getByRole("button", { name: /Togli il filtro/ }));
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ types: undefined })));
   });
 

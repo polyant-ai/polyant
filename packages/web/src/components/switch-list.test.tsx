@@ -163,8 +163,8 @@ describe("SwitchList layout", () => {
     );
     const off = screen.getByText("Beta").closest("tr")!;
     const on = screen.getByText("alpha").closest("tr")!;
-    expect(off).toHaveClass("opacity-60");
-    expect(on).not.toHaveClass("opacity-60");
+    expect(off).toHaveClass("text-muted-foreground");
+    expect(on).not.toHaveClass("text-muted-foreground");
   });
 
   it("keeps a date column on one line", () => {

@@ -97,13 +97,15 @@
   --accent-foreground: #000000;
   --accent-strong: #AEDB1F;
 
-  --destructive: #D32F2F;
+  /* The text colours of a status have to read at 4.5:1 on white and on their own
+     10% tint, the shape of the status badges; #D32F2F and #B26A00 did not. */
+  --destructive: #C62828;
   --destructive-foreground: #FFFFFF;
 
   --success: #00C853;
   --success-foreground: #FFFFFF;
 
-  --warning: #B26A00;
+  --warning: #935700;
   --warning-foreground: #FFFFFF;
 
   --border: #EEEEEE;
@@ -154,8 +156,10 @@
   --accent-foreground: #000000;
   --accent-strong: #C8F23E;
 
-  --destructive: #D32F2F;
-  --destructive-foreground: #FFFFFF;
+  /* Lifted on the dark ground like the warning: #D32F2F on #0A0A0A is below 4.5:1.
+     Solid destructive fills carry white text at 60% (button, badge), which still reads. */
+  --destructive: #EF5350;
+  --destructive-foreground: #000000;
 
   --success: #00C853;
   --success-foreground: #FFFFFF;
