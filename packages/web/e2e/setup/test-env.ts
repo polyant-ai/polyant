@@ -48,9 +48,23 @@ export const ENGINE_PORT = Number(process.env.E2E_ENGINE_PORT ?? 4100);
 export const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3100);
 export const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 export const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
+/**
+ * The fake OpenAI model the turn suite talks to (support/fake-model.mjs). The
+ * engine always points its `openai` provider here, so no suite can reach a
+ * real provider by accident.
+ */
+export const FAKE_MODEL_PORT = Number(process.env.E2E_FAKE_MODEL_PORT ?? ENGINE_PORT + 1);
+export const FAKE_MODEL_URL = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
 
-/** Isolated test database — never the dev `polyant` database. */
-export const TEST_DB_NAME = "polyant_e2e";
+/**
+ * Isolated test database — never the dev `polyant` database. E2E_DB_NAME lets
+ * two runs on one PostgreSQL server keep apart.
+ */
+export const TEST_DB_NAME = process.env.E2E_DB_NAME ?? "polyant_e2e";
+// prepare-db.ts puts it in a CREATE DATABASE, where it cannot be a parameter.
+if (!/^[a-z][a-z0-9_]{0,62}$/.test(TEST_DB_NAME)) {
+  throw new Error(`E2E_DB_NAME must be a plain lowercase identifier, got "${TEST_DB_NAME}"`);
+}
 
 /**
  * Test-only secrets. These are NOT real credentials and only ever protect the
@@ -206,6 +220,8 @@ export function buildEngineEnv(): Record<string, string> {
     // (e.g. tenant-urls.spec.ts's 7 tests) trips it deterministically. Disabling
     // throttling only in this dedicated test engine — never in dev/prod.
     THROTTLE_ENABLED: "false",
+    // @ai-sdk/openai reads it: every `openai` model call goes to the fake.
+    OPENAI_BASE_URL: `${FAKE_MODEL_URL}/v1`,
   };
 }
 

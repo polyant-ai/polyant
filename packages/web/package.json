@@ -26,6 +26,7 @@
     "test:watch": "vitest",
     "test:e2e": "tsx e2e/setup/prepare-db.ts && playwright test",
     "test:e2e:panel": "tsx e2e/setup/prepare-db.ts && playwright test --project=panel",
+    "test:e2e:turn": "tsx e2e/setup/prepare-db.ts && playwright test --project=turn",
     "test:e2e:ui": "tsx e2e/setup/prepare-db.ts && playwright test --ui",
     "test:e2e:report": "playwright show-report"
   },

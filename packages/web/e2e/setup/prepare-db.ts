@@ -32,7 +32,7 @@ async function ensureDatabaseExists(): Promise<void> {
       SELECT datname FROM pg_database WHERE datname = ${TEST_DB_NAME}
     `;
     if (existing.length === 0) {
-      // Identifier can't be parameterized; TEST_DB_NAME is a trusted constant.
+      // Identifier can't be parameterized; test-env.ts checks TEST_DB_NAME is a plain identifier.
       await admin.unsafe(`CREATE DATABASE "${TEST_DB_NAME}"`);
       console.log(`[prepare-db] created database ${TEST_DB_NAME}`);
     } else {

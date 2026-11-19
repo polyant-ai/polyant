@@ -19,6 +19,8 @@ import {
   buildEngineEnv,
   buildWebEnv,
   ENGINE_URL,
+  FAKE_MODEL_PORT,
+  FAKE_MODEL_URL,
   REPO_ROOT,
   WEB_PACKAGE_ROOT,
   WEB_PORT,
@@ -67,10 +69,32 @@ export default defineConfig({
         timezoneId: "Europe/Rome",
       },
     },
+    {
+      // One real turn through the engine and the web, against the fake model.
+      name: "turn",
+      testMatch: "turn/**/*.spec.ts",
+      dependencies: ["panel-setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: PANEL_STATE,
+        viewport: PANEL_VIEWPORT,
+        locale: "en-US",
+      },
+    },
   ],
 
-  // Boot both services. Playwright waits for each `url` to answer before tests.
+  // Boot the fake model, the engine and the web. Playwright waits for each `url` to answer before tests.
   webServer: [
+    {
+      // The fake OpenAI model the engine's `openai` provider is pointed at.
+      command: `node e2e/support/fake-model.mjs ${FAKE_MODEL_PORT}`,
+      cwd: WEB_PACKAGE_ROOT,
+      url: `${FAKE_MODEL_URL}/__calls`,
+      reuseExistingServer: !isCI,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    },
     {
       command: "npm run dev:engine",
       cwd: REPO_ROOT,
