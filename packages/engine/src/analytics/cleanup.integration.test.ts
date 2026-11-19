@@ -41,6 +41,7 @@ async function teardown(): Promise<void> {
   await queryClient`DELETE FROM tool_audit_logs WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM hook_executions WHERE conversation_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM conversation_messages WHERE conversation_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM model_exchanges WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -78,6 +79,7 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
     await queryClient`DELETE FROM event_backlog WHERE instance_id = ${instanceUuid}`;
     await queryClient`DELETE FROM tool_audit_logs WHERE instance_id = ${instanceSlug}`;
     await queryClient`DELETE FROM hook_executions WHERE conversation_id LIKE ${MARKER + "%"}`;
+    await queryClient`DELETE FROM model_exchanges WHERE instance_id = ${instanceSlug}`;
   });
 
   it("should_delete_rows_past_the_cutoff_and_keep_the_rest", async () => {
@@ -120,28 +122,32 @@ describe.skipIf(!DB_AVAILABLE)("retention cleanup (integration)", () => {
   });
 
   /*
-    The request a debug-mode agent stores per turn holds the whole prompt and the
-    conversation so far: personal data, and the heaviest column in the database.
-    It is kept for a few days, the message itself as long as the conversation.
+    What debug mode records beside a conversation goes with the conversation,
+    never by age in this sweep. Only raw exchanges with no conversation age out,
+    with ai_logs.
   */
-  it("should_clear_debug_payloads_past_their_short_window_and_keep_the_messages", async () => {
+  it("should_keep_debug_records_of_a_conversation_and_age_out_only_unlinked_exchanges", async () => {
     const conversationId = `${MARKER}-debug`;
     await queryClient.unsafe(
       `INSERT INTO conversation_messages (conversation_id, role, content, debug_payload, created_at)
-       VALUES ('${conversationId}', 'assistant', 'old', '{"system":"s"}'::jsonb, now() - interval '30 days'),
-              ('${conversationId}', 'assistant', 'new', '{"system":"s"}'::jsonb, ${NEW})`,
+       VALUES ('${conversationId}', 'assistant', 'old', '{"system":"s"}'::jsonb, ${OLD})`,
+    );
+    await queryClient.unsafe(
+      `INSERT INTO model_exchanges (ai_log_id, instance_id, conversation_id, step_index, attempt, request, created_at)
+       VALUES (gen_random_uuid(), '${instanceSlug}', '${conversationId}', 0, 0, '{}'::jsonb, ${OLD}),
+              (gen_random_uuid(), '${instanceSlug}', NULL, 0, 0, '{}'::jsonb, ${OLD})`,
     );
 
     const result = await runAnalyticsCleanup(RETENTION_DAYS);
 
-    expect(result.debugPayloadsCleared).toBeGreaterThanOrEqual(1);
-    const rows = await queryClient<{ content: string; has_payload: boolean }[]>`
-      SELECT content, debug_payload IS NOT NULL AS has_payload FROM conversation_messages
-      WHERE conversation_id = ${conversationId} ORDER BY content`;
-    expect(rows).toEqual([
-      { content: "new", has_payload: true },
-      { content: "old", has_payload: false },
-    ]);
+    expect(result.modelExchangesDeleted).toBeGreaterThanOrEqual(1);
+    const messages = await queryClient<{ has_payload: boolean }[]>`
+      SELECT debug_payload IS NOT NULL AS has_payload FROM conversation_messages
+      WHERE conversation_id = ${conversationId}`;
+    expect(messages).toEqual([{ has_payload: true }]);
+    const exchanges = await queryClient<{ conversation_id: string | null }[]>`
+      SELECT conversation_id FROM model_exchanges WHERE instance_id = ${instanceSlug}`;
+    expect(exchanges).toEqual([{ conversation_id: conversationId }]);
   });
 
   it("should_report_zero_and_touch_nothing_when_everything_is_recent", async () => {

@@ -3,7 +3,8 @@
 import path from "node:path";
 
 import type { NextConfig } from "next";
-import packageJson from "./package.json";
+// The repository root manifest is the only one carrying the release version.
+import packageJson from "../../package.json";
 
 const ENGINE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version;

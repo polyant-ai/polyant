@@ -14,12 +14,12 @@ async function writeJson(rootDir, relativePath, contents) {
   await writeFile(filePath, `${JSON.stringify(contents, null, 2)}\n`);
 }
 
-async function writeFixture(rootDir, { webVersion = VERSION } = {}) {
+async function writeFixture(rootDir, { webVersion } = {}) {
   await Promise.all([
     writeJson(rootDir, "package.json", { version: VERSION }),
-    writeJson(rootDir, "packages/engine/package.json", { version: VERSION }),
-    writeJson(rootDir, "packages/web/package.json", { version: webVersion }),
-    writeJson(rootDir, "infra/package.json", { version: VERSION }),
+    writeJson(rootDir, "packages/engine/package.json", { name: "engine" }),
+    writeJson(rootDir, "packages/web/package.json", webVersion ? { name: "web", version: webVersion } : { name: "web" }),
+    writeJson(rootDir, "infra/package.json", { name: "infra" }),
   ]);
   await mkdir(path.join(rootDir, "docs/releases"), { recursive: true });
   await writeFile(
@@ -32,7 +32,7 @@ async function writeFixture(rootDir, { webVersion = VERSION } = {}) {
   );
   await writeFile(
     path.join(rootDir, "README.md"),
-    "See CHANGELOG.md, /releases/tag/v1.0.0, and /about.\n",
+    "See CHANGELOG.md, /releases/latest, and /about.\n",
   );
 }
 
@@ -62,11 +62,11 @@ test("accepts a changelog without an Unreleased section", async () => {
   });
 });
 
-test("rejects a mismatched workspace version", async () => {
-  await withFixture({ webVersion: "0.1.0" }, async (rootDir) => {
+test("rejects a workspace manifest that declares a version, even the matching one", async () => {
+  await withFixture({ webVersion: VERSION }, async (rootDir) => {
     await assert.rejects(
       validateReleaseMetadata(rootDir),
-      /packages\/web\/package\.json/,
+      /packages\/web\/package\.json must not declare a version/,
     );
   });
 });
