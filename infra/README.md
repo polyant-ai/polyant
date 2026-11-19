@@ -100,11 +100,21 @@ See `lib/stacks/main-stack.ts` for the wiring.
 |-----|--------|--------|
 | `auth_secret` | auto-generated (48 chars) | none — ready to use |
 | `encryption_key` | placeholder `REPLACE_ME_WITH_64_HEX_CHARS` | **required**: set 64 hex chars (`openssl rand -hex 32`) after first deploy, then force a new ECS deployment |
-| `auth_internal_secret` | placeholder | only for **local email/password accounts**: set a ≥16-char value (same value the web container uses) to enable the credentials login |
+| `auth_internal_secret` | placeholder | **required to sign in**: set a random value of at least 16 chars (`openssl rand -hex 32`); the engine and the web container both read it to verify email/password logins |
 
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id polyant-secrets-<stage> \
-  --secret-string "{\"encryption_key\":\"$(openssl rand -hex 32)\",\"auth_secret\":\"<keep-generated>\"}"
+  --secret-string "{\"encryption_key\":\"$(openssl rand -hex 32)\",\"auth_secret\":\"<keep-generated>\",\"auth_internal_secret\":\"$(openssl rand -hex 32)\"}"
 # then: aws ecs update-service --force-new-deployment ...
+```
+
+Keep all three keys: both containers read each of them at start, and a task whose secret lacks one does not start.
+
+### First sign-in
+
+`ComputeConstruct` also creates `polyant-initial-admin-<stage>` (stack output `InitialAdminSecret`) with a generated password. On first boot, while the users table is empty, the engine creates the platform admin `administrator@local` with that password; the panel asks to change it at the first sign-in.
+
+```bash
+aws secretsmanager get-secret-value --secret-id polyant-initial-admin-<stage> --query SecretString --output text
 ```
