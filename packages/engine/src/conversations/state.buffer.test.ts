@@ -110,6 +110,61 @@ describe("ConversationStateBuffer", () => {
     expect(flushMock).not.toHaveBeenCalled();
   });
 
+  // Postgres hands jsonb keys back sorted by length, then bytes ({id, type, userName}), never in the order the
+  // identity is built in ({type, id, userName}); state.store.integration.test.ts pins that order. Broken before:
+  // every turn of an existing conversation rewrote `_channel` (an upsert and a commit before the reply).
+  it("should_not_mark_channel_dirty_when_stored_in_jsonb_key_order", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst", {
+      [CHANNEL_STATE_KEY]: { id: "+39", type: "whatsapp", userName: "Mario" },
+    });
+    buf.seedChannel({ type: "whatsapp", id: "+39", userName: "Mario" });
+    await buf.flush();
+    expect(flushMock).not.toHaveBeenCalled();
+  });
+
+  it("should_not_mark_channel_dirty_when_seeded_without_user_name", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst", {
+      [CHANNEL_STATE_KEY]: { id: "+39", type: "whatsapp" },
+    });
+    buf.seedChannel({ type: "whatsapp", id: "+39", userName: undefined });
+    await buf.flush();
+    expect(flushMock).not.toHaveBeenCalled();
+  });
+
+  it("should_mark_channel_dirty_when_stored_identity_has_a_field_the_seed_lacks", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst", {
+      [CHANNEL_STATE_KEY]: { id: "+39", type: "whatsapp", userName: "Mario" },
+    });
+    buf.seedChannel({ type: "whatsapp", id: "+39" });
+    await buf.flush();
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", { [CHANNEL_STATE_KEY]: { type: "whatsapp", id: "+39" } }, []);
+  });
+
+  it("should_mark_channel_dirty_when_stored_value_is_not_an_identity", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst", { [CHANNEL_STATE_KEY]: "+39" });
+    buf.seedChannel({ type: "whatsapp", id: "+39" });
+    await buf.flush();
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", { [CHANNEL_STATE_KEY]: { type: "whatsapp", id: "+39" } }, []);
+  });
+
+  it("should_mark_channel_dirty_when_stored_value_is_null", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst", { [CHANNEL_STATE_KEY]: null });
+    buf.seedChannel({ type: "whatsapp", id: "+39" });
+    await buf.flush();
+    expect(flushMock).toHaveBeenCalledWith("c1", "inst", { [CHANNEL_STATE_KEY]: { type: "whatsapp", id: "+39" } }, []);
+  });
+
+  it("should_not_mark_channel_dirty_again_when_the_same_identity_is_seeded_twice", async () => {
+    const buf = new ConversationStateBuffer("c1", "inst");
+    buf.seedChannel({ type: "telegram", id: "42", userName: undefined });
+    await buf.flush();
+    expect(flushMock).toHaveBeenCalledTimes(1);
+    flushMock.mockClear();
+    buf.seedChannel({ type: "telegram", id: "42", userName: undefined });
+    await buf.flush();
+    expect(flushMock).not.toHaveBeenCalled();
+  });
+
   it("should_mark_channel_dirty_when_changed", async () => {
     const buf = new ConversationStateBuffer("c1", "inst", {
       [CHANNEL_STATE_KEY]: { type: "whatsapp", id: "+39" },
