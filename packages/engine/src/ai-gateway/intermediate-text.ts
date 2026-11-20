@@ -65,10 +65,9 @@ const TOOL_PARTS = new Set(["tool-input-start", "tool-call"]);
  * starts, which drops it, or the turn finishes there, which delivers it. A
  * streamed channel thus delivers what a buffered one does (the last step's
  * text) at the cost of streaming the final step only once it is complete.
- * `reply` and `progress` separate the texts of successive steps the way
- * `joinStepTexts` does: under `progress` the earlier text is a note shown while
- * the agent works, and without the break it ran into the reply. An unset policy
- * passes the stream through.
+ * Every other policy, and an unset one, separates the texts of successive
+ * steps the way `joinStepTexts` does: the earlier text is shown while the agent
+ * works, and without the break it ran into the reply ("let me check.It is open.").
  */
 export async function* applyIntermediateTextPolicy(
   source: AsyncIterable<unknown>,
@@ -78,11 +77,7 @@ export async function* applyIntermediateTextPolicy(
     yield* discardToolStepText(source);
     return;
   }
-  if (policy === "reply" || policy === "progress") {
-    yield* separateStepTexts(source);
-    return;
-  }
-  yield* source;
+  yield* separateStepTexts(source);
 }
 
 async function* discardToolStepText(source: AsyncIterable<unknown>): AsyncGenerator<unknown> {

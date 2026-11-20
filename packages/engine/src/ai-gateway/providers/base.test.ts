@@ -1094,10 +1094,10 @@ describe("createProvider – text written alongside a tool call (intermediateTex
     expect(res.text).toBe("Hello, I am the assistant.\n\nIt is open until six.");
   });
 
-  it("chatStream: a stream still shows the greeting when no policy is set", async () => {
+  it("chatStream: a stream still shows the greeting, apart from the reply, when no policy is set", async () => {
     mockStream();
     const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-5");
-    expect(await read(stream.textStream)).toBe("Hello, I am the assistant.It is open until six.");
+    expect(await read(stream.textStream)).toBe("Hello, I am the assistant.\n\nIt is open until six.");
     expect((await stream.response).text).toBe("It is open until six.");
   });
 
