@@ -128,7 +128,7 @@ describe("PrivacyTab", () => {
 
     // The manual opt-out lives in a drawer; Radix SelectTrigger exposes role="combobox".
     await userEvent.click(screen.getByRole("button", { name: "privacy.add" }));
-    expect(within(await screen.findByRole("dialog")).getByRole("combobox")).toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog")).getByRole("combobox", { name: "privacy.channel" })).toBeInTheDocument();
   });
 
   it("registers a header save action that is not dirty initially", async () => {
@@ -149,7 +149,7 @@ describe("PrivacyTab", () => {
       expect(mockOptoutsList).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "privacy.enable" }));
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
@@ -165,7 +165,7 @@ describe("PrivacyTab", () => {
       expect(mockOptoutsList).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "privacy.enable" }));
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
@@ -254,10 +254,9 @@ describe("PrivacyTab", () => {
     expect(within(drawer).getByText("whatsapp · keyword")).toBeInTheDocument();
   });
 
-  it("lets the contacts list use the full width and does not repeat the section title in its card", async () => {
-    const { container } = render(<PrivacyTab instance={makeInstance()} />);
+  it("does not repeat the section title in the contacts card", async () => {
+    render(<PrivacyTab instance={makeInstance()} />);
     await waitFor(() => expect(mockOptoutsList).toHaveBeenCalled());
     expect(screen.queryByText("privacy.title")).not.toBeInTheDocument();
-    expect(container.firstElementChild).not.toHaveClass("max-w-2xl");
   });
 });

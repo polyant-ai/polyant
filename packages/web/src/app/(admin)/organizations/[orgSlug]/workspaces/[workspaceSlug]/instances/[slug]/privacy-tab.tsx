@@ -148,8 +148,8 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
 
         {/* Enable toggle */}
         <div className="flex items-center justify-between border-t pt-4">
-          <Label>{t("privacy.enable")}</Label>
-          <Switch checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
+          <Label htmlFor="privacy-enabled">{t("privacy.enable")}</Label>
+          <Switch id="privacy-enabled" checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
         </div>
 
         {enabled && (
@@ -206,14 +206,14 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
             {/* Inject prompt hint toggle */}
             <div className="flex items-center justify-between border-t pt-4">
               <div className="space-y-1">
-                <Label className="text-sm font-medium">
+                <Label htmlFor="privacy-inject-hint" className="text-sm font-medium">
                   {t("privacy.injectHint")}
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   {t("privacy.injectHintHelp")}
                 </p>
               </div>
-              <Switch checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
+              <Switch id="privacy-inject-hint" checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
             </div>
           </>
         )}
@@ -315,9 +315,9 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
         >
           <div className="space-y-4">
             <div className="space-y-1">
-              <Label>{t("privacy.channel")}</Label>
+              <Label htmlFor="privacy-new-channel">{t("privacy.channel")}</Label>
               <Select value={newChannelType} onValueChange={setNewChannelType}>
-                <SelectTrigger>
+                <SelectTrigger id="privacy-new-channel">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

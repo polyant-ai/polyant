@@ -256,12 +256,12 @@ export function HooksTab({ slug }: Props) {
         <div className="space-y-4">
           <HookEventField value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
           <div className="space-y-2">
-            <Label>{t("hooks.function")}</Label>
+            <Label htmlFor="hook-function">{t("hooks.function")}</Label>
             <Select
               value={form.functionName || undefined}
               onValueChange={(v) => setForm((f) => ({ ...f, functionName: v }))}
             >
-              <SelectTrigger>
+              <SelectTrigger id="hook-function">
                 <SelectValue placeholder={t("hooks.functionPlaceholder")} />
               </SelectTrigger>
               <SelectContent>

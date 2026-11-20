@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
  */
 const PACKAGES = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
-function misplacedHeaders(): string[] {
+function scanHeaders(): { checked: string[]; bad: string[] } {
+  const checked: string[] = [];
   const bad: string[] = [];
   for (const pkg of readdirSync(PACKAGES)) {
     const src = join(PACKAGES, pkg, "src");
@@ -25,14 +26,22 @@ function misplacedHeaders(): string[] {
     for (const f of entries.filter((e) => /\.(ts|tsx)$/.test(e))) {
       const lines = readFileSync(join(src, f), "utf8").split("\n");
       const at = lines.findIndex((l) => l.includes("SPDX-License-Identifier"));
+      if (at >= 0) checked.push(relative(PACKAGES, join(src, f)));
       if (at >= 3) bad.push(`${relative(PACKAGES, join(src, f))}:${at + 1}`);
     }
   }
-  return bad;
+  return { checked, bad };
 }
 
 describe("SPDX header position", () => {
+  const { checked, bad } = scanHeaders();
+
+  it("finds the engine and panel sources, so the scan is looking at real code", () => {
+    expect(checked).toContain("engine/src/config.ts");
+    expect(checked.some((f) => f.startsWith("web/src/"))).toBe(true);
+  });
+
   it("keeps the SPDX-License-Identifier line within the first three lines", () => {
-    expect(misplacedHeaders()).toEqual([]);
+    expect(bad).toEqual([]);
   });
 });

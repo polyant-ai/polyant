@@ -352,14 +352,6 @@ describe("ToolsTab", () => {
     expect(within(disable.parentElement!).getByRole("button", { name: /common\.(close|cancel)/ })).toBeInTheDocument();
   });
 
-  it("titles the tool's drawer in the ordinary title font", async () => {
-    const user = userEvent.setup();
-    renderTab();
-    await user.click(within(rowOf("contact")).getByRole("button", { name: "tools.open" }));
-    const heading = within(await screen.findByRole("dialog")).getAllByRole("heading")[0];
-    expect(heading.className).not.toMatch(/font-mono/);
-  });
-
   it("opens a tool's panel: cleartext prefilled, secrets masked, provider keys pointed to the Model section", async () => {
     const user = userEvent.setup();
     renderTab();

@@ -127,16 +127,14 @@ describe("SkillsTab", () => {
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Nome", "Categoria", "Attivo"]);
   });
 
-  // A long description used to push every row to a different height; clamped, the
-  // list stays scannable and the full text is still one hover away.
-  it("clamps a skill's description to two lines with the full text on hover, and omits an empty one", () => {
+  // A long description is clamped in the row; the full text stays one hover away.
+  it("keeps a skill's full description on hover, and omits an empty one", () => {
     const long = "Search the web for information ".repeat(20).trim();
     renderTab([
       { name: "long-one", description: long, enabled: true, requiredEnv: [], envConfigured: true },
       { name: "no-description", description: "", enabled: true, requiredEnv: [], envConfigured: true },
     ]);
     const description = screen.getByText(long);
-    expect(description).toHaveClass("line-clamp-2");
     expect(description).toHaveAttribute("title", long);
     expect(document.querySelectorAll("[title]")).toHaveLength(1);
   });

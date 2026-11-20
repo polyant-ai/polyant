@@ -79,18 +79,24 @@ export default defineConfig({
     /*
       A RATCHET, not a target.
 
-      These floors sit about two points under what the unit tier actually
-      covered when they were last set, on 2026-11-04 (statements 75.85,
-      branches 69.58, functions 73.64, lines 77.56, measured with
-      `npm run test:unit -- --coverage` over every source file). They are not an aspiration:
-      their only job is to stop a PR from LOWERING coverage. The buffer exists so
-      a refactor that legitimately deletes covered code does not fail the build.
+      These floors sit about two points under what the unit and integration
+      tiers covered together when they were set, on 2026-11-19 (statements
+      83.41, branches 76.58, functions 84.06, lines 85.28), measured by merging
+      the blob reports of `npm run test:unit -- --coverage` and of the
+      integration tier on a migrated database. Merged, because a store tested
+      against real Postgres instead of a chain of mocks moves its coverage
+      from one tier to the other: measured on the unit tier alone, replacing
+      the mock with the real test would fail the build. They are not an
+      aspiration: their only job is to stop a PR from LOWERING coverage. The
+      buffer exists so a refactor that legitimately deletes covered code does
+      not fail the build.
 
       Raising these floors is a deliberate act taken with a measurement in hand,
       not something inherited from prose.
 
-      Enforced only when coverage is requested (CI passes --coverage), so a local
-      `npm run test:unit` stays fast.
+      Enforced only when coverage is requested, and in CI only once, on the
+      two tiers merged (the Unit coverage job): either tier alone covers part
+      of the code and would fail them. A local `npm run test:unit` stays fast.
     */
     coverage: {
       // Measure every source file, not only the ones a test happens to import:
@@ -98,7 +104,7 @@ export default defineConfig({
       // from it.
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/test-setup.ts", "src/test-file-reset.setup.ts", "src/test-utils.ts", "src/database/test-db.ts"],
-      thresholds: { statements: 73, branches: 67, functions: 71, lines: 75 },
+      thresholds: { statements: 81, branches: 74, functions: 82, lines: 83 },
       // The totals are what the ratchet reads; the per-file table and the HTML
       // report filled the CI log and nobody opened them.
       reporter: ["text-summary"],

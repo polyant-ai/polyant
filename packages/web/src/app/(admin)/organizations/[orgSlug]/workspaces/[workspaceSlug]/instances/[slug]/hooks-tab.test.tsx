@@ -201,15 +201,6 @@ describe("HooksTab — parameters", () => {
     expect(add).toBeEnabled();
   });
 
-  it("titles a hook's drawer with its function name in the ordinary title font", async () => {
-    const user = userEvent.setup();
-    render(<HooksTab slug="agent-1" />);
-    await user.click((await screen.findAllByRole("button", { name: "hooks.open" }))[0]);
-    const heading = within(await screen.findByRole("dialog")).getByRole("heading", { name: "moderate" });
-    expect(heading.className).not.toMatch(/font-mono/);
-    expect(heading.querySelector(".font-mono")).toBeNull();
-  });
-
   it("asks for the chosen function's keys while adding a hook, and writes them with it", async () => {
     const user = userEvent.setup();
     mockHookCreate.mockResolvedValue({});

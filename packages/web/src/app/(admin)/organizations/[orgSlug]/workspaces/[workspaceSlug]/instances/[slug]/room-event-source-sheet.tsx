@@ -100,9 +100,9 @@ function DefinitionFields({
           <Input value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
         </div>
         <div className="space-y-1">
-          <Label>{t("room.definitions.action")}</Label>
+          <Label htmlFor="room-definition-action">{t("room.definitions.action")}</Label>
           <Select value={value.action} onValueChange={(v: "backlog" | "conversation") => onChange({ ...value, action: v })}>
-            <SelectTrigger>
+            <SelectTrigger id="room-definition-action">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -133,7 +133,7 @@ function DefinitionFields({
           </div>
           <div className={value.outboundChannel && value.outboundChannel !== OUTBOUND_CHANNEL_NONE ? "grid grid-cols-2 gap-3" : ""}>
             <div className="space-y-1">
-              <Label>{t("room.definitions.outboundChannel")}</Label>
+              <Label htmlFor="room-definition-outbound-channel">{t("room.definitions.outboundChannel")}</Label>
               <Select
                 value={value.outboundChannel || OUTBOUND_CHANNEL_NONE}
                 onValueChange={(v) => onChange({
@@ -142,7 +142,7 @@ function DefinitionFields({
                   outboundTarget: v === OUTBOUND_CHANNEL_NONE ? "" : value.outboundTarget,
                 })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="room-definition-outbound-channel">
                   <SelectValue placeholder={t("room.definitions.outboundChannelPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>

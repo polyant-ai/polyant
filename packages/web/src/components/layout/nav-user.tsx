@@ -57,9 +57,11 @@ export function NavUser({ user }: NavUserProps) {
             variant="ghost"
             size="icon"
             className="size-8 rounded-full p-0 hover:ring-2 hover:ring-ring/40 data-[state=open]:ring-2 data-[state=open]:ring-ring/40"
-            aria-label={t("user.menu")}
           >
-            <Avatar className="size-8 ring-1 ring-border">
+            {/* The name lives in text, and the initials are hidden from it: an
+                aria-label that did not contain the visible "AB" would fail WCAG 2.5.3. */}
+            <span className="sr-only">{t("user.menu")}</span>
+            <Avatar aria-hidden className="size-8 ring-1 ring-border">
               {user.image && <AvatarImage src={user.image} alt="" />}
               <AvatarFallback>{initials(user.name)}</AvatarFallback>
             </Avatar>

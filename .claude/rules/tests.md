@@ -20,3 +20,6 @@ paths:
   executable authority.
 - Classify a failure before changing code or assertions: regression, outdated expectation,
   flake, assertion mismatch, or environment problem.
+- A flaky test is never retried, skipped, slept around or given a longer timeout to pass.
+  Find what makes it vary and fix that; if the cause cannot be found, delete the test and
+  write down why in the commit.

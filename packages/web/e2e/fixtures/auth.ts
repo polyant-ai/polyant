@@ -10,16 +10,32 @@
 import { expect, type Page } from "@playwright/test";
 import { getTestUser, type RbacRoleKey, type RbacTestUser } from "../setup/test-env.js";
 
-/** Drive the /login form and wait until redirected off the login page. */
-export async function login(page: Page, user: RbacTestUser): Promise<void> {
+/** Drive the /login form with raw credentials, waiting for redirect off /login. */
+export async function loginWithCredentials(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<void> {
   await page.goto("/login");
-  await page.locator("#email").fill(user.email);
-  await page.locator("#password").fill(user.password);
+  // Submit only once React has hydrated the form: before that a click is a
+  // native GET submit that leaves the browser on /login (and puts the fields
+  // in the query string). A slow browser makes the gap wide enough to hit.
+  await page.waitForFunction(() => {
+    const form = document.querySelector("#email")?.closest("form");
+    return !!form && Object.keys(form).some((key) => key.startsWith("__reactProps$"));
+  });
+  await page.locator("#email").fill(email);
+  await page.locator("#password").fill(password);
   await page.locator('button[type="submit"]').click();
   // The form calls signIn() then window.location.assign(callbackUrl). Seeded
   // users have must_change_password=false, so no password-change redirect.
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
   await expect(page.locator("#email")).toHaveCount(0);
+}
+
+/** Drive the /login form for a seeded RBAC user. */
+export async function login(page: Page, user: RbacTestUser): Promise<void> {
+  await loginWithCredentials(page, user.email, user.password);
 }
 
 /** Convenience: log in as the seeded user for a given role. */

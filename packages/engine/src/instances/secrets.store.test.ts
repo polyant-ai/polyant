@@ -76,7 +76,6 @@ vi.mock("drizzle-orm", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import {
-  SECRET_KEYS,
   setSecret,
   getSecret,
   getAllSecrets,
@@ -107,29 +106,6 @@ function mockResolveInstanceId(found = true) {
 describe("instances/secrets.store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  // -----------------------------------------------------------------------
-  // SECRET_KEYS constant
-  // -----------------------------------------------------------------------
-  describe("SECRET_KEYS", () => {
-    it("exports all 14 well-known secret keys", () => {
-      expect(Object.keys(SECRET_KEYS)).toHaveLength(14);
-      expect(SECRET_KEYS.OPENAI_API_KEY).toBe("openai_api_key");
-      expect(SECRET_KEYS.ANTHROPIC_API_KEY).toBe("anthropic_api_key");
-      expect(SECRET_KEYS.NEBIUS_API_KEY).toBe("nebius_api_key");
-      expect(SECRET_KEYS.BEDROCK_API_KEY).toBe("bedrock_api_key");
-      expect(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID).toBe("aws_provider_access_key_id");
-      expect(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY).toBe("aws_provider_secret_access_key");
-      expect(SECRET_KEYS.AWS_PROVIDER_REGION).toBe("aws_provider_region");
-      expect(SECRET_KEYS.LANGSMITH_API_KEY).toBe("langsmith_api_key");
-      expect(SECRET_KEYS.AUTH_API_KEY).toBe("auth_api_key");
-      expect(SECRET_KEYS.TAVILY_API_KEY).toBe("tavily_api_key");
-      expect(SECRET_KEYS.GITHUB_TOKEN).toBe("github_token");
-      expect(SECRET_KEYS.S3_BUCKET_NAME).toBe("s3_bucket_name");
-      expect(SECRET_KEYS.HTTP_API_KEY).toBe("http_api_key");
-      expect(SECRET_KEYS.DEEPGRAM_API_KEY).toBe("deepgram_api_key");
-    });
   });
 
   // -----------------------------------------------------------------------

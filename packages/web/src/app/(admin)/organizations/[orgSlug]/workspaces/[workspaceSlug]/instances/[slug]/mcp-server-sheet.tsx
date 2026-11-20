@@ -293,12 +293,12 @@ export function McpServerSheet({
         </div>
 
         <div className="space-y-2">
-          <Label>{t("mcp.form.authMode")}</Label>
+          <Label htmlFor="mcp-auth-mode">{t("mcp.form.authMode")}</Label>
           <Select
             value={form.authMode}
             onValueChange={(v) => setForm((f) => ({ ...f, authMode: v as McpAuthMode }))}
           >
-            <SelectTrigger>
+            <SelectTrigger id="mcp-auth-mode">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -317,12 +317,12 @@ export function McpServerSheet({
         ) : form.authMode === "static" ? (
           <>
             <div className="space-y-2">
-              <Label>{t("mcp.form.staticAuthType")}</Label>
+              <Label htmlFor="mcp-static-auth-type">{t("mcp.form.staticAuthType")}</Label>
               <Select
                 value={form.staticAuthType}
                 onValueChange={(v) => setForm((f) => ({ ...f, staticAuthType: v as StaticAuthType }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id="mcp-static-auth-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -354,12 +354,12 @@ export function McpServerSheet({
         ) : (
           <>
             <div className="space-y-2">
-              <Label>{t("mcp.form.oauthAccount")}</Label>
+              <Label htmlFor="mcp-oauth-account">{t("mcp.form.oauthAccount")}</Label>
               <Select
                 value={form.oauthAccount}
                 onValueChange={(v) => setForm((f) => ({ ...f, oauthAccount: v as McpOAuthAccount }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id="mcp-oauth-account">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

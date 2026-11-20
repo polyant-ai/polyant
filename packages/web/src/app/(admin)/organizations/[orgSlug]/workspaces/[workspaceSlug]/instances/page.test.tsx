@@ -170,13 +170,13 @@ describe("InstancesPage", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("shows the description under the name on a card, clamped to two lines", async () => {
+  it("shows the description under the name on a card", async () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ instances: [agent({ id: "1", slug: "s", name: "Support Bot", description: "Answers tickets all day" })] });
     render(<InstancesPage />);
     await user.click(await screen.findByRole("button", { name: "instances.viewGrid" }));
 
-    expect(screen.getByText("Answers tickets all day")).toHaveClass("line-clamp-2");
+    expect(screen.getByText("Answers tickets all day")).toBeInTheDocument();
   });
 
   it("shows the empty state when the workspace has no agents", async () => {

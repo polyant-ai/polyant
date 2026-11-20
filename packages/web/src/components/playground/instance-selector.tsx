@@ -62,7 +62,7 @@ export function InstanceSelector({
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-[240px]">
+      <SelectTrigger className="w-[240px]" aria-label={t("common.agent")}>
         <SelectValue placeholder={t("playground.selectInstance")} />
       </SelectTrigger>
       <SelectContent>
