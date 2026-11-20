@@ -34,6 +34,9 @@ import {
 /** Matches engine password.util.ts (bcrypt cost 12). */
 const BCRYPT_COST = 12;
 
+/** Long enough that no history the seed writes ever ages out (ten years). */
+const ANALYTICS_RETENTION_DAYS = 3650;
+
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const at = (msBeforeNow: number): Date => new Date(PANEL_NOW.getTime() - msBeforeNow);
@@ -166,6 +169,15 @@ export async function seedPanel(connectionUrl: string = TEST_DATABASE_URL): Prom
     const dismissed = { wizard: "dismissed", interfaceTour: "dismissed", agentTour: "dismissed", steps: {} };
 
     await sql.begin(async (tx) => {
+      // The engine's daily housekeeping deletes model calls older than the
+      // analytics retention window, measured from the real date: the seed's
+      // history sits around PANEL_NOW and would vanish halfway through a run.
+      await tx`
+        INSERT INTO platform_settings (id, analytics_retention_days)
+        VALUES (true, ${ANALYTICS_RETENTION_DAYS})
+        ON CONFLICT (id) DO UPDATE SET analytics_retention_days = EXCLUDED.analytics_retention_days
+      `;
+
       // The person: Platform Admin and organization Owner, guidance closed.
       await tx`DELETE FROM users WHERE email = ${PANEL_USER.email}`;
       const [user] = await tx<{ id: string }[]>`
