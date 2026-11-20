@@ -45,7 +45,7 @@ vi.mock("../../../platform/platform-settings.store.js", () => ({
   resolvePlatformSettings: async () => ({ mcpConnectTimeoutMs: 30, baseUrl: "http://localhost:4000" }),
 }));
 
-const { buildMcpTools } = await import("./mcp-tools.js");
+const { buildMcpTools, capModelToolName, maxMcpToolNameLength } = await import("./mcp-tools.js");
 const { closeMcpClientPool, mcpPoolSize } = await import("./mcp-client-pool.js");
 const IID = asInstanceUuid("iid");
 const SLUG = asInstanceSlug("my-instance");
@@ -488,6 +488,75 @@ describe("buildMcpTools", () => {
     expect(warnSpy).toHaveBeenCalledWith("mcp", expect.stringContaining("create/issue"));
 
     warnSpy.mockRestore();
+  });
+
+  describe("tool name length (#424)", () => {
+    // AWS's IaC MCP server exposes this 53-char tool; under slug `aws-iac` it is 67 chars.
+    const AWS_TOOL = "get_cloudformation_pre_deploy_validation_instructions";
+    const equip = async (slug: string, remote: Record<string, () => Promise<unknown>>, provider?: string) => {
+      servers.push({ slug, url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+      createMCPClient.mockResolvedValue({
+        tools: async () => Object.fromEntries(Object.entries(remote).map(([n, execute]) => [n, { description: "d", inputSchema: {}, execute }])),
+        close: vi.fn(),
+      });
+      return (await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", provider })).tools;
+    };
+
+    it("should_cap_names_at_64_on_bedrock_and_at_128_elsewhere", () => {
+      expect(maxMcpToolNameLength("bedrock")).toBe(64);
+      expect(maxMcpToolNameLength("anthropic")).toBe(128);
+      expect(maxMcpToolNameLength("openai")).toBe(128);
+      // No provider means the gateway default (openai).
+      expect(maxMcpToolNameLength(undefined)).toBe(128);
+    });
+
+    it("should_leave_a_name_at_the_cap_untouched_and_hash_one_character_over", () => {
+      const at = "a".repeat(64);
+      expect(capModelToolName(at, 64)).toBe(at);
+      const over = capModelToolName("a".repeat(65), 64);
+      expect(over).toHaveLength(64);
+      expect(over).toMatch(/^a{55}_[0-9a-f]{8}$/);
+    });
+
+    it("should_equip_a_67_char_name_within_64_on_bedrock_and_unchanged_elsewhere", async () => {
+      const onBedrock = Object.keys(await equip("aws-iac", { [AWS_TOOL]: async () => "ok" }, "bedrock"));
+      expect(onBedrock).toHaveLength(1);
+      expect(onBedrock[0]).toHaveLength(64);
+      expect(onBedrock[0]).toMatch(/^mcp__aws-iac__get_cloudformation_pre_deploy_validation__[0-9a-f]{8}$/);
+
+      servers.length = 0;
+      await closeMcpClientPool();
+      const onAnthropic = Object.keys(await equip("aws-iac", { [AWS_TOOL]: async () => "ok" }, "anthropic"));
+      expect(onAnthropic).toEqual([`mcp__aws-iac__${AWS_TOOL}`]);
+    });
+
+    it("should_give_a_capped_name_the_same_key_on_every_turn", async () => {
+      const first = Object.keys(await equip("aws-iac", { [AWS_TOOL]: async () => "ok" }, "bedrock"));
+      servers.length = 0;
+      await closeMcpClientPool();
+      const second = Object.keys(await equip("aws-iac", { [AWS_TOOL]: async () => "ok" }, "bedrock"));
+      expect(second).toEqual(first);
+    });
+
+    it("should_keep_two_long_names_that_share_a_prefix_as_two_tools", async () => {
+      const warnSpy = vi.spyOn(mcpLog, "warn").mockImplementation(() => undefined);
+      const shared = "x".repeat(70);
+      const keys = Object.keys(await equip("gh", { [`${shared}_a`]: async () => "a", [`${shared}_b`]: async () => "b" }, "bedrock"));
+      expect(keys).toHaveLength(2);
+      expect(new Set(keys).size).toBe(2);
+      for (const key of keys) expect(key.length).toBeLessThanOrEqual(64);
+      expect(warnSpy).not.toHaveBeenCalledWith("mcp", expect.stringContaining("already equipped"));
+      warnSpy.mockRestore();
+    });
+
+    it("should_still_invoke_the_original_remote_tool_through_its_capped_key", async () => {
+      const execute = vi.fn().mockResolvedValue("validated");
+      const tools = await equip("aws-iac", { [AWS_TOOL]: execute }, "bedrock");
+      const [key] = Object.keys(tools);
+      expect(key).not.toBe(`mcp__aws-iac__${AWS_TOOL}`);
+      await expect((tools[key] as any).execute({})).resolves.toBe("validated");
+      expect(execute).toHaveBeenCalledOnce();
+    });
   });
 
   // ---------------------------------------------------------------------------
