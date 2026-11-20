@@ -17,6 +17,13 @@ export async function loginWithCredentials(
   password: string,
 ): Promise<void> {
   await page.goto("/login");
+  // Submit only once React has hydrated the form: before that a click is a
+  // native GET submit that leaves the browser on /login (and puts the fields
+  // in the query string). A slow browser makes the gap wide enough to hit.
+  await page.waitForFunction(() => {
+    const form = document.querySelector("#email")?.closest("form");
+    return !!form && Object.keys(form).some((key) => key.startsWith("__reactProps$"));
+  });
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(password);
   await page.locator('button[type="submit"]').click();
