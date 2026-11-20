@@ -53,8 +53,8 @@ describe("replyTextFor", () => {
 });
 
 describe("applyIntermediateTextPolicy", () => {
-  it("streams every step's text when the policy is unset, as before the policy", async () => {
-    expect(await streamedText(undefined)).toBe("Hello, let me check.It is open.");
+  it("streams every step's text, separated, when the policy is unset", async () => {
+    expect(await streamedText(undefined)).toBe("Hello, let me check.\n\nIt is open.");
   });
 
   it("streams the earlier text as a separate note under progress", async () => {

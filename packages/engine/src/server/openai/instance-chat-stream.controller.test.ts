@@ -148,6 +148,8 @@ describe("InstanceChatStreamController.stream", () => {
     expect(byEvent("text-delta")[0].data).toEqual({ text: "Hello" });
     expect(byEvent("step-finish")[0].data).toEqual({ index: 0, finishReason: "stop" });
     expect(events.at(-1)?.event).toBe("done");
+    // The reply as stored, which may differ from the streamed text of every step.
+    expect(events.at(-1)?.data).toEqual({ text: "ok" });
     expect(res.ended).toBe(true);
   });
 

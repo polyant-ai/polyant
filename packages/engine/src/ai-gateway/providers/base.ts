@@ -1106,11 +1106,10 @@ export function createProvider(
       // the full stream each filter their own.
       const fullStream = () => (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream;
       const policy = request.intermediateText;
-      const filtered = policy === "discard" || policy === "reply";
 
       return {
-        textStream: filtered ? textDeltas(applyIntermediateTextPolicy(fullStream(), policy)) : result.textStream,
-        fullStream: filtered ? applyIntermediateTextPolicy(fullStream(), policy) : fullStream(),
+        textStream: textDeltas(applyIntermediateTextPolicy(fullStream(), policy)),
+        fullStream: applyIntermediateTextPolicy(fullStream(), policy),
         response: (async () => {
           try {
             const finalText = await result.text;

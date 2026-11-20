@@ -160,6 +160,21 @@ describe("chatReducer", () => {
       expect(s.messages[1].createdAt).not.toBeNull();
     });
 
+    it("STREAM_DONE replaces the reply with the stored one and keeps the tool step's text on its step", () => {
+      let s = withAssistantMessage(createInitialState(SLUG));
+      s = chatReducer(s, { type: "STEP_START", index: 0, stepType: "initial" });
+      s = chatReducer(s, { type: "TEXT_DELTA", text: "Let me check." });
+      s = chatReducer(s, { type: "TOOL_CALL", id: "c1", name: "lookup", args: {} });
+      s = chatReducer(s, { type: "STEP_FINISH", index: 0, finishReason: "tool-calls" });
+      s = chatReducer(s, { type: "STEP_START", index: 1, stepType: "initial" });
+      s = chatReducer(s, { type: "TEXT_DELTA", text: "\n\nIt is open." });
+      expect(s.messages[1].content).toBe("Let me check.\n\nIt is open.");
+
+      s = chatReducer(s, { type: "STREAM_DONE", meta: { text: "It is open." } });
+      expect(s.messages[1].content).toBe("It is open.");
+      expect(s.messages[1].steps[0].text).toBe("Let me check.");
+    });
+
     it("STREAM_ERROR sets error and stops streaming flags", () => {
       let s = withAssistantMessage(createInitialState(SLUG));
       s = chatReducer(s, { type: "STREAM_ERROR", error: "boom" });
