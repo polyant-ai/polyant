@@ -61,7 +61,6 @@ function stripNulString(s: string): string {
   return s.indexOf(NUL) === -1 ? s : s.replace(NUL_RE, "");
 }
 
-/** Max persisted length of a conversation title (display-only text). */
 // A conversation's messages in the order they happened. Rows saved together
 // without an explicit created_at (a user message and its reply) share the
 // transaction's now(), so `seq`, which the database assigns in insert order,
@@ -70,6 +69,7 @@ function stripNulString(s: string): string {
 const oldestFirst = () => [asc(conversationMessages.createdAt), asc(conversationMessages.seq)] as const;
 const newestFirst = () => [desc(conversationMessages.createdAt), desc(conversationMessages.seq)] as const;
 
+/** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
 
 /**
