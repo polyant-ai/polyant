@@ -596,7 +596,7 @@ async function getChannelDistribution(
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
       GROUP BY 1
-      ORDER BY conversations DESC
+      ORDER BY conversations DESC, channel
     `),
   );
 }
@@ -639,7 +639,7 @@ async function getToolUsage(
         ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
       GROUP BY tool_call->>'toolName'
-      ORDER BY count DESC
+      ORDER BY count DESC, tool_call->>'toolName'
       LIMIT 20
     `),
   );
@@ -676,7 +676,7 @@ async function getInstanceComparison(
         GROUP BY al.instance_id
       ) a
       LEFT JOIN instances i ON i.slug = a.instance_id
-      ORDER BY a.cost DESC
+      ORDER BY a.cost DESC, a.instance_id
     `),
   ).map((r) => ({
     instanceId: asInstanceSlug(r.instance_id),
