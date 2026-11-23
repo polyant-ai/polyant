@@ -49,7 +49,7 @@ export default defineConfig({
       // an untested module must count against the total instead of vanishing
       // from it.
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts", "src/test-setup.ts", "src/test-utils.tsx"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts", "src/test-setup.ts", "src/test-utils.tsx", "src/test-fixtures/**"],
       thresholds: { statements: 73, branches: 68, functions: 70, lines: 75 },
       // The totals are what the ratchet reads; the per-file table and the HTML
       // report filled the CI log and nobody opened them.
