@@ -15,7 +15,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db, queryClient } from "../database/client.js";
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
-import { applyManualToolChanges, listInstanceToolRows, recomputeInstanceTools } from "./instance-tools.store.js";
+import {
+  applyManualToolChanges,
+  enableToolsByName,
+  getEnabledToolNames,
+  listInstanceToolRows,
+  recomputeInstanceTools,
+} from "./instance-tools.store.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-instance-tools";
@@ -88,6 +94,26 @@ describe.skipIf(!DB_AVAILABLE)("instance tools store (integration)", () => {
     await applyManualToolChanges(agentA, [toolIds.one], []);
     expect(await names(agentA)).toEqual([`${MARKER}-one:global`]);
   });
+
+  it("reads the names of the tools the agent holds, whatever their source, and no other agent's", async () => {
+    await queryClient`
+      INSERT INTO instance_tools (instance_id, tool_id, source)
+      VALUES (${agentA}, ${toolIds.one}, 'global'), (${agentA}, ${toolIds.two}, 'manual'), (${agentB}, ${toolIds.three}, 'manual')`;
+
+    expect(await getEnabledToolNames(agentA)).toEqual(new Set([`${MARKER}-one`, `${MARKER}-two`]));
+    expect(await getEnabledToolNames(agentB)).toEqual(new Set([`${MARKER}-three`]));
+  });
+
+  it("enables catalog tools by name as manual rows, skipping unknown names and keeping a row the agent has", async () => {
+    await queryClient`
+      INSERT INTO instance_tools (instance_id, tool_id, source) VALUES (${agentA}, ${toolIds.one}, 'skill')`;
+
+    await enableToolsByName(agentA, [`${MARKER}-one`, `${MARKER}-two`, `${MARKER}-not-in-catalog`], db);
+    await enableToolsByName(agentB, [`${MARKER}-not-in-catalog`], db);
+
+    expect(await names(agentA)).toEqual([`${MARKER}-one:skill`, `${MARKER}-two:manual`]);
+    expect(await names(agentB)).toEqual([]);
+  });
 });
 
 describe.skipIf(!DB_AVAILABLE)("recomputeInstanceTools (integration)", () => {
@@ -123,6 +149,14 @@ describe.skipIf(!DB_AVAILABLE)("recomputeInstanceTools (integration)", () => {
 
     expect(await names(agentA)).toEqual([`${MARKER}-global:global`, `${MARKER}-one:manual`, `${MARKER}-skill:skill`]);
     expect(await names(agentB)).toEqual([]);
+  });
+
+  it("gives a global tool a skill also requires once, as global", async () => {
+    await assignSkill(agentA, "skill-needs-global", [`${MARKER}-global`], true);
+
+    await recomputeInstanceTools(agentA, undefined, globals());
+
+    expect(await names(agentA)).toEqual([`${MARKER}-global:global`]);
   });
 
   it("leaves the same rows, once each, when it runs again", async () => {
