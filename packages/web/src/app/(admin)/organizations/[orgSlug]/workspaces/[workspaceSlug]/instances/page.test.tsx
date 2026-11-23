@@ -6,9 +6,11 @@ import InstancesPage from "./page";
 import { ApiError, type Instance } from "@/lib/api";
 import { makeInstance } from "@/test-fixtures/api";
 
+type Api = typeof import("@/lib/api").api;
+
 const { mockList, mockImportNew, mockPush, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockImportNew: vi.fn(),
+  mockList: vi.fn<Api["instances"]["list"]>(),
+  mockImportNew: vi.fn<Api["exportImport"]["importNew"]>(),
   mockPush: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
@@ -35,10 +37,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     api: {
-      instances: { list: (...args: unknown[]) => mockList(...args), create: vi.fn() },
-      exportImport: { importNew: (...args: unknown[]) => mockImportNew(...args) },
+      instances: { list: mockList, create: vi.fn() },
+      exportImport: { importNew: mockImportNew },
       // The star on each row reads the person's favorites; none here.
-      me: { favoriteAgents: () => Promise.resolve({ agentIds: [] }) },
+      me: { favoriteAgents: (): ReturnType<Api["me"]["favoriteAgents"]> => Promise.resolve({ agentIds: [] }) },
     },
   };
 });

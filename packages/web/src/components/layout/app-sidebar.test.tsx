@@ -6,14 +6,17 @@ import { I18nProvider } from "@/lib/i18n/context";
 import { AppSidebar } from "./app-sidebar";
 import type { TenantContextValue } from "@/lib/tenant/tenant-context";
 import type { Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
 import { forgetFavoriteAgents } from "@/lib/nav/favorite-agents";
+
+type Api = typeof import("@/lib/api").api;
 
 const { mockPathname, mockParams, mockApi } = vi.hoisted(() => ({
   mockPathname: { value: "/" },
   mockParams: { value: {} as { orgSlug?: string; workspaceSlug?: string } },
   mockApi: {
-    favoriteAgents: vi.fn(),
-    listInstances: vi.fn(),
+    favoriteAgents: vi.fn<Api["me"]["favoriteAgents"]>(),
+    listInstances: vi.fn<Api["instances"]["list"]>(),
   },
 }));
 
@@ -215,7 +218,7 @@ describe("AppSidebar — the Polyant mark", () => {
 // The person's starred agents, one click away at the foot of the daily list.
 describe("AppSidebar — Favorites", () => {
   const agent = (id: string, name: string, slug: string): Instance =>
-    ({ id, name, slug, icon: null, status: "active" }) as Instance;
+    makeInstance({ id, name, slug, icon: null, status: "active" });
 
   const renderSidebar = () =>
     render(

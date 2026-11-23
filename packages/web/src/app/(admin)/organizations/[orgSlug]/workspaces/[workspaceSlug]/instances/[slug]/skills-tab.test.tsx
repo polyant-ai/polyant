@@ -3,20 +3,24 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
 import { SkillsTab } from "./skills-tab";
-import type { SkillState } from "@/lib/api";
+import type { SkillState, SkillUpdateResponse } from "@/lib/api";
 import { makeToolState } from "@/test-fixtures/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSkillGet, mockSetAutoLoad, mockUpgrade, mockToolsUpdate } = vi.hoisted(() => ({
-  mockSkillGet: vi.fn(),
+type Api = typeof import("@/lib/api").api;
+
+const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSkillGet, mockSetAutoLoad, mockUpgrade, mockToolsUpdate, mockGetEnv, mockSetEnv } = vi.hoisted(() => ({
+  mockSkillGet: vi.fn<Api["skills"]["get"]>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
-  mockSkillsUpdate: vi.fn(),
-  mockSkillsList: vi.fn(),
-  mockSetAutoLoad: vi.fn(),
-  mockUpgrade: vi.fn(),
-  mockToolsUpdate: vi.fn(),
+  mockSkillsUpdate: vi.fn<Api["skills"]["update"]>(),
+  mockSkillsList: vi.fn<Api["skills"]["list"]>(),
+  mockSetAutoLoad: vi.fn<Api["skills"]["setAutoLoad"]>(),
+  mockUpgrade: vi.fn<Api["skills"]["upgrade"]>(),
+  mockToolsUpdate: vi.fn<Api["tools"]["update"]>(),
+  mockGetEnv: vi.fn<Api["skills"]["getEnv"]>(),
+  mockSetEnv: vi.fn<Api["skills"]["setEnv"]>(),
 }));
 
 const lastSaveAction = vi.hoisted(() => ({
@@ -41,16 +45,16 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/api", () => ({
   api: {
     skills: {
-      update: (...args: unknown[]) => mockSkillsUpdate(...args),
-      list: (...args: unknown[]) => mockSkillsList(...args),
-      get: (...args: unknown[]) => mockSkillGet(...args),
-      getEnv: vi.fn().mockResolvedValue({ env: [] }),
-      setEnv: vi.fn(),
-      setAutoLoad: (...args: unknown[]) => mockSetAutoLoad(...args),
-      upgrade: (...args: unknown[]) => mockUpgrade(...args),
+      update: mockSkillsUpdate,
+      list: mockSkillsList,
+      get: mockSkillGet,
+      getEnv: mockGetEnv,
+      setEnv: mockSetEnv,
+      setAutoLoad: mockSetAutoLoad,
+      upgrade: mockUpgrade,
     },
     tools: {
-      update: (...args: unknown[]) => mockToolsUpdate(...args),
+      update: mockToolsUpdate,
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -110,6 +114,7 @@ const switchOf = (name: string) => screen.getByRole("switch", { name: `Attivo: $
 describe("SkillsTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetEnv.mockResolvedValue({ env: [] });
     mockSkillGet.mockResolvedValue({ name: "x", version: "0.1.0", content: "", requiredTools: [] });
   });
 
@@ -279,7 +284,7 @@ describe("SkillsTab", () => {
 
   it("saves the auto-load switch of the drawer at once and reports it", async () => {
     const user = userEvent.setup();
-    mockSetAutoLoad.mockResolvedValue({});
+    mockSetAutoLoad.mockResolvedValue({ autoLoad: true });
     renderTab();
     await user.click(screen.getByRole("button", { name: "web-search" }));
     const drawer = await screen.findByRole("dialog");
@@ -291,7 +296,7 @@ describe("SkillsTab", () => {
 
   it("upgrades a skill from its drawer when a newer version exists", async () => {
     const user = userEvent.setup();
-    mockUpgrade.mockResolvedValue({});
+    mockUpgrade.mockResolvedValue({ upgraded: true });
     mockSkillsList.mockResolvedValue({ skills: makeSkills() });
     renderTab([{ name: "pinned", description: "Old", enabled: true, requiredEnv: [], envConfigured: true, pinnedVersion: "1", hasUpdate: true }]);
     await user.click(screen.getByRole("button", { name: "pinned" }));
@@ -350,7 +355,7 @@ describe("SkillsTab", () => {
 
   it("disables the save while saving", async () => {
     const user = userEvent.setup();
-    let resolveUpdate: (value: unknown) => void;
+    let resolveUpdate: (value: SkillUpdateResponse) => void;
     mockSkillsUpdate.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
     renderTab();
     await user.click(switchOf("code-review"));

@@ -18,8 +18,9 @@ import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { makeInstance } from "@/test-fixtures/api";
 import type { Instance } from "@/lib/api";
 
+type Api = typeof import("@/lib/api").api;
 const { mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockUpdate: vi.fn(),
+  mockUpdate: vi.fn<Api["instances"]["update"]>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
 }));
@@ -45,7 +46,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  api: { instances: { update: (...args: unknown[]) => mockUpdate(...args) } },
+  api: { instances: { update: (...args: Parameters<Api["instances"]["update"]>) => mockUpdate(...args) } },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
@@ -66,7 +67,7 @@ function renderWithProvider(ui: ReactElement) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUpdate.mockImplementation(async (_slug: string, patch: Record<string, unknown>) => ({
+  mockUpdate.mockImplementation(async (_slug, patch) => ({
     instance: makeInstance(patch as Partial<Instance>),
   }));
 });

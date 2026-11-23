@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { SecretStatus } from "@/lib/api";
 import { useInstanceSecret } from "./use-instance-secret";
 
+type Secrets = typeof import("@/lib/api").api.secrets;
+
 const { mockList, mockSet, mockDelete } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockSet: vi.fn(),
-  mockDelete: vi.fn(),
+  mockList: vi.fn<Secrets["list"]>(),
+  mockSet: vi.fn<Secrets["set"]>(),
+  mockDelete: vi.fn<Secrets["delete"]>(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     secrets: {
-      list: (...a: unknown[]) => mockList(...a),
-      set: (...a: unknown[]) => mockSet(...a),
-      delete: (...a: unknown[]) => mockDelete(...a),
+      list: mockList,
+      set: mockSet,
+      delete: mockDelete,
     },
   },
   getUserErrorMessage: (_e: unknown, d: string) => d,
@@ -27,7 +30,7 @@ vi.mock("@/lib/i18n/context", () => ({
 }));
 
 const KEY = "langsmith_api_key";
-const secret = (key: string, configured: boolean) => ({ key, configured });
+const secret = (key: string, configured: boolean): SecretStatus => ({ key, configured });
 
 function render() {
   return renderHook(() => useInstanceSecret("bot-1", KEY));
@@ -125,7 +128,7 @@ describe("useInstanceSecret", () => {
 
   it("removes the agent's own key and forgets the typed value", async () => {
     mockList.mockResolvedValue({ secrets: [secret(KEY, true)] });
-    mockDelete.mockResolvedValue({});
+    mockDelete.mockResolvedValue({ deleted: true });
     const { result } = render();
     await waitFor(() => expect(result.current.loading).toBe(false));
 

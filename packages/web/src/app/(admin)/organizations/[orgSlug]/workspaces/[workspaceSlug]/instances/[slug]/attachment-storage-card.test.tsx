@@ -18,10 +18,11 @@ import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { makeInstance } from "@/test-fixtures/api";
 import type { Instance } from "@/lib/api";
 
+type Api = typeof import("@/lib/api").api;
 const { mockUpdate, mockSecretsList, mockSecretsSet, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockUpdate: vi.fn(),
-  mockSecretsList: vi.fn(),
-  mockSecretsSet: vi.fn(),
+  mockUpdate: vi.fn<Api["instances"]["update"]>(),
+  mockSecretsList: vi.fn<Api["secrets"]["list"]>(),
+  mockSecretsSet: vi.fn<Api["secrets"]["set"]>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
 }));
@@ -39,11 +40,11 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { update: (...args: unknown[]) => mockUpdate(...args) },
+    instances: { update: (...args: Parameters<Api["instances"]["update"]>) => mockUpdate(...args) },
     secrets: {
-      list: (...args: unknown[]) => mockSecretsList(...args),
-      set: (...args: unknown[]) => mockSecretsSet(...args),
-      delete: vi.fn(),
+      list: (...args: Parameters<Api["secrets"]["list"]>) => mockSecretsList(...args),
+      set: (...args: Parameters<Api["secrets"]["set"]>) => mockSecretsSet(...args),
+      delete: vi.fn<Api["secrets"]["delete"]>(),
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -70,11 +71,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   calls.length = 0;
   mockSecretsList.mockResolvedValue({ secrets: [] });
-  mockSecretsSet.mockImplementation(async (_slug: string, entries: { key: string }[]) => {
+  mockSecretsSet.mockImplementation(async (_slug, entries) => {
     calls.push(...entries.map((e) => `secret:${e.key}`));
     return { secrets: [] };
   });
-  mockUpdate.mockImplementation(async (_slug: string, patch: Record<string, unknown>) => {
+  mockUpdate.mockImplementation(async (_slug, patch) => {
     calls.push("flag");
     return { instance: makeInstance(patch as Partial<Instance>) };
   });

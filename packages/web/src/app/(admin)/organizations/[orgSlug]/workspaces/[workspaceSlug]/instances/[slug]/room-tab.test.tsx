@@ -2,13 +2,14 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { RoomConfigResponse } from "@/lib/api-types";
 import { RoomTab } from "./room-tab";
 
-const roomGetMock = vi.fn();
-const eventSourcesListMock = vi.fn();
-const roomBacklogMock = vi.fn();
-const roomActivityMock = vi.fn();
-const roomUpsertMock = vi.fn();
+const roomGetMock = vi.fn<typeof import("@/lib/api").api.room.get>();
+const eventSourcesListMock = vi.fn<typeof import("@/lib/api").api.eventSources.list>();
+const roomBacklogMock = vi.fn<typeof import("@/lib/api").api.room.backlog>();
+const roomActivityMock = vi.fn<typeof import("@/lib/api").api.room.activity>();
+const roomUpsertMock = vi.fn<typeof import("@/lib/api").api.room.upsert>();
 
 // Captures the latest top-bar save registration so assertions can read
 // isDirty/saving and invoke onSave without rendering the page header.
@@ -26,14 +27,14 @@ vi.mock("./page-actions-context", () => ({
 vi.mock("@/lib/api", () => ({
   api: {
     room: {
-      get: (...args: unknown[]) => roomGetMock(...args),
-      backlog: (...args: unknown[]) => roomBacklogMock(...args),
-      activity: (...args: unknown[]) => roomActivityMock(...args),
-      upsert: (...args: unknown[]) => roomUpsertMock(...args),
+      get: (...args: Parameters<typeof roomGetMock>) => roomGetMock(...args),
+      backlog: (...args: Parameters<typeof roomBacklogMock>) => roomBacklogMock(...args),
+      activity: (...args: Parameters<typeof roomActivityMock>) => roomActivityMock(...args),
+      upsert: (...args: Parameters<typeof roomUpsertMock>) => roomUpsertMock(...args),
       delete: vi.fn(),
     },
     eventSources: {
-      list: (...args: unknown[]) => eventSourcesListMock(...args),
+      list: (...args: Parameters<typeof eventSourcesListMock>) => eventSourcesListMock(...args),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -58,7 +59,7 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-const CONFIGURED_ROOM = {
+const CONFIGURED_ROOM: RoomConfigResponse = {
   configured: true,
   id: "room-1",
   enabled: true,

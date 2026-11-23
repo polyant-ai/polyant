@@ -17,10 +17,10 @@ const {
 } = vi.hoisted(() => ({
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
-  mockInstanceUpdate: vi.fn(),
-  mockOptoutsList: vi.fn(),
-  mockOptoutsOptOut: vi.fn(),
-  mockOptoutsOptIn: vi.fn(),
+  mockInstanceUpdate: vi.fn<typeof import("@/lib/api").api.instances.update>(),
+  mockOptoutsList: vi.fn<typeof import("@/lib/api").api.optouts.list>(),
+  mockOptoutsOptOut: vi.fn<typeof import("@/lib/api").api.optouts.optOut>(),
+  mockOptoutsOptIn: vi.fn<typeof import("@/lib/api").api.optouts.optIn>(),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -50,11 +50,11 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { update: (...args: unknown[]) => mockInstanceUpdate(...args) },
+    instances: { update: mockInstanceUpdate },
     optouts: {
-      list: (...args: unknown[]) => mockOptoutsList(...args),
-      optOut: (...args: unknown[]) => mockOptoutsOptOut(...args),
-      optIn: (...args: unknown[]) => mockOptoutsOptIn(...args),
+      list: mockOptoutsList,
+      optOut: mockOptoutsOptOut,
+      optIn: mockOptoutsOptIn,
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -105,7 +105,7 @@ describe("PrivacyTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lastSaveAction.current = null;
-    mockOptoutsList.mockResolvedValue({ optouts: [] });
+    mockOptoutsList.mockResolvedValue({ optouts: [], page: 1 });
     mockOptoutsOptOut.mockResolvedValue({ ok: true });
     mockOptoutsOptIn.mockResolvedValue({ ok: true });
     mockInstanceUpdate.mockResolvedValue({ instance: makeInstance() });
@@ -204,9 +204,10 @@ describe("PrivacyTab", () => {
     const user = userEvent.setup();
     mockOptoutsList.mockResolvedValue({
       optouts: [
-        { channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: "2026-10-01T00:00:00Z" },
-        { channelType: "slack", channelId: "+39111", source: "manual", updatedAt: "2026-10-02T00:00:00Z" },
+        { status: "opted_out", channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: "2026-10-01T00:00:00Z" },
+        { status: "opted_out", channelType: "slack", channelId: "+39111", source: "manual", updatedAt: "2026-10-02T00:00:00Z" },
       ],
+      page: 1,
     });
     render(<PrivacyTab instance={makeInstance()} />);
     await screen.findByText("+39222");
@@ -222,9 +223,10 @@ describe("PrivacyTab", () => {
     const user = userEvent.setup();
     mockOptoutsList.mockResolvedValue({
       optouts: [
-        { channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: null },
-        { channelType: "slack", channelId: "+39111", source: "manual", updatedAt: null },
+        { status: "opted_out", channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: null },
+        { status: "opted_out", channelType: "slack", channelId: "+39111", source: "manual", updatedAt: null },
       ],
+      page: 1,
     });
     render(<PrivacyTab instance={makeInstance()} />);
     await screen.findByText("+39222");
@@ -241,7 +243,8 @@ describe("PrivacyTab", () => {
   it("puts Re-enable among the right-hand actions, before Close, and describes the contact in one line", async () => {
     const user = userEvent.setup();
     mockOptoutsList.mockResolvedValue({
-      optouts: [{ channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: null }],
+      optouts: [{ status: "opted_out", channelType: "whatsapp", channelId: "+39222", source: "keyword", updatedAt: null }],
+      page: 1,
     });
     render(<PrivacyTab instance={makeInstance()} />);
     await user.click(await screen.findByRole("button", { name: "+39222" }));

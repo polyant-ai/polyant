@@ -12,11 +12,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(search),
 }));
 
-const list = vi.fn();
+const { list, detail, instancesList } = vi.hoisted(() => ({
+  list: vi.fn<typeof import("@/lib/api").api.monitor.list>(),
+  detail: vi.fn<typeof import("@/lib/api").api.monitor.detail>(),
+  instancesList: vi.fn<typeof import("@/lib/api").api.instances.list>(),
+}));
 vi.mock("@/lib/api", () => ({
   api: {
-    monitor: { list: (params: unknown) => list(params), detail: vi.fn() },
-    instances: { list: async () => ({ instances: [] }) },
+    monitor: { list, detail },
+    instances: { list: instancesList },
   },
 }));
 vi.mock("@/lib/activity-stream/provider", () => ({ useActivityStreamContext: () => ({ events: [], realLive: true }) }));
@@ -27,6 +31,7 @@ import MonitorPage from "./page";
 beforeEach(() => {
   replace.mockReset();
   list.mockReset();
+  instancesList.mockResolvedValue({ instances: [] });
   list.mockResolvedValue({
     items: [],
     nextCursor: null,
