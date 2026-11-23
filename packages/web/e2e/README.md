@@ -15,7 +15,10 @@ authorization decision (200 vs 403) and the rendered UI.
   `support/fake-model.mjs` (`OPENAI_BASE_URL`), a local server that answers
   the Responses API from a fixed script; only the turn suite gives an agent a
   model that reaches it. No suite can call a real provider.
-- **Not exercised / inert**: channel adapters (Telegram, WhatsApp, Slack…).
+- **Faked**: Twilio. Every Twilio request the engine makes goes to
+  `support/fake-twilio.mjs` (`TWILIO_API_BASE_URL`), which records it; only the
+  turn suite configures a WhatsApp channel. No suite can message a real number.
+- **Not exercised / inert**: the other channel adapters (Telegram, Slack…).
 - **Enforcement is ON, always**: RBAC has no off switch and no shadow mode, so
   the harness sets nothing to enable it and no spec can be silently defanged by
   a missing env var.
@@ -46,9 +49,10 @@ npm run test:e2e:report -w @polyant/web # open the last HTML report
 `test:e2e` first runs `e2e/setup/prepare-db.ts` (create DB → migrate → seed),
 then Playwright boots the engine on `:4100` and web on `:3100` and runs the
 specs. Dedicated ports mean it won't collide with a running dev stack. The
-fake model listens on the engine port + 1 (`:4101`). Two runs on one machine
-keep apart with `E2E_ENGINE_PORT`, `E2E_WEB_PORT`, `E2E_FAKE_MODEL_PORT` and
-`E2E_DB_NAME`.
+fake model listens on the engine port + 1 (`:4101`), the fake Twilio on the
+engine port + 2 (`:4102`). Two runs on one machine keep apart with
+`E2E_ENGINE_PORT`, `E2E_WEB_PORT`, `E2E_FAKE_MODEL_PORT`, `E2E_FAKE_TWILIO_PORT`
+and `E2E_DB_NAME`.
 
 ## Layout
 
@@ -67,6 +71,8 @@ keep apart with `E2E_ENGINE_PORT`, `E2E_WEB_PORT`, `E2E_FAKE_MODEL_PORT` and
 | `a11y/a11y.spec.ts` | axe (WCAG 2.2 A/AA) on every catalog page, light and dark, against `known-violations.json`. |
 | `support/fake-model.mjs` | The fake OpenAI model (Responses API, streamed and not); `GET /__calls` lists what it received. |
 | `turn/turn.spec.ts` | One real turn with a tool call, from the playground and from `/v1/chat/completions`: shown, stored and listed alike. |
+| `support/fake-twilio.mjs` | The fake Twilio (messages, typing indicator); `GET /__requests` lists what it received. |
+| `turn/whatsapp-turn.spec.ts` | Two real turns through a signed WhatsApp webhook: the reply sent through Twilio equals the stored one, and the second turn carries the first as history. |
 | `rbac/tenant-urls.spec.ts` | Tenant-scoped URL routing: root resolution, canonical render, 404 on foreign slugs (there are no legacy redirects — the tenant-scoped URLs are the only ones). |
 
 ## Seeded users (default org)
@@ -113,13 +119,21 @@ suite then checks that:
 - `POST /v1/chat/completions` with the agent's key returns the same reply and
   stores the turn.
 
+`turn/whatsapp-turn.spec.ts` does the same through a channel, on its own agent
+(`e2e-turn-whatsapp`) with a WhatsApp channel in Auth Token mode. It posts
+Twilio-signed inbound messages to `/webhooks/twilio/<agent>/whatsapp` and
+checks that a forged post is refused, that the reply sent to the fake Twilio
+is the stored reply with both steps' text, that the conversation is listed as
+WhatsApp, and that a second message from the same contact reaches the model
+with the first message and reply as history.
+
 The agent keeps every step's text as the reply (`intermediateText: "reply"`).
 With no policy set, the playground streams both steps' text while the stored
 reply, and the API's answer, hold only the last step's; the suite fails there
 by design.
 
-To change what the model says, change the constants at the top of both
-`support/fake-model.mjs` and `turn/turn.spec.ts`.
+To change what the model says, change the constants at the top of
+`support/fake-model.mjs`, `turn/turn.spec.ts` and `turn/whatsapp-turn.spec.ts`.
 
 ## Known caveat
 
