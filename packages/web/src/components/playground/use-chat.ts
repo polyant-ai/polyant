@@ -25,7 +25,7 @@ import {
  * are populated incrementally by SSE events:
  *  - `toolCall` arrives via `tool-call`
  *  - `toolResult` arrives via `tool-result`
- *  - `text` is appended via `text-delta` (only the step that ends in plain text)
+ *  - `text` is appended via `text-delta`, to the step it belongs to
  *  - `finishReason` arrives via `step-finish`
  */
 export interface LiveStep {
@@ -88,7 +88,7 @@ export type ChatAction =
   | { type: "TOOL_CALL"; id: string; name: string; args: unknown }
   | { type: "TOOL_RESULT"; id: string; result: unknown }
   | { type: "HOOK_EXECUTION"; execution: PlaygroundHookExecution }
-  | { type: "STREAM_DONE"; meta?: { conversationId?: string; messageId?: string } }
+  | { type: "STREAM_DONE"; meta?: { conversationId?: string; messageId?: string; text?: string } }
   | { type: "STREAM_ERROR"; error: string }
   | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; hooks?: HookExecution[]; conversationId: string; instanceSlug?: string }
   | { type: "NEW_CHAT" }
@@ -173,9 +173,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "TEXT_DELTA": {
       return {
         ...state,
+        // The text also goes to its step, so the text of a step that called a
+        // tool stays with that tool once the reply is replaced at the end.
         messages: updateLastAssistant(state.messages, (m) => ({
           ...m,
           content: m.content + action.text,
+          steps: m.steps.length === 0
+            ? m.steps
+            : [...m.steps.slice(0, -1), { ...m.steps[m.steps.length - 1], text: m.steps[m.steps.length - 1].text + action.text }],
         })),
       };
     }
@@ -319,7 +324,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const now = new Date().toISOString();
       const msgs = state.messages.map((msg) =>
         msg.isStreaming
-          ? { ...msg, isStreaming: false, createdAt: now, dbMessageId: action.meta?.messageId ?? msg.dbMessageId }
+          ? {
+              ...msg,
+              // The reply as stored: under most policies the text of the steps
+              // that called a tool is not part of it.
+              content: action.meta?.text ?? msg.content,
+              isStreaming: false,
+              createdAt: now,
+              dbMessageId: action.meta?.messageId ?? msg.dbMessageId,
+            }
           : msg,
       );
       // The engine echoes the full conversationId in `done`; adopt it so the

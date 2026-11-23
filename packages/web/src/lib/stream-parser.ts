@@ -48,7 +48,8 @@ export interface StreamCallbacks {
    * (full conversationId + assistant message id) so the client can later fetch
    * this turn's debug payload. Absent on the EOF-drain fallback.
    */
-  onDone: (meta?: { conversationId?: string; messageId?: string }) => void;
+  /** `text` is the reply as stored, which may keep only the last step's text of what streamed. */
+  onDone: (meta?: { conversationId?: string; messageId?: string; text?: string }) => void;
   /** A non-recoverable error occurred. */
   onError: (error: Error) => void;
 }
@@ -278,6 +279,7 @@ export function dispatch(evt: SseEvent, cb: StreamCallbacks): boolean {
       cb.onDone({
         conversationId: typeof data?.conversationId === "string" ? data.conversationId : undefined,
         messageId: typeof data?.messageId === "string" ? data.messageId : undefined,
+        text: typeof data?.text === "string" ? data.text : undefined,
       });
       return false;
     }

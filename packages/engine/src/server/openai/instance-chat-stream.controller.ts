@@ -34,7 +34,7 @@ function parseStreamBody(body: unknown): Omit<ChatCompletionRequest, "model"> {
  *   event: tool-result        data: {"id":"…","result":…}
  *   event: text-delta         data: {"text":"…"}
  *   event: step-finish        data: {"index":0,"finishReason":"stop"}
- *   event: done               data: {}
+ *   event: done               data: {"conversationId":"…","messageId":"…","text":"…"}
  *   event: error              data: {"message":"…"}
  *
  * `hook-execution` events fire in two waves: pre-LLM hooks (conversation_start,
@@ -214,8 +214,10 @@ export class InstanceChatStreamController {
       // Post-processing runs the response_generated/response_sent hooks — await
       // it so their outcomes reach the client before `done`. Hooks are
       // synchronous by design; on abort the post phase short-circuits.
+      let reply: string | undefined;
       try {
         const result = await stream.completed;
+        reply = result.text;
         for (const exec of result.hookExecutions ?? []) {
           send("hook-execution", exec);
         }
@@ -223,8 +225,10 @@ export class InstanceChatStreamController {
         log.error("chat/stream", "post-process error", err);
       }
       // Echo the persisted conversation + assistant message ids so the client can
-      // later fetch the per-message debug payload without ordinal-matching.
-      send("done", stream.meta ?? {});
+      // later fetch the per-message debug payload without ordinal-matching, and
+      // the reply as stored: the text-delta events carry every step's text, while
+      // the reply may keep only the last step's (see intermediate-text.ts).
+      send("done", { ...(stream.meta ?? {}), ...(reply !== undefined ? { text: reply } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : "stream error";
       send("error", { message });

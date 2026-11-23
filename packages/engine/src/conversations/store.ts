@@ -61,6 +61,14 @@ function stripNulString(s: string): string {
   return s.indexOf(NUL) === -1 ? s : s.replace(NUL_RE, "");
 }
 
+// A conversation's messages in the order they happened. Rows saved together
+// without an explicit created_at (a user message and its reply) share the
+// transaction's now(), so `seq`, which the database assigns in insert order,
+// breaks the tie. Rows from before migration 0117 have no seq and keep the
+// created_at order alone.
+const oldestFirst = () => [asc(conversationMessages.createdAt), asc(conversationMessages.seq)] as const;
+const newestFirst = () => [desc(conversationMessages.createdAt), desc(conversationMessages.seq)] as const;
+
 /** Max persisted length of a conversation title (display-only text). */
 export const MAX_TITLE_CHARS = 120;
 
@@ -559,7 +567,7 @@ export class ConversationStore {
       })
       .from(conversationMessages)
       .where(eq(conversationMessages.conversationId, conversationId))
-      .orderBy(desc(conversationMessages.createdAt))
+      .orderBy(...newestFirst())
       .limit(limit);
 
     // Reverse to chronological order and map to ModelMessage
@@ -598,7 +606,7 @@ export class ConversationStore {
             : undefined,
         ),
       )
-      .orderBy(desc(conversationMessages.createdAt))
+      .orderBy(...newestFirst())
       .limit(options.limit);
 
     return rows.reverse().map((r) => ({
@@ -631,7 +639,7 @@ export class ConversationStore {
           sql`${conversationMessages.createdAt} < ${options.through.toISOString()}::timestamptz + interval '1 millisecond'`,
         ),
       )
-      .orderBy(asc(conversationMessages.createdAt))
+      .orderBy(...oldestFirst())
       .limit(options.limit);
     return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt ?? null }));
   }
@@ -661,7 +669,7 @@ export class ConversationStore {
       })
       .from(conversationMessages)
       .where(eq(conversationMessages.conversationId, conversationId))
-      .orderBy(desc(conversationMessages.createdAt))
+      .orderBy(...newestFirst())
       .limit(options.limit + options.context);
 
     const mark = rows[0]?.mark ?? null;
@@ -983,7 +991,7 @@ export class ConversationStore {
         })
         .from(conversationMessages)
         .where(eq(conversationMessages.conversationId, conversationId))
-        .orderBy(order === "desc" ? desc(conversationMessages.createdAt) : asc(conversationMessages.createdAt))
+        .orderBy(...(order === "desc" ? newestFirst() : oldestFirst()))
         .limit(limit)
         .offset(offset),
       db
@@ -1294,7 +1302,7 @@ export class ConversationStore {
         })
         .from(conversationMessages)
         .where(eq(conversationMessages.conversationId, conversationId))
-        .orderBy(asc(conversationMessages.createdAt)),
+        .orderBy(...oldestFirst()),
       db
         .select({
           messageId: pipelineTraces.messageId,
@@ -1390,7 +1398,7 @@ export class ConversationStore {
         .select({ id: conversationMessages.id, role: conversationMessages.role })
         .from(conversationMessages)
         .where(eq(conversationMessages.conversationId, conversationId))
-        .orderBy(conversationMessages.createdAt)
+        .orderBy(...oldestFirst())
         .limit(messageCount);
 
       if (oldest.length === 0) return;
