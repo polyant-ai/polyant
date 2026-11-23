@@ -131,10 +131,14 @@ describe("ToolTable", () => {
     expect(screen.getByText("analytics.noData")).toBeInTheDocument();
   });
 
-  it("marks a tool whose calls often fail", () => {
+  it("marks a tool whose calls often fail with words and an icon, not colour alone", () => {
     render(<ToolTable usage={toolUsageData} latency={toolLatencyData} />);
-    expect(screen.getByText("90.0%")).toHaveClass("text-destructive");
-    for (const cell of screen.getAllByText("100.0%")) expect(cell).not.toHaveClass("text-destructive");
+    const warning = screen.getByText("analytics.table.oftenFails");
+    const cell = warning.closest("td");
+    expect(cell).toHaveTextContent("90.0%");
+    expect(cell?.querySelector("svg")).not.toBeNull();
+    expect(screen.getAllByText("analytics.table.oftenFails")).toHaveLength(1);
+    for (const ok of screen.getAllByText("100.0%")) expect(ok.closest("td")?.querySelector("svg")).toBeNull();
   });
 });
 
@@ -144,7 +148,7 @@ describe("KpiTile", () => {
   it("shows the change against the previous period", () => {
     render(<KpiTile label="Cost" value="$59" trend={19.5} previous="$49" />);
     expect(screen.getByText("+19.5%")).toBeInTheDocument();
-    expect(screen.getByText("analytics.kpi.vsPrevious")).toBeInTheDocument();
+    expect(screen.getByText("analytics.kpi.betterThanPrevious")).toBeInTheDocument();
   });
 
   it("shows the previous figure where a percentage says nothing", () => {
@@ -156,6 +160,14 @@ describe("KpiTile", () => {
   it("colours by whether the move is good, not by its direction", () => {
     render(<KpiTile label="Response time" value="3.4 s" trend={-28.3} lowerIsBetter />);
     expect(screen.getByText("-28.3%").closest("span")).toHaveClass("text-success");
+  });
+
+  it("says in words whether the move is good, for a reader who cannot tell the colours apart", () => {
+    const { unmount } = render(<KpiTile label="Response time" value="3.4 s" trend={-28.3} lowerIsBetter />);
+    expect(screen.getByText("analytics.kpi.betterThanPrevious")).toBeInTheDocument();
+    unmount();
+    render(<KpiTile label="Cost" value="$59" trend={19.5} lowerIsBetter />);
+    expect(screen.getByText("analytics.kpi.worseThanPrevious")).toBeInTheDocument();
   });
 
   it("reads the change of a rate in points", () => {
