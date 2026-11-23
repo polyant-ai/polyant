@@ -113,7 +113,7 @@ export const authConfig = {
     // Edge Runtime (middleware) where reading allowlist env + onboarding logic
     // belongs in the Node runtime. `auth.ts` overrides `signIn` with the
     // authoritative check; this file intentionally omits it.
-    jwt({ token, user, trigger, session }) {
+    jwt({ token, user }) {
       // `user` is only present on the first call (right after sign-in).
       // We snapshot id, isPlatformAdmin, mustChangePassword into the token so
       // subsequent requests don't need a DB lookup. The token is encrypted
@@ -127,21 +127,16 @@ export const authConfig = {
           token.mustChangePassword = u.mustChangePassword;
         }
       }
-      // Allow the client to refresh fields after a self-mutation
-      // (e.g. /settings/password) via `useSession().update({...})`.
-      //
-      // SECURITY: never accept `isPlatformAdmin` from the client update patch.
-      // Platform-admin standing must only land via a DB read on the next
-      // sign-in cycle. Trusting a client-supplied flag here let any
-      // authenticated user become a platform admin by POSTing
-      // {isPlatformAdmin: true} to `/api/auth/session` (which Auth.js v5
-      // exposes by default).
-      if (trigger === "update" && session && typeof session === "object") {
-        const patch = session as { mustChangePassword?: boolean };
-        if (typeof patch.mustChangePassword === "boolean") {
-          token.mustChangePassword = patch.mustChangePassword;
-        }
-      }
+      // SECURITY: nothing in a client `useSession().update({...})` patch lands
+      // in the token. Auth.js v5 exposes that patch as a POST to
+      // `/api/auth/session`, so any claim copied from it is a claim the user
+      // writes. Trusting `isPlatformAdmin` from it once let any authenticated
+      // user become a platform admin; trusting `mustChangePassword` let a user
+      // holding an admin-issued temporary password skip the forced change.
+      // Platform-admin standing lands at the next sign-in; `mustChangePassword`
+      // is re-read from the database on every update by the Node-side callback
+      // in `auth.ts` (`refreshPasswordChangeClaim`), and the engine refuses the
+      // API to a user who owes a new password whatever the claim says.
       // Default to false when the user object carries no standing — a platform
       // admin can promote them later from /users.
       if (typeof token.isPlatformAdmin !== "boolean") token.isPlatformAdmin = false;

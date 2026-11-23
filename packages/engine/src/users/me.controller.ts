@@ -6,6 +6,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { TenantService } from "../organizations/tenant.service.js";
 import { AuthenticatedOnly } from "../authz/index.js";
+import { AllowsPendingPasswordChange } from "../auth/decorators/allows-pending-password-change.decorator.js";
 
 @Controller("api/me")
 export class MeController {
@@ -32,6 +33,7 @@ export class MeController {
    * falling back to the default org.
    */
   @AuthenticatedOnly()
+  @AllowsPendingPasswordChange()
   @Get()
   async context(@CurrentUser() actor: AuthenticatedUser) {
     const [tenancy, onboarding] = await Promise.all([
@@ -84,8 +86,11 @@ export class MeController {
    * API key must not rotate a user's credentials. Without a declaration this
    * route would be denied as undeclared, which would brick the
    * forced-password-change flow the initial admin lands in on first boot.
+   * For the same reason it is the one write a user who still has to change
+   * their password may make (`@AllowsPendingPasswordChange()`).
    */
   @AuthenticatedOnly()
+  @AllowsPendingPasswordChange()
   @Post("password")
   async changePassword(
     @CurrentUser() actor: AuthenticatedUser,

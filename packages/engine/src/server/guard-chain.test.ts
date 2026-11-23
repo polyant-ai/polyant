@@ -34,6 +34,9 @@ vi.mock("../auth/auth-user.service.js", () => ({ validateSessionToken }));
 vi.mock("../auth/management-api-keys.store.js", () => ({ validateManagementApiKey }));
 vi.mock("../instances/secrets.store.js", () => ({ findInstanceByAuthApiKey }));
 vi.mock("../database/client.js", () => ({ db: {}, queryClient: {} }));
+// The session path asks the password-change gate, which reads the users table;
+// nobody here owes a new password.
+vi.mock("../auth/password-change-gate.js", () => ({ passwordChangePending: async () => false }));
 
 import "reflect-metadata";
 import { Controller, Get, Module, type INestApplication } from "@nestjs/common";

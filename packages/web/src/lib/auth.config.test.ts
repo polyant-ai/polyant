@@ -9,6 +9,7 @@
  * from the credentials `authorize()` result at sign-in, defaults to `false`
  * for a Google sign-in (no such field on the user object), and — the most
  * important case here — can NEVER be elevated by a client `update()` patch.
+ * Nor can a client patch clear `mustChangePassword`.
  */
 
 import { describe, it, expect } from "vitest";
@@ -127,7 +128,10 @@ describe("authConfig.jwt — isPlatformAdmin", () => {
     expect(token.isPlatformAdmin).toBe(false);
   });
 
-  it("lets an update() patch still refresh mustChangePassword", async () => {
+  // A user held on /password-change used to clear the hold by POSTing
+  // {mustChangePassword: false} to `/api/auth/session`. The claim now only ever
+  // clears from the database (see password-change-claim.ts).
+  it("ignores a client update() patch clearing mustChangePassword", async () => {
     const existingToken: FakeToken = {
       id: "u1",
       isPlatformAdmin: false,
@@ -140,8 +144,7 @@ describe("authConfig.jwt — isPlatformAdmin", () => {
       session: { mustChangePassword: false, isPlatformAdmin: true },
     });
 
-    expect(token.mustChangePassword).toBe(false);
-    // Same patch, but the isPlatformAdmin half of it must still be ignored.
+    expect(token.mustChangePassword).toBe(true);
     expect(token.isPlatformAdmin).toBe(false);
   });
 });
