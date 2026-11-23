@@ -17,7 +17,7 @@
  * - any other request (a conversation title, a summary) gets SERVICE_TEXT.
  *
  * `GET /__calls` lists what it received, so a test can see the tool's result
- * come back to the model. Run: `node fake-model.mjs <port>`.
+ * come back to the model and the history a later turn carried. Run: `node fake-model.mjs <port>`.
  */
 
 import { createServer } from "node:http";
@@ -32,13 +32,13 @@ const TOOL_ARGS = { name: "e2e-turn-probe" };
 const calls = [];
 let sequence = 0;
 
-/** The user-written texts of a Responses API `input`. */
-function userTexts(input) {
-  if (typeof input === "string") return [input];
+/** The texts of a Responses API `input` written by `role` (string input counts as the user's). */
+function textsOf(input, role) {
+  if (typeof input === "string") return role === "user" ? [input] : [];
   if (!Array.isArray(input)) return [];
   const texts = [];
   for (const item of input) {
-    if (item?.role !== "user") continue;
+    if (item?.role !== role) continue;
     if (typeof item.content === "string") texts.push(item.content);
     else if (Array.isArray(item.content)) {
       for (const part of item.content) if (typeof part?.text === "string") texts.push(part.text);
@@ -158,7 +158,9 @@ const server = createServer(async (req, res) => {
       stream: body.stream === true,
       model: body.model,
       toolNames,
-      userTexts: userTexts(body.input),
+      userTexts: textsOf(body.input, "user"),
+      // The earlier replies the engine sent back as history.
+      assistantTexts: textsOf(body.input, "assistant"),
       functionCallOutputs: input
         .filter((item) => item?.type === "function_call_output")
         .map((item) => ({ callId: item.call_id, output: item.output })),
