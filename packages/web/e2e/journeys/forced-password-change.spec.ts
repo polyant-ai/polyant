@@ -98,11 +98,13 @@ test("a person created with a generated password must replace it at first sign-i
   // The Platform Admin adds the user without a password: the panel makes one.
   await adminPage.goto("/settings");
   await adminPage.getByRole("button", { name: "Add", exact: true }).click();
-  const sheet = adminPage.getByRole("dialog", { name: "Create user" });
+  // Found by its field, not its title: the drawer's title is worded per edition.
+  const sheet = adminPage.getByRole("dialog").filter({ has: adminPage.getByLabel("Email") });
   await sheet.getByLabel("Email").fill(EMAIL);
   await sheet.getByLabel("Name (optional)").fill(NAME);
   await sheet.getByRole("button", { name: "Add", exact: true }).click();
-  const secret = sheet.getByTestId("one-time-secret");
+  // The form gives way to the password, so the drawer is no longer the one with an Email field.
+  const secret = adminPage.getByRole("dialog").getByTestId("one-time-secret");
   await expect(secret).toHaveText(/\S{8,}/);
   const temporaryPassword = (await secret.innerText()).trim();
 
