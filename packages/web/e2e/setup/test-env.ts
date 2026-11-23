@@ -55,6 +55,13 @@ export const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
  */
 export const FAKE_MODEL_PORT = Number(process.env.E2E_FAKE_MODEL_PORT ?? ENGINE_PORT + 1);
 export const FAKE_MODEL_URL = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
+/**
+ * The fake Twilio the WhatsApp channel talks to (support/fake-twilio.mjs). The
+ * engine always sends its Twilio requests here, so no suite can message a real
+ * WhatsApp number by accident.
+ */
+export const FAKE_TWILIO_PORT = Number(process.env.E2E_FAKE_TWILIO_PORT ?? ENGINE_PORT + 2);
+export const FAKE_TWILIO_URL = `http://127.0.0.1:${FAKE_TWILIO_PORT}`;
 
 /**
  * Isolated test database — never the dev `polyant` database. E2E_DB_NAME lets
@@ -222,6 +229,8 @@ export function buildEngineEnv(): Record<string, string> {
     THROTTLE_ENABLED: "false",
     // @ai-sdk/openai reads it: every `openai` model call goes to the fake.
     OPENAI_BASE_URL: `${FAKE_MODEL_URL}/v1`,
+    // Every Twilio request (a WhatsApp reply, the typing indicator) goes to the fake.
+    TWILIO_API_BASE_URL: FAKE_TWILIO_URL,
   };
 }
 

@@ -2,6 +2,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import Twilio from "twilio";
+import { config } from "../../../config.js";
 import { splitMessage } from "../../split-message.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { isNotSentErrorCode, isNotTakenStatus, parseRetryAfterMs, retryNotTakenSend } from "../../twilio-send-retry.js";
@@ -9,6 +10,20 @@ import type { TemplateDefinition } from "./render-template.js";
 
 const TYPING_INDICATOR_ENDPOINT = "https://messaging.twilio.com/v2/Indicators/Typing.json";
 const CONTENT_API_ENDPOINT = "https://content.twilio.com/v1/Content";
+
+/**
+ * Where a Twilio request goes: the Twilio URL itself, or the same path on
+ * `TWILIO_API_BASE_URL` when the process sets one (a local stand-in for Twilio,
+ * see `config.channels`).
+ */
+export function twilioEndpoint(url: string, base: string | undefined = config.channels.twilioApiBaseUrl): string {
+  if (!base) return url;
+  const target = new URL(url);
+  const origin = new URL(base);
+  target.protocol = origin.protocol;
+  target.host = origin.host;
+  return target.href;
+}
 
 /**
  * A send Twilio certainly did not take. The SDK throws every refusal, with the
@@ -31,7 +46,7 @@ function retryAfterNotingHttpClient(): InstanceType<typeof Twilio.RequestClient>
   const client = new Twilio.RequestClient();
   const request = client.request.bind(client);
   client.request = async (opts) => {
-    const response = await request(opts);
+    const response = await request({ ...opts, uri: twilioEndpoint(opts.uri) });
     const noted = attemptRetryAfter.getStore();
     if (noted) noted.ms = parseRetryAfterMs(response.headers?.["retry-after"]);
     return response;
@@ -169,7 +184,7 @@ export class TwilioWhatsAppClient {
 
     const body = new URLSearchParams({ messageId: messageSid, channel: "whatsapp" });
 
-    const res = await fetch(TYPING_INDICATOR_ENDPOINT, {
+    const res = await fetch(twilioEndpoint(TYPING_INDICATOR_ENDPOINT), {
       method: "POST",
       headers: {
         Authorization: this.basicAuthHeader(),
@@ -218,7 +233,7 @@ export class TwilioWhatsAppClient {
     const cached = this.templateCache.get(contentSid);
     if (cached) return cached;
 
-    const res = await fetch(`${CONTENT_API_ENDPOINT}/${encodeURIComponent(contentSid)}`, {
+    const res = await fetch(twilioEndpoint(`${CONTENT_API_ENDPOINT}/${encodeURIComponent(contentSid)}`), {
       method: "GET",
       headers: {
         Authorization: this.basicAuthHeader(),
