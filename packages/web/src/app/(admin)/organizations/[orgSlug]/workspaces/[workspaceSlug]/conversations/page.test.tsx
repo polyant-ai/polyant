@@ -181,16 +181,16 @@ describe("ConversationsPage", () => {
   it("renders the page title and subtitle", async () => {
     render(<ConversationsPage />);
 
-    expect(screen.getByText("conversations.title")).toBeInTheDocument();
+    expect(await screen.findByText("conversations.title")).toBeInTheDocument();
     expect(screen.getByText("conversations.subtitle")).toBeInTheDocument();
   });
 
-  it("shows loading state initially", () => {
+  it("shows loading state initially", async () => {
     // Make the API call hang so loading stays visible
     mockConversationsList.mockReturnValue(new Promise(() => {}));
     render(<ConversationsPage />);
 
-    expect(screen.getByRole("status", { name: "common.loading" })).toBeInTheDocument();
+    expect(await screen.findByRole("status", { name: "common.loading" })).toBeInTheDocument();
   });
 
   it("shows empty state when no conversations are returned", async () => {
@@ -267,11 +267,11 @@ describe("ConversationsPage", () => {
     });
   });
 
-  it("shows the search input", () => {
+  it("shows the search input", async () => {
     render(<ConversationsPage />);
 
     expect(
-      screen.getByPlaceholderText("conversations.searchPlaceholder"),
+      await screen.findByPlaceholderText("conversations.searchPlaceholder"),
     ).toBeInTheDocument();
   });
 

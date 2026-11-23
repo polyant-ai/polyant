@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PrivacyTab } from "./privacy-tab";
 import type { Instance } from "@/lib/api";
@@ -40,6 +40,12 @@ vi.mock("./page-actions-context", () => ({
   usePageActions: vi.fn(() => ({ saveAction: null, setSaveAction: vi.fn() })),
   PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
+
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
 
 vi.mock("sonner", () => ({
   toast: {
@@ -166,7 +172,7 @@ describe("PrivacyTab", () => {
     });
 
     await user.click(screen.getByRole("switch", { name: "privacy.enable" }));
-    await lastSaveAction.current!.onSave();
+    await save();
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(

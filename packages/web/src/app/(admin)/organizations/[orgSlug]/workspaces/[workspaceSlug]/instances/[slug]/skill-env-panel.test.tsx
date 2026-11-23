@@ -88,7 +88,7 @@ describe("SkillEnvPanel", () => {
     renderDialog();
 
     // The t function substitutes {name} with "my-skill"
-    expect(screen.getByText("skills.env.title")).toBeInTheDocument();
+    expect(await screen.findByText("skills.env.title")).toBeInTheDocument();
   });
 
   it("fetches env vars on open and renders input fields", async () => {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { mockList, mockInstances, mockPush, mockSetSearch } = vi.hoisted(() => ({
@@ -149,7 +149,8 @@ describe("ConversationsView", () => {
     expect(await screen.findByText("Fresh")).toBeInTheDocument();
 
     answerFirst({ conversations: [conv({ id: "9", conversationId: "old", title: "Stale" })], total: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Give the stale answer its turn to (wrongly) land.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(screen.queryByText("Stale")).not.toBeInTheDocument();
     expect(screen.getByText("Fresh")).toBeInTheDocument();
   });

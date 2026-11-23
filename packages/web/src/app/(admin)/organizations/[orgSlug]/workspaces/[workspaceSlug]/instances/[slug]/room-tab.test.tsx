@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RoomTab } from "./room-tab";
 
@@ -22,6 +22,12 @@ vi.mock("./page-actions-context", () => ({
   usePageActions: vi.fn(() => ({ saveAction: null, setSaveAction: vi.fn() })),
   PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
+
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -137,7 +143,7 @@ describe("RoomTab", () => {
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
 
-    await lastSaveAction.current!.onSave();
+    await save();
 
     await waitFor(() => {
       expect(roomUpsertMock).toHaveBeenCalledWith(
