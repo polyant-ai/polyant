@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { AttachmentStorageCard } from "./attachment-storage-card";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
+import { makeInstance } from "@/test-fixtures/api";
 import type { Instance } from "@/lib/api";
 
 const { mockUpdate, mockSecretsList, mockSecretsSet, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
@@ -61,16 +62,6 @@ function renderWithProvider(ui: ReactElement) {
       <SaveButton />
     </PageActionsProvider>,
   );
-}
-
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
-    slug: "a1",
-    name: "A1",
-    attachmentStorageEnabled: false,
-    ...overrides,
-  } as unknown as Instance;
 }
 
 const calls: string[] = [];

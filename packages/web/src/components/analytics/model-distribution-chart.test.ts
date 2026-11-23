@@ -4,7 +4,7 @@ import { topModelsWithRest, MAX_NAMED_MODELS } from "./model-distribution-chart"
 import type { ModelRow } from "@/lib/api";
 
 const row = (model: string, calls: number, callType = "conversation"): ModelRow =>
-  ({ model, calls, callType }) as ModelRow;
+  ({ provider: "openai", model, callType, calls, tokens: 0, cost: 0, avgDuration: 0 });
 
 const others = (count: number) => `others:${count}`;
 

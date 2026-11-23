@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { act, render, screen } from "@testing-library/react";
+import type { AnalyticsActivityResponse, AnalyticsSummaryResponse } from "@/lib/api-types";
+import { makeAnalyticsActivity, makeAnalyticsSummary } from "@/test-fixtures/analytics";
 
 const i18n = { t: (key: string) => key, locale: "en", setLocale: vi.fn() };
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => i18n }));
@@ -37,8 +39,8 @@ function deferred<T>() {
 
 describe("AnalyticsDashboard", () => {
   it("draws every card's title at once, then fills the summary before the activity", async () => {
-    const summary = deferred<unknown>();
-    const activity = deferred<unknown>();
+    const summary = deferred<AnalyticsSummaryResponse>();
+    const activity = deferred<AnalyticsActivityResponse>();
     const fetchData = vi.fn((_from: string, _to: string, part: string) =>
       part === "summary" ? summary.promise : activity.promise,
     ) as unknown as AnalyticsFetcher;
@@ -58,7 +60,7 @@ describe("AnalyticsDashboard", () => {
     expect(fetchData).toHaveBeenCalledWith(expect.any(String), expect.any(String), "summary");
     expect(fetchData).toHaveBeenCalledWith(expect.any(String), expect.any(String), "activity");
 
-    await act(async () => summary.resolve({ overview: {}, dailyTrend: [], latency: {} }));
+    await act(async () => summary.resolve(makeAnalyticsSummary()));
 
     // The summary's cards are drawn; the two activity cards still wait, titled.
     for (const name of ["kpis", "cost", "channelTrend", "cacheRate", "costPerTurn", "latency", "models", "channels", "agents"]) {
@@ -71,7 +73,7 @@ describe("AnalyticsDashboard", () => {
     expect(screen.queryByTestId("chart-heatmap")).not.toBeInTheDocument();
     expect(screen.getByText("analytics.charts.tools")).toBeInTheDocument();
 
-    await act(async () => activity.resolve({ hourlyDistribution: [], toolUsage: [], latency: {} }));
+    await act(async () => activity.resolve(makeAnalyticsActivity()));
 
     expect(screen.getByTestId("chart-tools")).toBeInTheDocument();
     expect(screen.getByTestId("chart-heatmap")).toBeInTheDocument();

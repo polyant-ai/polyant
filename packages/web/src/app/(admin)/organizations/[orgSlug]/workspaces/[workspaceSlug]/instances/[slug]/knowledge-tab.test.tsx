@@ -20,7 +20,10 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
+import { makeInstance as baseInstance } from "@/test-fixtures/api";
 import type { Instance } from "@/lib/api";
+
+const makeInstance = (overrides: Partial<Instance> = {}) => baseInstance({ knowledgeEnabled: true, ...overrides });
 
 function SaveButton() {
   const { saveAction } = usePageActions();
@@ -83,22 +86,6 @@ vi.mock("@/lib/api", () => ({
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
-
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
-    slug: "a1",
-    name: "A1",
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    knowledgeEnabled: true,
-    embeddingProvider: "openai",
-    createdAt: null,
-    updatedAt: null,
-    ...overrides,
-  } as unknown as Instance;
-}
 
 beforeEach(() => {
   vi.clearAllMocks();

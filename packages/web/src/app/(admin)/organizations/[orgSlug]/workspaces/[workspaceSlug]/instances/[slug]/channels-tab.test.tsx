@@ -18,6 +18,7 @@ import { ChannelsTab } from "./channels-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { api, type ChannelConfig } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
+import { makeChannel, makeInstance } from "@/test-fixtures/api";
 
 const { mockList, mockSet, mockDelete, mockInstanceUpdate } = vi.hoisted(() => ({
   mockInstanceUpdate: vi.fn(),
@@ -53,12 +54,10 @@ vi.mock("@/lib/api", () => ({
 }));
 
 function channel(channelType: string, enabled: boolean): ChannelConfig {
-  return { channelType, enabled, config: {} } as unknown as ChannelConfig;
+  return makeChannel({ channelType, enabled });
 }
 
-/** Only `a2aEnabled` is read by the component; the cast keeps the fixture honest
- *  about that instead of stubbing forty unrelated instance fields. */
-const INSTANCE = { a2aEnabled: false } as never;
+const INSTANCE = makeInstance({ a2aEnabled: false });
 
 /**
  * The Save this tab registers is rendered by the PAGE HEADER, which is not in the
@@ -192,7 +191,7 @@ describe("ChannelsTab — the generic field-list section", () => {
   it("masks a sensitive field behind the eye toggle and reveals it on click", async () => {
     mockList.mockResolvedValue({
       channels: [
-        { channelType: "telegram", enabled: true, config: { botToken: "sk-masked-1234" } } as unknown as ChannelConfig,
+        makeChannel({ config: { botToken: "sk-masked-1234" } }),
       ],
     });
 

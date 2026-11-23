@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { MemoryCard } from "./memory-card";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
+import { makeInstance } from "@/test-fixtures/api";
 import type { Instance } from "@/lib/api";
 
 const { mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
@@ -61,22 +62,6 @@ function renderWithProvider(ui: ReactElement) {
       <SaveButton />
     </PageActionsProvider>,
   );
-}
-
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
-    slug: "a1",
-    name: "A1",
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    memoryEnabled: false,
-    embeddingProvider: "openai",
-    createdAt: null,
-    updatedAt: null,
-    ...overrides,
-  } as unknown as Instance;
 }
 
 beforeEach(() => {

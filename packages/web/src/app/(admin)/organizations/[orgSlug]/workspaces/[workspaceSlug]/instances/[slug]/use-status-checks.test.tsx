@@ -6,7 +6,7 @@
  */
 
 import { renderHook, waitFor } from "@testing-library/react";
-import type { Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
 
 const h = vi.hoisted(() => ({ knowledgeList: vi.fn() }));
 
@@ -24,7 +24,7 @@ vi.mock("@/lib/api", () => ({
 import { useStatusChecks } from "./use-status-checks";
 
 const agent = (knowledgeEnabled: boolean) =>
-  ({ id: "i1", slug: "a1", status: "active", provider: "openai", model: "m", knowledgeEnabled }) as unknown as Instance;
+  makeInstance({ id: "i1", model: "m", knowledgeEnabled });
 
 describe("useStatusChecks — knowledge", () => {
   beforeEach(() => {

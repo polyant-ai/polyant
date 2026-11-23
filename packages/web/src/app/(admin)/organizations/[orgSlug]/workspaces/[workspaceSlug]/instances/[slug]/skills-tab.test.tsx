@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
 import { SkillsTab } from "./skills-tab";
 import type { SkillState } from "@/lib/api";
+import { makeToolState } from "@/test-fixtures/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -337,7 +338,7 @@ describe("SkillsTab", () => {
       <SkillsTab
         slug="test-instance"
         skills={[{ name: "needs-tool", description: "", enabled: false, requiredTools: ["fetch"], requiredEnv: [], envConfigured: true }]}
-        tools={[{ name: "fetch", enabled: false } as never]}
+        tools={[makeToolState({ name: "fetch", enabled: false })]}
         onSkillsUpdate={onSkillsUpdate}
         onToolsUpdate={onToolsUpdate}
       />,

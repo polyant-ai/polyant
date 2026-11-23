@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InstancesPage from "./page";
 import { ApiError, type Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
 
 const { mockList, mockImportNew, mockPush, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockList: vi.fn(),
@@ -43,16 +44,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 function agent(over: Partial<Instance>): Instance {
-  return {
+  return makeInstance({
     id: over.slug ?? "id",
     slug: "agent",
     name: "Agent",
-    description: null,
-    status: "active",
-    icon: null,
     updatedAt: new Date().toISOString(),
     ...over,
-  } as Instance;
+  });
 }
 
 const AGENTS = [
