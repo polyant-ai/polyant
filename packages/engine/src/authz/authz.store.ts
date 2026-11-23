@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users } from "../auth/users.schema.js";
 import { instances } from "../instances/schema.js";
@@ -122,6 +122,12 @@ export async function readWorkspaceId(
  * Load every role binding a user holds within an organization, each with its
  * role's expanded permission set. One query for the bindings, one batched query
  * for the permissions (no N+1).
+ *
+ * Newest first. Every writer keeps one binding per scope, but the unique index
+ * is per role, so two roles on one scope are storable; the resolver takes the
+ * first binding it finds for a scope, and without an order which one that was
+ * depended on the rows' physical order. The newest is the one a role change
+ * meant.
  */
 export async function readUserBindings(
   userId: string,
@@ -139,7 +145,8 @@ export async function readUserBindings(
         eq(roleBindings.userId, userId),
         eq(roleBindings.organizationId, organizationId),
       ),
-    );
+    )
+    .orderBy(desc(roleBindings.createdAt), desc(roleBindings.id));
   if (bindings.length === 0) return [];
 
   const roleIds = [...new Set(bindings.map((b) => b.roleId))];
