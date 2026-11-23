@@ -71,4 +71,16 @@ describe("test fixtures obey the panel's types", () => {
       .map(([file, n]) => `${file}: ${n} cast(s), ${ALLOWED[file]?.count ?? 0} allowed`);
     expect(over, "Build the fixture with src/test-fixtures/ or `satisfies`, or list the cast with its reason").toEqual([]);
   });
+
+  it("types each mocked api method from the real signature, with no untyped forwarders", () => {
+    // `(...a: unknown[]) => mockX(...a)` inside the `@/lib/api` mock hides the real
+    // parameters and return type, so whatever the mock resolves is never checked.
+    const apiMockBlock = /vi\.mock\(\s*"@\/lib\/api"[\s\S]*?\n\}\)\);?\n/g;
+    const mocking = files.filter((f) => readFileSync(f, "utf8").includes('vi.mock("@/lib/api"'));
+    expect(mocking.length, "no test mocks @/lib/api: the pattern or the root is wrong").toBeGreaterThan(30);
+    const untyped = mocking
+      .filter((f) => (readFileSync(f, "utf8").match(apiMockBlock) ?? []).some((b) => /unknown\[\]/.test(b)))
+      .map((f) => relative(SRC, f));
+    expect(untyped, "Type the mock with vi.fn<typeof import(\"@/lib/api\").api.x.y>() and pass it directly").toEqual([]);
+  });
 });
