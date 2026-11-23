@@ -83,6 +83,19 @@ export default defineConfig({
         locale: "en-US",
       },
     },
+    {
+      // A person's journeys through the panel: each changes something, then
+      // reads it back from a reloaded page or a fresh sign-in.
+      name: "journeys",
+      testMatch: "journeys/**/*.spec.ts",
+      dependencies: ["panel-setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: PANEL_STATE,
+        viewport: PANEL_VIEWPORT,
+        locale: "en-US",
+      },
+    },
   ],
 
   // Boot the fake model, the fake Twilio, the engine and the web. Playwright waits for each `url` to answer before tests.

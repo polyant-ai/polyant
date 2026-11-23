@@ -16,6 +16,11 @@
  *   after the tool ran: it writes FINAL_TEXT;
  * - any other request (a conversation title, a summary) gets SERVICE_TEXT.
  *
+ * It also answers `POST /v1/embeddings`, which the agent's `openai` embedder
+ * reaches through the same `OPENAI_BASE_URL`: one vector per input text, of the
+ * length the request asks for, derived from the text so the same text always
+ * gets the same vector. That lets a knowledge document be indexed to the end.
+ *
  * `GET /__calls` lists what it received, so a test can see the tool's result
  * come back to the model and the history a later turn carried. Run: `node fake-model.mjs <port>`.
  */
@@ -132,6 +137,34 @@ function readBody(req) {
   });
 }
 
+/** A unit vector of `dimensions` numbers, the same for the same text. */
+function vectorFor(text, dimensions) {
+  let seed = 0;
+  for (const ch of text) seed = (seed * 31 + ch.codePointAt(0)) >>> 0;
+  const values = [];
+  for (let i = 0; i < dimensions; i += 1) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    values.push(seed / 0xffffffff - 0.5);
+  }
+  const norm = Math.hypot(...values) || 1;
+  return values.map((v) => v / norm);
+}
+
+function respondEmbeddings(res, body) {
+  const inputs = Array.isArray(body.input) ? body.input : [body.input];
+  const dimensions = Number.isInteger(body.dimensions) ? body.dimensions : 1536;
+  const tokens = inputs.reduce((sum, text) => sum + String(text).split(/\s+/).length, 0);
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(
+    JSON.stringify({
+      object: "list",
+      data: inputs.map((text, index) => ({ object: "embedding", index, embedding: vectorFor(String(text), dimensions) })),
+      model: body.model ?? "fake",
+      usage: { prompt_tokens: tokens, total_tokens: tokens },
+    }),
+  );
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://fake");
   if (req.method === "GET" && url.pathname === "/__calls") {
@@ -169,7 +202,21 @@ const server = createServer(async (req, res) => {
     else respondJson(res, body, kind, id);
     return;
   }
-  // Anything else (embeddings, other APIs) is not something a turn here needs.
+  if (req.method === "POST" && url.pathname === "/v1/embeddings") {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "invalid JSON", type: "invalid_request_error", code: "bad_json" } }));
+      return;
+    }
+    const inputs = Array.isArray(body.input) ? body.input : [body.input];
+    calls.push({ id: `emb${calls.length + 1}`, kind: "embeddings", model: body.model, dimensions: body.dimensions, inputs: inputs.map(String) });
+    respondEmbeddings(res, body);
+    return;
+  }
+  // Anything else is not something a suite here needs.
   calls.push({ id: `other${calls.length + 1}`, kind: "unsupported", method: req.method, path: url.pathname });
   res.writeHead(404, { "content-type": "application/json" });
   res.end(JSON.stringify({ error: { message: `fake model: ${req.method} ${url.pathname} not supported`, type: "invalid_request_error", code: "not_found" } }));

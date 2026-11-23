@@ -235,7 +235,8 @@ jobs:
   # Every page of the panel in a real browser, against the engine and a
   # production build of the web on a migrated and seeded database: the page
   # catalog's own checks and axe (WCAG 2.2 A/AA) in both themes, then one real
-  # turn (playground and API, a tool call, against a fake model). It runs when
+  # turn (playground and API, a tool call, against a fake model), and the
+  # journeys that save something and read it back. It runs when
   # a change could alter a page; the RBAC specs stay in the nightly E2E.
   panel:
     name: Panel pages (accessibility) and a turn
@@ -275,7 +276,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Check every panel page and a real turn
-        run: npm run test:e2e:panel -w @polyant/web -- --project=turn
+        run: npm run test:e2e:panel -w @polyant/web -- --project=turn --project=journeys
       - name: Upload the Playwright report
         if: failure()
         uses: actions/upload-artifact@v7

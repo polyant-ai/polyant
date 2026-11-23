@@ -69,10 +69,11 @@ and `E2E_DB_NAME`.
 | `panel/panel.setup.ts` | Signs the panel user in once and saves the session. |
 | `panel/catalog.spec.ts` | Keeps the catalog honest: segments filled, redirects landing where declared, pages rendering in place. |
 | `a11y/a11y.spec.ts` | axe (WCAG 2.2 A/AA) on every catalog page, light and dark, against `known-violations.json`. |
-| `support/fake-model.mjs` | The fake OpenAI model (Responses API, streamed and not); `GET /__calls` lists what it received. |
+| `support/fake-model.mjs` | The fake OpenAI model (Responses API, streamed and not, and `/v1/embeddings`); `GET /__calls` lists what it received. |
 | `turn/turn.spec.ts` | One real turn with a tool call, from the playground and from `/v1/chat/completions`: shown, stored and listed alike. |
 | `support/fake-twilio.mjs` | The fake Twilio (messages, typing indicator); `GET /__requests` lists what it received. |
 | `turn/whatsapp-turn.spec.ts` | Two real turns through a signed WhatsApp webhook: the reply sent through Twilio equals the stored one, and the second turn carries the first as history. |
+| `journeys/*.spec.ts` | A person's journeys through the panel, each read back after a reload or a fresh sign-in. |
 | `rbac/tenant-urls.spec.ts` | Tenant-scoped URL routing: root resolution, canonical render, 404 on foreign slugs (there are no legacy redirects — the tenant-scoped URLs are the only ones). |
 
 ## Seeded users (default org)
@@ -134,6 +135,23 @@ by design.
 
 To change what the model says, change the constants at the top of
 `support/fake-model.mjs`, `turn/turn.spec.ts` and `turn/whatsapp-turn.spec.ts`.
+
+## Journeys
+
+The `journeys` project drives the panel the way a person does and checks what
+was saved, never the toast: after each change it loads the page again, or
+signs in from a fresh browser context, and reads the stored state back. Each
+spec creates what it changes (an agent, a user) as the panel user and deletes
+it afterwards, so the panel suites never depend on it.
+
+- `knowledge.spec.ts`: retrieval switched on, a document added, indexed to
+  `ready` (the fake model answers the embedder), switched off and on, deleted.
+- `forced-password-change.spec.ts`: a user created with a generated password
+  is held on the change page at first sign-in; afterwards only the new
+  password signs in.
+
+A browser context a spec opens itself inherits the project's `storageState`
+(the signed-in panel user); pass an empty one for a signed-out person.
 
 ## Known caveat
 
