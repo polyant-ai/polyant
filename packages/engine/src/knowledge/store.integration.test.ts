@@ -61,7 +61,7 @@ function chunks(docId: string, count: number, dims: 1024 | 1536): InsertChunkInp
     documentId: docId,
     instanceId: AGENT,
     content: `chunk ${i}`,
-    embedding: axis(i % 8, dims),
+    embedding: axis(i % dims, dims),
     chunkIndex: i,
   }));
 }
@@ -126,17 +126,19 @@ describe.skipIf(!DB_AVAILABLE)("knowledge store writes (integration)", () => {
     expect(await documentRow("narrow.md")).toMatchObject({ status: "ready", chunk_count: 2 });
   });
 
+  // In 1536 dimensions: the 1024 index is shared with the HNSW-plan suites, and
+  // a thousand rows dropped into it mid-run change the plan they depend on.
   it("replaces the previous chunk set, stores every chunk of a large document, and readies an empty one with zero", async () => {
     const docId = await documentHolding("large.md", "large text");
-    await insertChunksAndFinalize(docId, chunks(docId, 3, 1024), 1024, "openai", hashContent("large text"));
+    await insertChunksAndFinalize(docId, chunks(docId, 3, 1536), 1536, "openai", hashContent("large text"));
 
-    expect(await insertChunksAndFinalize(docId, chunks(docId, 1201, 1024), 1024, "openai", hashContent("large text"))).toBe(1201);
+    expect(await insertChunksAndFinalize(docId, chunks(docId, 1201, 1536), 1536, "openai", hashContent("large text"))).toBe(1201);
     const rows = await chunkRows(docId);
     expect(rows).toHaveLength(1201);
     expect(new Set(rows.map((r) => r.chunk_index)).size).toBe(1201);
     expect(await documentRow("large.md")).toMatchObject({ status: "ready", chunk_count: 1201 });
 
-    expect(await insertChunksAndFinalize(docId, [], 1024, "openai", hashContent("large text"))).toBe(0);
+    expect(await insertChunksAndFinalize(docId, [], 1536, "openai", hashContent("large text"))).toBe(0);
     expect(await chunkRows(docId)).toEqual([]);
     expect(await documentRow("large.md")).toMatchObject({ status: "ready", chunk_count: 0 });
   });
