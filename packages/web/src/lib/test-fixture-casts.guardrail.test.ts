@@ -47,6 +47,43 @@ function testFiles(dir: string): string[] {
     .map((e) => join(e.parentPath, e.name));
 }
 
+const API_MOCK_START = /vi\.mock\(\s*["'`]@\/lib\/api["'`]/g;
+
+/**
+ * Every `vi.mock("@/lib/api", …)` call in `source`, from its opening to its matching
+ * closing parenthesis. Parentheses inside strings, template literals and comments are
+ * skipped, so the call is found whatever its layout: one line, several, or closed with
+ * `})` or `}))`. A call whose closing parenthesis is never found is left out, which the
+ * test below reports.
+ */
+function apiMockCalls(source: string): string[] {
+  const calls: string[] = [];
+  for (const match of source.matchAll(API_MOCK_START)) {
+    const start = match.index;
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = start; i < source.length; i++) {
+      const ch = source[i];
+      if (quote) {
+        if (ch === "\\") i++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      const comment = ch === "/" ? source[i + 1] : undefined;
+      if (comment === "/" || comment === "*") {
+        const end = source.indexOf(comment === "/" ? "\n" : "*/", i + 2);
+        i = end === -1 ? source.length : end + (comment === "*" ? 1 : 0);
+      } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if (ch === "(") depth++;
+      else if (ch === ")" && --depth === 0) {
+        calls.push(source.slice(start, i + 1));
+        break;
+      }
+    }
+  }
+  return calls;
+}
+
 function castCount(file: string): number {
   return readFileSync(file, "utf8")
     .split("\n")
@@ -75,12 +112,15 @@ describe("test fixtures obey the panel's types", () => {
   it("types each mocked api method from the real signature, with no untyped forwarders", () => {
     // `(...a: unknown[]) => mockX(...a)` inside the `@/lib/api` mock hides the real
     // parameters and return type, so whatever the mock resolves is never checked.
-    const apiMockBlock = /vi\.mock\(\s*"@\/lib\/api"[\s\S]*?\n\}\)\);?\n/g;
-    const mocking = files.filter((f) => readFileSync(f, "utf8").includes('vi.mock("@/lib/api"'));
+    const mocking = files
+      .map((f) => ({ file: relative(SRC, f), source: readFileSync(f, "utf8") }))
+      .map(({ file, source }) => ({ file, opened: source.match(API_MOCK_START)?.length ?? 0, calls: apiMockCalls(source) }))
+      .filter(({ opened }) => opened > 0);
     expect(mocking.length, "no test mocks @/lib/api: the pattern or the root is wrong").toBeGreaterThan(30);
-    const untyped = mocking
-      .filter((f) => (readFileSync(f, "utf8").match(apiMockBlock) ?? []).some((b) => /unknown\[\]/.test(b)))
-      .map((f) => relative(SRC, f));
+    // Non-vacuity of the extraction: a call whose end was not found would go unchecked.
+    const unclosed = mocking.filter(({ opened, calls }) => calls.length !== opened).map(({ file }) => file);
+    expect(unclosed, "the scan lost track of a vi.mock(\"@/lib/api\") call").toEqual([]);
+    const untyped = mocking.filter(({ calls }) => calls.some((c) => /unknown\[\]/.test(c))).map(({ file }) => file);
     expect(untyped, "Type the mock with vi.fn<typeof import(\"@/lib/api\").api.x.y>() and pass it directly").toEqual([]);
   });
 });
