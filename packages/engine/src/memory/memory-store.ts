@@ -72,6 +72,12 @@ function activeEmbeddingColumn(dim: EmbeddingDim) {
 
 /** PostgreSQL serialization_failure SQLSTATE. Emitted when SERIALIZABLE detects a conflict. */
 const SERIALIZATION_FAILURE = "40001";
+/**
+ * Below this cosine distance a new embedding of a memory's own text is taken as the vector already stored: two calls of
+ * one model on one text differ by floating-point noise at most. A larger distance means the vector moved (the model
+ * behind a provider name changed, or the stored text was embedded padded), and the new one is written.
+ */
+const SAME_VECTOR_MAX_DISTANCE = 1e-3;
 const MAX_UPSERT_RETRIES = 5;
 /** Base backoff in ms — actual delay is `BASE * 2^attempt + random(0, BASE * 2^attempt)`. */
 const RETRY_BASE_BACKOFF_MS = 20;
@@ -97,6 +103,7 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
       .select({
         id: memories.id,
         content: memories.content,
+        embeddingProvider: memories.embeddingProvider,
         distance: sql<number>`${distance}`,
       })
       .from(memories)
@@ -107,6 +114,13 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
     const closest = nearest && 1 - nearest.distance > threshold ? nearest : undefined;
 
     if (closest) {
+      // The same text from the same embedding provider, with a new vector that is the stored one up to noise (the
+      // row matched in the active column, so the dimension is the same too): leave the vector columns out. That
+      // writes nothing into the HNSW index or the TOAST table, and when the category is unchanged too the update
+      // touches no indexed column and can stay on its page (HOT).
+      const sameVector = closest.content === input.content
+        && closest.embeddingProvider === input.provider
+        && closest.distance < SAME_VECTOR_MAX_DISTANCE;
       // Update existing memory
       await tx
         .update(memories)
@@ -114,7 +128,7 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
           content: input.content,
           category: input.category ?? "general",
           importance: input.importance ?? 5,
-          ...vectorCols,
+          ...(sameVector ? {} : vectorCols),
           embeddingProvider: input.provider,
           updatedAt: new Date(),
         })
