@@ -13,7 +13,7 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db, queryClient } from "../database/client.js";
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { lockToolsTable, resolveDatabaseAvailability } from "../database/test-db.js";
 import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 import {
   applyManualToolChanges,
@@ -25,6 +25,13 @@ import {
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-instance-tools";
+
+// Its tool rows sit unreferenced between tests, which is what the catalog prune
+// deletes (`database/test-db.ts`): keep a prune from running meanwhile.
+const releaseToolsLock = await lockToolsTable("shared");
+afterAll(async () => {
+  await releaseToolsLock();
+});
 
 let agentA: InstanceUuid;
 let agentB: InstanceUuid;

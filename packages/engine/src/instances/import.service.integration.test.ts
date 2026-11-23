@@ -234,7 +234,9 @@ describe.skipIf(!DB_AVAILABLE)("importing an agent (integration)", () => {
     async function holdings(agent: { id: string; slug: string }) {
       const count = async (rows: Promise<{ n: number }[]>) => (await rows)[0]!.n;
       return {
-        manualTools: await count(queryClient`SELECT count(*)::int AS n FROM instance_tools WHERE instance_id = ${agent.id} AND source = 'manual'`),
+        // This file's tool only: the defaults an agent is created with depend on
+        // which tools other suites have put in the shared catalog.
+        manualTools: await count(queryClient`SELECT count(*)::int AS n FROM instance_tools WHERE instance_id = ${agent.id} AND tool_id = ${toolId} AND source = 'manual'`),
         channels: await count(queryClient`SELECT count(*)::int AS n FROM instance_channels WHERE instance_id = ${agent.id}`),
         room: await count(queryClient`SELECT count(*)::int AS n FROM instance_room WHERE instance_id = ${agent.id}`),
         tasks: (await queryClient<{ name: string }[]>`SELECT name FROM scheduled_tasks WHERE instance_id = ${agent.slug}`).map((r) => r.name),
