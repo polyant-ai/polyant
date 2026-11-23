@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { App, isValidSlackRequest } from "@slack/bolt";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { App } from "@slack/bolt";
 import type { ChannelAdapter, IncomingMessage, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
@@ -125,11 +126,15 @@ export class SlackAdapter implements ChannelAdapter {
   verifyRequest(rawBody: Buffer, signature: string, timestamp: string): boolean {
     const seconds = Number(timestamp);
     if (!Number.isSafeInteger(seconds) || Math.abs(Date.now() / 1000 - seconds) > 300) return false;
-    return isValidSlackRequest({
-      signingSecret: this.cfg.signingSecret,
-      body: rawBody.toString("utf8"),
-      headers: { "x-slack-signature": signature, "x-slack-request-timestamp": seconds },
-    });
+    if (!this.cfg.signingSecret) return false;
+    // Slack signs the bytes it sent. Hashing a UTF-8 decoding of them instead
+    // would map every invalid byte sequence to U+FFFD, so different bodies
+    // would share one signature.
+    const expected = Buffer.from(
+      "v0=" + createHmac("sha256", this.cfg.signingSecret).update(`v0:${timestamp}:`).update(rawBody).digest("hex"),
+    );
+    const given = Buffer.from(signature);
+    return given.length === expected.length && timingSafeEqual(given, expected);
   }
 
   /**

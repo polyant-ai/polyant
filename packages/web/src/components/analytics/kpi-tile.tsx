@@ -29,8 +29,9 @@ export interface KpiTileProps {
 /**
  * How the figure moved against the previous period.
  *
- * The sign and the arrow say which way it went; the colour alone says whether
- * that is good, so a metric where less is better passes `lowerIsBetter`
+ * The sign and the arrow say which way it went; the colour and the words after
+ * the pill say whether that is good (the words for a reader who cannot tell the
+ * colours apart), so a metric where less is better passes `lowerIsBetter`
  * instead of a negated value. When the previous period was empty or nearly so,
  * a percentage like ">+999%" says nothing: the previous figure is shown
  * instead, in a neutral pill, so the reader sees the two numbers.
@@ -74,7 +75,9 @@ function Comparison({
         {isUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
         {label}
       </span>
-      <span className="text-xs text-muted-foreground">{t("analytics.kpi.vsPrevious")}</span>
+      <span className="text-xs text-muted-foreground">
+        {t(isGood ? "analytics.kpi.betterThanPrevious" : "analytics.kpi.worseThanPrevious")}
+      </span>
     </>
   );
 }

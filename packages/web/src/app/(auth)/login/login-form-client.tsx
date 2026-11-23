@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/lib/i18n/context";
+import { useHydrated } from "@/lib/use-hydrated";
 
 /**
  * Accept only same-origin relative paths as a post-login destination.
@@ -35,6 +36,7 @@ export function LoginFormClient() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const hydrated = useHydrated();
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
@@ -68,7 +70,10 @@ export function LoginFormClient() {
         <p className="mt-2 text-muted-foreground">{t("login.subtitle")}</p>
       </div>
 
-      <form onSubmit={handleCredentials} className="flex w-full flex-col gap-3">
+      {/* Sign-in runs only through the handler, so the button waits for
+          hydration: before it, a click is the browser's own submit. POST keeps
+          the fields out of the URL should that submit ever carry them. */}
+      <form method="post" onSubmit={handleCredentials} className="flex w-full flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">{t("login.email")}</Label>
           <Input
@@ -97,7 +102,7 @@ export function LoginFormClient() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={submitting}>
+        <Button type="submit" className="w-full" disabled={submitting || !hydrated}>
           {submitting ? t("login.signingIn") : t("login.signIn")}
         </Button>
       </form>

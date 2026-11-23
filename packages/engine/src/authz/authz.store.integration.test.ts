@@ -23,6 +23,7 @@ import {
   readUserBindings,
   invalidateWorkspaceIdCache,
 } from "./authz.store.js";
+import { effectivePermissions } from "./authorization-strategy.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-authz-store";
@@ -144,6 +145,29 @@ describe.skipIf(!DB_AVAILABLE)("authz.store (integration)", () => {
       expect(bindings[0].scopeType).toBe("organization");
       expect(bindings[0].scopeId).toBe(seed.orgA);
       expect(bindings[0].permissions.size).toBeGreaterThan(0);
+    });
+
+    it("should_resolve_two_roles_on_one_scope_to_the_newest_binding", async () => {
+      // The unique index is per role, so this is storable. The older row goes in
+      // first, so an unordered read finds it first.
+      const [{ id: adminRoleId }] = await queryClient<{ id: string }[]>`
+        SELECT id FROM roles WHERE key = 'admin' AND is_system = true AND organization_id IS NULL LIMIT 1`;
+      await queryClient`
+        INSERT INTO role_bindings (user_id, role_id, scope_type, scope_id, organization_id, created_at)
+        VALUES (${seed.userId}, ${seed.roleId}, 'organization', ${seed.orgB}, ${seed.orgB}, now() - interval '1 hour')`;
+      await queryClient`
+        INSERT INTO role_bindings (user_id, role_id, scope_type, scope_id, organization_id)
+        VALUES (${seed.userId}, ${adminRoleId}, 'organization', ${seed.orgB}, ${seed.orgB})`;
+      const newest = await queryClient<{ permission: string }[]>`
+        SELECT permission FROM role_permissions WHERE role_id = ${adminRoleId}`;
+
+      try {
+        const bindings = await readUserBindings(seed.userId, seed.orgB);
+        const granted = effectivePermissions(bindings, { agentId: "", workspaceId: "", organizationId: seed.orgB });
+        expect(new Set(granted)).toEqual(new Set(newest.map((r) => r.permission)));
+      } finally {
+        await queryClient`DELETE FROM role_bindings WHERE user_id = ${seed.userId} AND organization_id = ${seed.orgB}`;
+      }
     });
 
     it("should_not_return_a_binding_from_another_organization", async () => {

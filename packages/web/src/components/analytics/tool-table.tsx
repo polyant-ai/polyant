@@ -3,6 +3,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ToolLatencyRow, ToolRow } from "@/lib/api";
@@ -86,12 +87,20 @@ export function ToolTable({ usage, latency }: { usage: readonly ToolRow[]; laten
                       <span className="w-12 text-right tabular-nums">{fmt.number(row.calls)}</span>
                     </div>
                   </TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums ${
-                      row.successRate !== null && row.successRate < SUCCESS_WARNING ? "font-medium text-destructive" : ""
-                    }`}
-                  >
-                    {row.successRate === null ? "—" : `${(row.successRate * 100).toFixed(1)}%`}
+                  <TableCell className="text-right tabular-nums">
+                    {row.successRate === null ? (
+                      "—"
+                    ) : row.successRate < SUCCESS_WARNING ? (
+                      // The icon and the hidden words say it too: colour alone is
+                      // lost on a reader who cannot tell red apart.
+                      <span className="inline-flex items-center gap-1 font-medium text-destructive">
+                        <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                        {`${(row.successRate * 100).toFixed(1)}%`}
+                        <span className="sr-only">{t("analytics.table.oftenFails")}</span>
+                      </span>
+                    ) : (
+                      `${(row.successRate * 100).toFixed(1)}%`
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{row.p95 === null ? "—" : formatLatency(row.p95)}</TableCell>
                 </TableRow>
