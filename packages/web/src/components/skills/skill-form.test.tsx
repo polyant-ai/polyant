@@ -3,6 +3,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SkillForm } from "./skill-form";
+import { makeLibrarySkillDetail } from "@/test-fixtures/library-skill";
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
@@ -20,15 +21,17 @@ vi.mock("@/lib/i18n/context", () => ({
   })),
 }));
 
-const createMock = vi.fn();
-const updateMock = vi.fn();
+const { createMock, updateMock } = vi.hoisted(() => ({
+  createMock: vi.fn<typeof import("@/lib/api").api.skillLibrary.create>(),
+  updateMock: vi.fn<typeof import("@/lib/api").api.skillLibrary.update>(),
+}));
 
 vi.mock("@/lib/api", () => ({
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
   api: {
     skillLibrary: {
-      create: (...args: unknown[]) => createMock(...args),
-      update: (...args: unknown[]) => updateMock(...args),
+      create: createMock,
+      update: updateMock,
     },
   },
 }));
@@ -88,7 +91,7 @@ describe("SkillForm", () => {
 
     it("calls api.skillLibrary.create on save in create mode", async () => {
       const user = userEvent.setup();
-      createMock.mockResolvedValueOnce({ name: "my-skill" });
+      createMock.mockResolvedValueOnce(makeLibrarySkillDetail({ name: "my-skill" }));
 
       render(<SkillForm mode="create" />);
 
@@ -168,7 +171,7 @@ describe("SkillForm", () => {
 
     it("sends the edited name under the unchanged slug", async () => {
       const user = userEvent.setup();
-      updateMock.mockResolvedValueOnce({ name: "existing-skill" });
+      updateMock.mockResolvedValueOnce(makeLibrarySkillDetail({ name: "existing-skill" }));
       render(<SkillForm mode="edit" initialData={initialData} />);
 
       await user.clear(screen.getByLabelText("skills.form.name"));
@@ -190,7 +193,7 @@ describe("SkillForm", () => {
 
     it("calls api.skillLibrary.update on save in edit mode", async () => {
       const user = userEvent.setup();
-      updateMock.mockResolvedValueOnce({ name: "existing-skill" });
+      updateMock.mockResolvedValueOnce(makeLibrarySkillDetail({ name: "existing-skill" }));
 
       render(<SkillForm mode="edit" initialData={initialData} />);
 
@@ -210,7 +213,7 @@ describe("SkillForm", () => {
 
   it("sends an empty env var list when the last variable is removed, so the update clears the stored ones", async () => {
     const user = userEvent.setup();
-    updateMock.mockResolvedValueOnce({ name: "test" });
+    updateMock.mockResolvedValueOnce(makeLibrarySkillDetail({ name: "test" }));
     render(
       <SkillForm
         mode="edit"

@@ -6,36 +6,39 @@
  */
 
 import { renderHook, waitFor } from "@testing-library/react";
-import type { Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
+import { makeKnowledgeDocument, makeKnowledgePage } from "@/test-fixtures/knowledge";
 
-const h = vi.hoisted(() => ({ knowledgeList: vi.fn() }));
+type Api = typeof import("@/lib/api").api;
+
+const h = vi.hoisted(() => ({ knowledgeList: vi.fn<Api["knowledge"]["list"]>() }));
 
 vi.mock("@/lib/api", () => ({
   api: {
-    secrets: { list: async () => ({ secrets: [] }) },
-    channels: { list: async () => ({ channels: [] }) },
+    secrets: { list: (async () => ({ secrets: [] })) satisfies Api["secrets"]["list"] },
+    channels: { list: (async () => ({ channels: [] })) satisfies Api["channels"]["list"] },
     knowledge: { list: h.knowledgeList },
-    hooks: { list: async () => ({ hooks: [] }), functions: async () => ({ hookFunctions: [] }) },
-    room: { get: async () => ({ configured: false }) },
-    optouts: { list: async () => ({ optouts: [] }) },
+    hooks: {
+      list: (async () => ({ hooks: [] })) satisfies Api["hooks"]["list"],
+      functions: (async () => ({ hookFunctions: [] })) satisfies Api["hooks"]["functions"],
+    },
+    room: { get: (async () => ({ configured: false })) satisfies Api["room"]["get"] },
+    optouts: { list: (async () => ({ optouts: [], page: 1 })) satisfies Api["optouts"]["list"] },
   },
 }));
 
 import { useStatusChecks } from "./use-status-checks";
 
 const agent = (knowledgeEnabled: boolean) =>
-  ({ id: "i1", slug: "a1", status: "active", provider: "openai", model: "m", knowledgeEnabled }) as unknown as Instance;
+  makeInstance({ id: "i1", model: "m", knowledgeEnabled });
 
 describe("useStatusChecks — knowledge", () => {
   beforeEach(() => {
     h.knowledgeList.mockReset();
     // An agent with many documents: the page holds one, the counts hold them all.
-    h.knowledgeList.mockResolvedValue({
-      documents: [{ id: "d1", filename: "a.md", status: "ready" }],
-      nextOffset: 1,
-      total: 700,
-      failed: 3,
-    });
+    h.knowledgeList.mockResolvedValue(
+      makeKnowledgePage([makeKnowledgeDocument({ id: "d1", filename: "a.md" })], { nextOffset: 1, total: 700, failed: 3 }),
+    );
   });
 
   it("counts the failed documents of the whole agent", async () => {

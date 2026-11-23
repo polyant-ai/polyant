@@ -15,12 +15,12 @@ vi.mock("@/lib/i18n/context", () => ({
   })),
 }));
 
-const createMock = vi.fn();
+const createMock = vi.fn<typeof import("@/lib/api").api.memories.create>();
 
 vi.mock("@/lib/api", () => ({
   api: {
     memories: {
-      create: (...args: unknown[]) => createMock(...args),
+      create: (...args: Parameters<typeof createMock>) => createMock(...args),
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),

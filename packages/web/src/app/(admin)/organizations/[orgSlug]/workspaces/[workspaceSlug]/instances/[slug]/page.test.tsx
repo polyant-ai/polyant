@@ -70,7 +70,8 @@ vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
 }));
 
-const mockInstancesGet = vi.fn();
+type Api = typeof import("@/lib/api").api;
+const mockInstancesGet = vi.fn<Api["instances"]["get"]>();
 const mockUseStatusChecks = vi.fn((_input: {
   instance: Instance | null;
   tools: unknown[];
@@ -98,13 +99,13 @@ vi.mock("./use-status-checks", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { get: (...args: unknown[]) => mockInstancesGet(...args), delete: vi.fn() },
-    tools: { list: vi.fn(() => Promise.resolve({ tools: [] })) },
-    skills: { list: vi.fn(() => Promise.resolve({ skills: [] })) },
-    prompts: { list: vi.fn(() => Promise.resolve({ prompts: [] })) },
+    instances: { get: (slug: string) => mockInstancesGet(slug), delete: vi.fn() },
+    tools: { list: vi.fn<Api["tools"]["list"]>(() => Promise.resolve({ tools: [] })) },
+    skills: { list: vi.fn<Api["skills"]["list"]>(() => Promise.resolve({ skills: [] })) },
+    prompts: { list: vi.fn<Api["prompts"]["list"]>(() => Promise.resolve({ prompts: [] })) },
     exportImport: { exportInstance: vi.fn() },
     // The star beside the name reads the person's favorites; none here.
-    me: { favoriteAgents: vi.fn(() => Promise.resolve({ agentIds: [] })) },
+    me: { favoriteAgents: vi.fn<Api["me"]["favoriteAgents"]>(() => Promise.resolve({ agentIds: [] })) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -146,45 +147,23 @@ vi.mock("./privacy-tab", () => ({ PrivacyTab: () => <div>tab-body:privacy</div> 
 import InstanceDetailPage from "./page";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { makeInstance as makeBaseInstance } from "@/test-fixtures/api";
 import { DEFAULT_AGENT_TAB } from "@/lib/nav/agent-sections";
 
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
+const makeInstance = (overrides: Partial<Instance> = {}): Instance =>
+  makeBaseInstance({
     slug: "test-instance",
     name: "Test Instance",
     description: "A test instance",
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    effectiveProvider: "openai",
-    effectiveModel: "gpt-4o",
     memoryEnabled: true,
-    knowledgeEnabled: false,
-    langsmithEnabled: false,
-    langsmithProject: null,
     authEnabled: false,
-    thinkingEnabled: false,
-    stateInPromptEnabled: false,
     datetimeInjectionEnabled: true,
-    cacheEnabled: true,
     cacheTtl: "1h",
-    toolResultsInHistoryEnabled: false,
-    toolHistoryReplay: "compact",
-    debugEnabled: false,
-    optoutEnabled: false,
-    optoutStopKeywords: [],
-    optoutResumeKeywords: [],
-    optoutClosingMessage: null,
-    optoutResumeMessage: null,
-    optoutInjectPromptHint: false,
     sttProvider: "openai",
-    icon: null,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     ...overrides,
-  } as Instance;
-}
+  });
 
 /**
  * Ground truth for the addresses, hard-coded rather than imported from the

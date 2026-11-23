@@ -11,30 +11,27 @@
  */
 
 import { runStatusChecks, statusVerdict, type StatusCheckInput } from "./status-checks";
+import { makeInstance, makeToolState } from "@/test-fixtures/api";
 import type { Instance, ToolState } from "@/lib/api";
 
 function agent(overrides: Partial<Instance> = {}): Instance {
-  return {
+  // The panel reads the effective pair the engine resolves, so a test that sets
+  // `provider` means the agent runs on it.
+  const { provider = "openai", model = "gpt-5.6" } = overrides;
+  return makeInstance({
     id: "i1",
-    slug: "a1",
-    name: "A1",
-    status: "active",
-    provider: "openai",
-    model: "gpt-5.6",
-    authEnabled: true,
-    a2aEnabled: false,
-    debugEnabled: false,
-    memoryEnabled: false,
-    knowledgeEnabled: false,
+    model,
+    effectiveProvider: provider ?? "openai",
+    effectiveModel: model ?? "gpt-5.6",
     ...overrides,
-  } as unknown as Instance;
+  });
 }
 
 /** Everything readable, everything in order: the baseline that must stay silent. */
 function input(overrides: Partial<StatusCheckInput> = {}): StatusCheckInput {
   return {
     instance: agent(),
-    tools: [{ name: "t1", description: "", category: "general", enabled: true } as ToolState],
+    tools: [makeToolState()],
     skills: [],
     secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }],
     channels: [{ channelType: "telegram", enabled: true, config: { botToken: "x" } }],

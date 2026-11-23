@@ -3,11 +3,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const mockSettings = vi.fn();
-const mockUpdate = vi.fn();
+type Platform = typeof import("@/lib/api").api.platform;
+const mockSettings = vi.fn<Platform["settings"]>();
+const mockUpdate = vi.fn<Platform["updateSettings"]>();
 
 vi.mock("@/lib/api", () => ({
-  api: { platform: { settings: (...args: unknown[]) => mockSettings(...args), updateSettings: (...args: unknown[]) => mockUpdate(...args) } },
+  api: { platform: { settings: (...args: Parameters<Platform["settings"]>) => mockSettings(...args), updateSettings: (...args: Parameters<Platform["updateSettings"]>) => mockUpdate(...args) } },
   PLATFORM_SETTING_NUMBERS: [
     "analyticsRetentionDays",
     "sseMaxConnections",
@@ -28,9 +29,10 @@ vi.mock("@/lib/i18n/context", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+import type { PlatformSettings, PlatformSettingsResponse } from "@/lib/api";
 import { PlatformTab } from "./platform-tab";
 
-const SETTINGS = {
+const SETTINGS: PlatformSettings = {
   analyticsRetentionDays: null,
   sseMaxConnections: null,
   sseMaxConnectionsPerUser: null,
@@ -43,13 +45,30 @@ const SETTINGS = {
   baseUrl: null,
 };
 
+/** What is in force: every number resolved, as the engine returns it next to the stored `settings`. */
+function effective(over: Partial<PlatformSettingsResponse["effective"]> = {}): PlatformSettingsResponse["effective"] {
+  return {
+    analyticsRetentionDays: 365,
+    sseMaxConnections: 1000,
+    sseMaxConnectionsPerUser: 10,
+    throttleTtlMs: 60000,
+    throttleLimit: 100,
+    agentCallTimeoutMs: 120000,
+    mcpConnectTimeoutMs: 10000,
+    schedulerOrphanGraceMs: 60000,
+    schedulerDefaultMaxRunMs: 600000,
+    baseUrl: "http://localhost:3000",
+    ...over,
+  };
+}
+
 describe("PlatformTab — a failed load", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("shows the reason and a retry instead of an endless skeleton, and the retry loads the form", async () => {
     mockSettings.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({
       settings: SETTINGS,
-      effective: { ...SETTINGS, analyticsRetentionDays: 90, baseUrl: "http://localhost:3000" },
+      effective: effective({ analyticsRetentionDays: 90 }),
     });
 
     render(<PlatformTab />);
@@ -67,8 +86,8 @@ describe("PlatformTab — saving", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("has one Save at the top, off until a value is edited, and sends the edit", async () => {
-    mockSettings.mockResolvedValue({ settings: SETTINGS, effective: { ...SETTINGS, analyticsRetentionDays: 90, baseUrl: "http://x" } });
-    mockUpdate.mockResolvedValue({ settings: { ...SETTINGS, analyticsRetentionDays: 30 }, effective: SETTINGS });
+    mockSettings.mockResolvedValue({ settings: SETTINGS, effective: effective({ analyticsRetentionDays: 90, baseUrl: "http://x" }) });
+    mockUpdate.mockResolvedValue({ settings: { ...SETTINGS, analyticsRetentionDays: 30 }, effective: effective() });
     render(<PlatformTab />);
 
     const save = await screen.findByRole("button", { name: "common.save" });

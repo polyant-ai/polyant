@@ -20,7 +20,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
+import { makeInstance as baseInstance } from "@/test-fixtures/api";
+import { makeKnowledgeDocument, makeKnowledgeDocumentDetail, makeKnowledgePage } from "@/test-fixtures/knowledge";
 import type { Instance } from "@/lib/api";
+
+const makeInstance = (overrides: Partial<Instance> = {}) => baseInstance({ knowledgeEnabled: true, ...overrides });
 
 function SaveButton() {
   const { saveAction } = usePageActions();
@@ -47,11 +51,11 @@ function renderWithProvider(ui: ReactElement) {
 const tabReady = () => screen.findByLabelText("knowledge.tab.enableTitle");
 
 const { mockSetEnabled, mockGet, mockList, mockDelete, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockSetEnabled: vi.fn(),
-  mockDelete: vi.fn(),
-  mockGet: vi.fn(),
-  mockList: vi.fn(),
-  mockUpdate: vi.fn(),
+  mockSetEnabled: vi.fn<typeof import("@/lib/api").api.knowledge.setEnabled>(),
+  mockDelete: vi.fn<typeof import("@/lib/api").api.knowledge.delete>(),
+  mockGet: vi.fn<typeof import("@/lib/api").api.knowledge.get>(),
+  mockList: vi.fn<typeof import("@/lib/api").api.knowledge.list>(),
+  mockUpdate: vi.fn<typeof import("@/lib/api").api.instances.update>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
 }));
@@ -78,32 +82,16 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    knowledge: { list: (...args: unknown[]) => mockList(...args), get: (...args: unknown[]) => mockGet(...args), setEnabled: (...args: unknown[]) => mockSetEnabled(...args), delete: (...args: unknown[]) => mockDelete(...args) },
-    instances: { update: (...args: unknown[]) => mockUpdate(...args) },
+    knowledge: { list: mockList, get: mockGet, setEnabled: mockSetEnabled, delete: mockDelete },
+    instances: { update: mockUpdate },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
-    slug: "a1",
-    name: "A1",
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    knowledgeEnabled: true,
-    embeddingProvider: "openai",
-    createdAt: null,
-    updatedAt: null,
-    ...overrides,
-  } as unknown as Instance;
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  mockList.mockResolvedValue({ documents: [] });
-  mockUpdate.mockImplementation(async (_slug: string, patch: Record<string, unknown>) => ({
+  mockList.mockResolvedValue(makeKnowledgePage([]));
+  mockUpdate.mockImplementation(async (_slug, patch) => ({
     instance: makeInstance(patch as Partial<Instance>),
   }));
 });
@@ -297,11 +285,9 @@ describe("KnowledgeTab — the retrieval switch", () => {
 
 describe("KnowledgeTab — document sizes", () => {
   it("prints a unit for a document of 1 GB or more", async () => {
-    mockList.mockResolvedValue({
-      documents: [
-        { id: "d1", filename: "big.pdf", sizeBytes: 3 * 1024 ** 3, status: "ready", chunkCount: 4, createdAt: "2026-01-01T00:00:00Z" },
-      ],
-    });
+    mockList.mockResolvedValue(makeKnowledgePage([
+        makeKnowledgeDocument({ id: "d1", filename: "big.pdf", sizeBytes: 3 * 1024 ** 3, status: "ready", chunkCount: 4, createdAt: "2026-01-01T00:00:00Z" }),
+      ]));
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText(/3 GB/)).toBeInTheDocument());
@@ -311,13 +297,12 @@ describe("KnowledgeTab — document sizes", () => {
 
 describe("KnowledgeTab — a list longer than one page", () => {
   it("shows a document once when an upload between two pages pushes it onto the next one", async () => {
-    const doc = (id: string, filename: string) =>
-      ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+    const doc = (id: string, filename: string) => makeKnowledgeDocument({ id, filename });
     // Newest first: a new document arrived after the first page was read, so the
     // second page starts one row back and repeats the first page's last document.
     mockList
-      .mockResolvedValueOnce({ documents: [doc("d2", "second.md"), doc("d1", "boundary.md")], nextOffset: 2 })
-      .mockResolvedValueOnce({ documents: [doc("d1", "boundary.md"), doc("d0", "oldest.md")], nextOffset: null });
+      .mockResolvedValueOnce(makeKnowledgePage([doc("d2", "second.md"), doc("d1", "boundary.md")], { nextOffset: 2 }))
+      .mockResolvedValueOnce(makeKnowledgePage([doc("d1", "boundary.md"), doc("d0", "oldest.md")], { nextOffset: null }));
 
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
 
@@ -328,13 +313,13 @@ describe("KnowledgeTab — a list longer than one page", () => {
 
 describe("KnowledgeTab — the document list", () => {
   const docs = [
-    { id: "d1", filename: "guide.md", sizeBytes: 2048, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" },
-    { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
-    { id: "d3", filename: "broken.pdf", sizeBytes: 5, status: "error", enabled: true, chunkCount: 0, errorMessage: "no text layer", createdAt: "2026-01-01T00:00:00Z" },
+    makeKnowledgeDocument({ id: "d1", filename: "guide.md", sizeBytes: 2048, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" }),
+    makeKnowledgeDocument({ id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" }),
+    makeKnowledgeDocument({ id: "d3", filename: "broken.pdf", sizeBytes: 5, status: "error", enabled: true, chunkCount: 0, errorMessage: "no text layer", createdAt: "2026-01-01T00:00:00Z" }),
   ];
   beforeEach(() => {
-    mockList.mockResolvedValue({ documents: docs });
-    mockGet.mockResolvedValue({ document: { rawContent: "# Guide body" } });
+    mockList.mockResolvedValue(makeKnowledgePage(docs));
+    mockGet.mockResolvedValue({ document: makeKnowledgeDocumentDetail() });
   });
   const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
 
@@ -402,7 +387,7 @@ describe("KnowledgeTab — the document list", () => {
   });
 
   it("deletes only from the drawer, after the confirmation", async () => {
-    mockDelete.mockResolvedValue({});
+    mockDelete.mockResolvedValue({ deleted: true });
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
     await screen.findByText("guide.md");
     await userEvent.click(rowOf("guide.md"));
@@ -434,12 +419,10 @@ describe("KnowledgeTab — the document list", () => {
   });
 
   it("lists the documents alphabetically by filename", async () => {
-    mockList.mockResolvedValue({
-      documents: [
-        { id: "d9", filename: "zebra.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" },
-        { id: "d8", filename: "apple.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" },
-      ],
-    });
+    mockList.mockResolvedValue(makeKnowledgePage([
+        makeKnowledgeDocument({ id: "d9", filename: "zebra.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" }),
+        makeKnowledgeDocument({ id: "d8", filename: "apple.md", sizeBytes: 1, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" }),
+      ]));
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
     await screen.findByText("zebra.md");
     const names = screen.getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0].textContent);
@@ -463,7 +446,7 @@ describe("KnowledgeTab — the document list", () => {
   });
 
   it("says there are no documents, with a hint, when the list is empty", async () => {
-    mockList.mockResolvedValue({ documents: [] });
+    mockList.mockResolvedValue(makeKnowledgePage([]));
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
     expect(await screen.findByText("knowledge.tab.empty")).toBeInTheDocument();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
@@ -471,10 +454,10 @@ describe("KnowledgeTab — the document list", () => {
 });
 
 describe("KnowledgeTab — the switch on a document", () => {
-  const docs = [{ id: "d1", filename: "guide.md", sizeBytes: 10, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" }];
+  const docs = [makeKnowledgeDocument({ id: "d1", filename: "guide.md", sizeBytes: 10, status: "ready", enabled: true, chunkCount: 2, createdAt: "2026-01-01T00:00:00Z" })];
   beforeEach(() => {
-    mockList.mockResolvedValue({ documents: docs });
-    mockGet.mockResolvedValue({ document: { rawContent: "# Guide body" } });
+    mockList.mockResolvedValue(makeKnowledgePage(docs));
+    mockGet.mockResolvedValue({ document: makeKnowledgeDocumentDetail() });
     mockSetEnabled.mockResolvedValue({ id: "d1", enabled: false });
   });
   const docSwitch = () => screen.findByRole("switch", { name: /knowledge\.tab\.docEnabled guide\.md/ });
@@ -509,13 +492,13 @@ describe("KnowledgeTab — the switch on a document", () => {
 });
 
 describe("KnowledgeTab — an agent with more documents than one page", () => {
-  const doc = (id: string, filename: string) => ({ id, filename, sizeBytes: 10, status: "ready", enabled: true, chunkCount: 1, createdAt: "2026-01-01T00:00:00Z" });
+  const doc = (id: string, filename: string) => makeKnowledgeDocument({ id, filename });
 
   it("follows the engine's pages until the last, and lists every document", async () => {
     mockList.mockImplementation(async (_slug: string, page?: { offset?: number }) =>
       page?.offset === 1
-        ? { documents: [doc("d2", "second-page.md")], nextOffset: null }
-        : { documents: [doc("d1", "first-page.md")], nextOffset: 1 },
+        ? makeKnowledgePage([doc("d2", "second-page.md")], { nextOffset: null })
+        : makeKnowledgePage([doc("d1", "first-page.md")], { nextOffset: 1 }),
     );
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
 
@@ -526,7 +509,7 @@ describe("KnowledgeTab — an agent with more documents than one page", () => {
   });
 
   it("asks once when the engine names no next page", async () => {
-    mockList.mockResolvedValue({ documents: [doc("d1", "only.md")] });
+    mockList.mockResolvedValue(makeKnowledgePage([doc("d1", "only.md")]));
     renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
 
     await screen.findByText("only.md");
@@ -536,7 +519,7 @@ describe("KnowledgeTab — an agent with more documents than one page", () => {
 
 describe("KnowledgeTab — refreshing documents still in processing", () => {
   const processing = [
-    { id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" },
+    makeKnowledgeDocument({ id: "d2", filename: "later.md", sizeBytes: 10, status: "processing", enabled: true, chunkCount: 0, createdAt: "2026-01-01T00:00:00Z" }),
   ];
   const setHidden = (hidden: boolean) => Object.defineProperty(document, "hidden", { value: hidden, configurable: true });
   /** Let time pass one polling step at a time, so each answer renders before the next step. */
@@ -547,7 +530,7 @@ describe("KnowledgeTab — refreshing documents still in processing", () => {
   beforeEach(() => {
     // Only the polling interval is driven by hand; everything else keeps real time.
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    mockList.mockResolvedValue({ documents: processing });
+    mockList.mockResolvedValue(makeKnowledgePage(processing));
   });
   afterEach(() => {
     vi.useRealTimers();

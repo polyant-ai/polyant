@@ -4,14 +4,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { mockWebhookUrl, mockRotate, mockSet } = vi.hoisted(() => ({
-  mockWebhookUrl: vi.fn(),
-  mockRotate: vi.fn(),
-  mockSet: vi.fn(),
+type Channels = typeof import("@/lib/api").api.channels;
+
+const { mockWebhookUrl, mockRotate, mockSet, mockDelete } = vi.hoisted(() => ({
+  mockWebhookUrl: vi.fn<Channels["webhookUrl"]>(),
+  mockRotate: vi.fn<Channels["rotateWebhookSecret"]>(),
+  mockSet: vi.fn<Channels["set"]>(),
+  mockDelete: vi.fn<Channels["delete"]>(),
 }));
 
 vi.mock("@/lib/api", () => ({
-  api: { channels: { webhookUrl: mockWebhookUrl, rotateWebhookSecret: mockRotate, set: mockSet, delete: vi.fn() } },
+  api: { channels: { webhookUrl: mockWebhookUrl, rotateWebhookSecret: mockRotate, set: mockSet, delete: mockDelete } },
   getUserErrorMessage: (_e: unknown, fallback: string) => fallback,
 }));
 

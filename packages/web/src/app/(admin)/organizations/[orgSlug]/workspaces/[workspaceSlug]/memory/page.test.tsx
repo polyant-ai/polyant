@@ -2,19 +2,23 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { makeInstance } from "@/test-fixtures/api";
+import { makeMemory, makeMemoryPage } from "@/test-fixtures/memory";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockInstancesList = vi.fn();
-const mockMemoriesList = vi.fn();
-const mockMemoriesDelete = vi.fn();
+const { mockInstancesList, mockMemoriesList, mockMemoriesDelete } = vi.hoisted(() => ({
+  mockInstancesList: vi.fn<typeof import("@/lib/api").api.instances.list>(),
+  mockMemoriesList: vi.fn<typeof import("@/lib/api").api.memories.list>(),
+  mockMemoriesDelete: vi.fn<typeof import("@/lib/api").api.memories.delete>(),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { list: (...args: unknown[]) => mockInstancesList(...args) },
+    instances: { list: mockInstancesList },
     memories: {
-      list: (...args: unknown[]) => mockMemoriesList(...args),
-      delete: (...args: unknown[]) => mockMemoriesDelete(...args),
+      list: mockMemoriesList,
+      delete: mockMemoriesDelete,
     },
   },
   getUserErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
@@ -84,12 +88,7 @@ describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInstancesList.mockResolvedValue({ instances: [] });
-    mockMemoriesList.mockResolvedValue({
-      memories: [],
-      total: 0,
-      limit: 20,
-      offset: 0,
-    });
+    mockMemoriesList.mockResolvedValue(makeMemoryPage());
   });
 
   /**
@@ -142,7 +141,7 @@ describe("MemoryPage", () => {
   });
 
   it("preselects the first agent instead of opening on an empty page", async () => {
-    mockInstancesList.mockResolvedValue({ instances: [{ slug: "alpha", name: "Alpha" }, { slug: "beta", name: "Beta" }] });
+    mockInstancesList.mockResolvedValue({ instances: [makeInstance({ slug: "alpha", name: "Alpha" }), makeInstance({ slug: "beta", name: "Beta" })] });
     render(<MemoryPage />);
 
     // Catches the page opening blank and waiting for a pick before showing anything.
@@ -154,12 +153,12 @@ describe("MemoryPage", () => {
   // The list must show the agent picked, even when the previous agent's
   // memories answer last.
   it("shows the memories of the agent picked, not of a slower previous one", async () => {
-    mockInstancesList.mockResolvedValue({ instances: [{ slug: "alpha", name: "Alpha" }, { slug: "beta", name: "Beta" }] });
-    let answerAlpha: (value: unknown) => void = () => {};
-    mockMemoriesList.mockImplementation(({ instanceId }: { instanceId: string }) =>
-      instanceId === "alpha"
+    mockInstancesList.mockResolvedValue({ instances: [makeInstance({ slug: "alpha", name: "Alpha" }), makeInstance({ slug: "beta", name: "Beta" })] });
+    let answerAlpha: (value: Awaited<ReturnType<typeof mockMemoriesList>>) => void = () => {};
+    mockMemoriesList.mockImplementation((params) =>
+      params?.instanceId === "alpha"
         ? new Promise((resolve) => (answerAlpha = resolve))
-        : Promise.resolve({ memories: [{ id: "b1", content: "Beta memory", category: "fact", importance: 5, updatedAt: "2026-10-01T00:00:00Z" }], total: 1, limit: 20, offset: 0 }),
+        : Promise.resolve(makeMemoryPage([makeMemory({ id: "b1", content: "Beta memory" })])),
     );
     const user = userEvent.setup();
     render(<MemoryPage />);
@@ -169,7 +168,7 @@ describe("MemoryPage", () => {
     await user.click(await screen.findByRole("option", { name: "Beta" }));
     expect(await screen.findByText("Beta memory")).toBeInTheDocument();
 
-    answerAlpha({ memories: [{ id: "a1", content: "Alpha memory", category: "fact", importance: 5, updatedAt: "2026-10-01T00:00:00Z" }], total: 1, limit: 20, offset: 0 });
+    answerAlpha(makeMemoryPage([makeMemory({ id: "a1", content: "Alpha memory" })]));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText("Alpha memory")).not.toBeInTheDocument();
     expect(screen.getByText("Beta memory")).toBeInTheDocument();
@@ -193,13 +192,13 @@ describe("MemoryPage", () => {
 
   describe("with memories", () => {
     const MEMORIES = [
-      { id: "m1", content: "Lives in Rome", category: "fact", importance: 6, updatedAt: "2026-10-01T00:00:00Z" },
-      { id: "m2", content: "Prefers Italian", category: "preference", importance: 3, updatedAt: "2026-09-01T00:00:00Z" },
+      makeMemory({ id: "m1", content: "Lives in Rome", category: "fact", importance: 6 }),
+      makeMemory({ id: "m2", content: "Prefers Italian", category: "preference", importance: 3, updatedAt: "2026-09-01T00:00:00Z" }),
     ];
 
     beforeEach(() => {
-      mockMemoriesList.mockResolvedValue({ memories: MEMORIES, total: 2, limit: 20, offset: 0 });
-      mockMemoriesDelete.mockResolvedValue({});
+      mockMemoriesList.mockResolvedValue(makeMemoryPage(MEMORIES));
+      mockMemoriesDelete.mockResolvedValue({ deleted: true });
     });
 
     it("keeps the engine's newest-first order rather than sorting by text", async () => {

@@ -5,15 +5,17 @@ import userEvent from "@testing-library/user-event";
 import { HooksTab } from "./hooks-tab";
 import type { HookFunctionInfo, InstanceHook } from "@/lib/api";
 
+type Api = typeof import("@/lib/api").api;
+
 const { mockHookDelete, mockHooksList, mockHookFunctions, mockHookCreate, mockHookUpdate, mockSecretsList, mockSecretsSet, mockRequiredSecrets } = vi.hoisted(() => ({
-  mockHookDelete: vi.fn(),
-  mockHooksList: vi.fn(),
-  mockHookCreate: vi.fn(),
-  mockHookUpdate: vi.fn(),
-  mockHookFunctions: vi.fn(),
-  mockSecretsList: vi.fn(),
-  mockSecretsSet: vi.fn(),
-  mockRequiredSecrets: vi.fn(),
+  mockHookDelete: vi.fn<Api["hooks"]["delete"]>(),
+  mockHooksList: vi.fn<Api["hooks"]["list"]>(),
+  mockHookCreate: vi.fn<Api["hooks"]["create"]>(),
+  mockHookUpdate: vi.fn<Api["hooks"]["update"]>(),
+  mockHookFunctions: vi.fn<Api["hooks"]["functions"]>(),
+  mockSecretsList: vi.fn<Api["secrets"]["list"]>(),
+  mockSecretsSet: vi.fn<Api["secrets"]["set"]>(),
+  mockRequiredSecrets: vi.fn<Api["tools"]["requiredSecrets"]>(),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -25,16 +27,16 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/api", () => ({
   api: {
     hooks: {
-      list: (...a: unknown[]) => mockHooksList(...a),
-      functions: (...a: unknown[]) => mockHookFunctions(...a),
-      create: (...a: unknown[]) => mockHookCreate(...a),
-      update: (...a: unknown[]) => mockHookUpdate(...a),
-      delete: (...a: unknown[]) => mockHookDelete(...a),
+      list: mockHooksList,
+      functions: mockHookFunctions,
+      create: mockHookCreate,
+      update: mockHookUpdate,
+      delete: mockHookDelete,
     },
-    tools: { requiredSecrets: (...a: unknown[]) => mockRequiredSecrets(...a) },
+    tools: { requiredSecrets: mockRequiredSecrets },
     secrets: {
-      list: (...a: unknown[]) => mockSecretsList(...a),
-      set: (...a: unknown[]) => mockSecretsSet(...a),
+      list: mockSecretsList,
+      set: mockSecretsSet,
       delete: vi.fn(),
     },
   },
@@ -203,7 +205,7 @@ describe("HooksTab — parameters", () => {
 
   it("asks for the chosen function's keys while adding a hook, and writes them with it", async () => {
     const user = userEvent.setup();
-    mockHookCreate.mockResolvedValue({});
+    mockHookCreate.mockResolvedValue({ hook: hook("translate", true) });
     render(<HooksTab slug="agent-1" />);
 
     await user.click(await screen.findByRole("button", { name: "hooks.add" }));

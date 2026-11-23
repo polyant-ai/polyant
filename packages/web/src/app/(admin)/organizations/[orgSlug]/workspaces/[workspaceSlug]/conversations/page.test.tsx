@@ -2,17 +2,18 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ConversationListItem, Instance } from "@/lib/api";
+import type { Instance } from "@/lib/api";
+import { makeConversationListItem } from "@/test-fixtures/conversations";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockConversationsList = vi.fn();
-const mockInstancesList = vi.fn();
+const mockConversationsList = vi.fn<typeof import("@/lib/api").api.conversations.list>();
+const mockInstancesList = vi.fn<typeof import("@/lib/api").api.instances.list>();
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { list: (...args: unknown[]) => mockInstancesList(...args) },
-    conversations: { list: (...args: unknown[]) => mockConversationsList(...args) },
+    instances: { list: (...args: Parameters<typeof mockInstancesList>) => mockInstancesList(...args) },
+    conversations: { list: (...args: Parameters<typeof mockConversationsList>) => mockConversationsList(...args) },
   },
 }));
 
@@ -90,30 +91,7 @@ import ConversationsPage from "./page";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeConversation(overrides: Partial<ConversationListItem> = {}): ConversationListItem {
-  return {
-    id: "c1",
-    conversationId: "conv-1",
-    title: "Test Conversation",
-    summary: "A summary",
-    channel: "telegram",
-    userIdentifier: null,
-    instanceId: "inst-1",
-    instanceName: "My Instance",
-    messageCount: 5,
-    totalTokens: 1200,
-    totalCost: 0.0035,
-    conversationTokens: 1000,
-    conversationCost: 0.003,
-    serviceTokens: 200,
-    serviceCost: 0.0005,
-    cachedInputTokens: 0,
-    cacheCreationInputTokens: 0,
-    createdAt: "2025-01-01T00:00:00Z",
-    updatedAt: "2025-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
+const makeConversation = makeConversationListItem;
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {

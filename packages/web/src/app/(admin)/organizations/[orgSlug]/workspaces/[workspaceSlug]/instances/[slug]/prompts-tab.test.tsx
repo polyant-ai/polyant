@@ -6,7 +6,7 @@ import { PromptsTab } from "./prompts-tab";
 import type { PromptSection } from "@/lib/api";
 
 const { mockPromptsUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockPromptsUpdate: vi.fn(),
+  mockPromptsUpdate: vi.fn<typeof import("@/lib/api").api.prompts.update>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
 }));
@@ -37,7 +37,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
-    api: { prompts: { update: (...args: unknown[]) => mockPromptsUpdate(...args) } },
+    api: { prompts: { update: mockPromptsUpdate } },
   };
 });
 

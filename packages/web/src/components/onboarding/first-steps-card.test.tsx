@@ -10,7 +10,7 @@ import { act, render, screen } from "@testing-library/react";
 import type { OnboardingState } from "@/lib/api-types";
 
 const h = vi.hoisted(() => ({
-  onboarding: { value: null as unknown as OnboardingState },
+  onboarding: { value: undefined as OnboardingState | undefined },
   facts: { value: {} as Record<string, boolean> },
   openWizard: vi.fn(),
 }));

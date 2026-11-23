@@ -18,12 +18,17 @@ import { ChannelsTab } from "./channels-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { api, type ChannelConfig } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
+import { makeChannel, makeInstance } from "@/test-fixtures/api";
 
-const { mockList, mockSet, mockDelete, mockInstanceUpdate } = vi.hoisted(() => ({
-  mockInstanceUpdate: vi.fn(),
-  mockList: vi.fn(),
-  mockSet: vi.fn(),
-  mockDelete: vi.fn(),
+type ApiType = typeof import("@/lib/api").api;
+
+const { mockList, mockSet, mockDelete, mockInstanceUpdate, mockWebhookUrl, mockRotateWebhookSecret } = vi.hoisted(() => ({
+  mockInstanceUpdate: vi.fn<ApiType["instances"]["update"]>(),
+  mockList: vi.fn<ApiType["channels"]["list"]>(),
+  mockSet: vi.fn<ApiType["channels"]["set"]>(),
+  mockDelete: vi.fn<ApiType["channels"]["delete"]>(),
+  mockWebhookUrl: vi.fn<ApiType["channels"]["webhookUrl"]>(),
+  mockRotateWebhookSecret: vi.fn<ApiType["channels"]["rotateWebhookSecret"]>(),
 }));
 
 const stableT = (key: string) => key;
@@ -40,25 +45,23 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/api", () => ({
   api: {
     channels: {
-      list: (...args: unknown[]) => mockList(...args),
-      set: (...args: unknown[]) => mockSet(...args),
-      delete: (...args: unknown[]) => mockDelete(...args),
-      webhookUrl: vi.fn().mockResolvedValue({ webhookUrl: "" }),
-      rotateWebhookSecret: vi.fn().mockResolvedValue({ webhookUrl: "" }),
+      list: mockList,
+      set: mockSet,
+      delete: mockDelete,
+      webhookUrl: mockWebhookUrl,
+      rotateWebhookSecret: mockRotateWebhookSecret,
     },
     // A2A is not a channel: it persists through the instance endpoint.
-    instances: { update: (...args: unknown[]) => mockInstanceUpdate(...args) },
+    instances: { update: mockInstanceUpdate },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
 function channel(channelType: string, enabled: boolean): ChannelConfig {
-  return { channelType, enabled, config: {} } as unknown as ChannelConfig;
+  return makeChannel({ channelType, enabled });
 }
 
-/** Only `a2aEnabled` is read by the component; the cast keeps the fixture honest
- *  about that instead of stubbing forty unrelated instance fields. */
-const INSTANCE = { a2aEnabled: false } as never;
+const INSTANCE = makeInstance({ a2aEnabled: false });
 
 /**
  * The Save this tab registers is rendered by the PAGE HEADER, which is not in the
@@ -112,6 +115,8 @@ beforeEach(() => {
   mockList.mockResolvedValue({ channels: [] });
   mockSet.mockResolvedValue({ channel: null });
   mockDelete.mockResolvedValue({ deleted: true });
+  mockWebhookUrl.mockResolvedValue({ webhookUrl: "" });
+  mockRotateWebhookSecret.mockResolvedValue({ webhookUrl: "" });
 });
 
 describe("ChannelsTab — the switch is the only state control", () => {
@@ -192,7 +197,7 @@ describe("ChannelsTab — the generic field-list section", () => {
   it("masks a sensitive field behind the eye toggle and reveals it on click", async () => {
     mockList.mockResolvedValue({
       channels: [
-        { channelType: "telegram", enabled: true, config: { botToken: "sk-masked-1234" } } as unknown as ChannelConfig,
+        makeChannel({ config: { botToken: "sk-masked-1234" } }),
       ],
     });
 
@@ -309,7 +314,7 @@ describe("ChannelsTab — the A2A protocol switch", () => {
   });
 
   it("persists through the INSTANCE endpoint, never the channel one", async () => {
-    mockInstanceUpdate.mockResolvedValue({ instance: { a2aEnabled: true } });
+    mockInstanceUpdate.mockResolvedValue({ instance: makeInstance({ a2aEnabled: true }) });
     renderTab("agent");
 
     // ONE switch left in this section: the channel's own state is the On/Off pair

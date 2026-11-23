@@ -2,6 +2,7 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { SkillEnvStatus } from "@/lib/api-types";
 import { SkillEnvPanel } from "./skill-env-panel";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -23,14 +24,14 @@ vi.mock("@/lib/i18n/context", () => ({
   })),
 }));
 
-const getEnvMock = vi.fn();
-const setEnvMock = vi.fn();
+const getEnvMock = vi.fn<typeof import("@/lib/api").api.skills.getEnv>();
+const setEnvMock = vi.fn<typeof import("@/lib/api").api.skills.setEnv>();
 
 vi.mock("@/lib/api", () => ({
   api: {
     skills: {
-      getEnv: (...args: unknown[]) => getEnvMock(...args),
-      setEnv: (...args: unknown[]) => setEnvMock(...args),
+      getEnv: (...args: Parameters<typeof getEnvMock>) => getEnvMock(...args),
+      setEnv: (...args: Parameters<typeof setEnvMock>) => setEnvMock(...args),
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -42,7 +43,7 @@ vi.mock("sonner", () => ({
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
-const envData = [
+const envData: SkillEnvStatus[] = [
   {
     key: "API_KEY",
     value: "",

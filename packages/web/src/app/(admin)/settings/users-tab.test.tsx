@@ -5,11 +5,12 @@ import { renderWithProviders, userEvent } from "@/test-utils";
 import type { AdminUser } from "@/lib/api";
 import { UsersTab } from "./users-tab";
 
+type Users = typeof import("@/lib/api").api.users;
 const { mockList, mockDelete, mockReset, mockUpdate } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockDelete: vi.fn(),
-  mockReset: vi.fn(),
-  mockUpdate: vi.fn(),
+  mockList: vi.fn<Users["list"]>(),
+  mockDelete: vi.fn<Users["delete"]>(),
+  mockReset: vi.fn<Users["resetPassword"]>(),
+  mockUpdate: vi.fn<Users["update"]>(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -22,7 +23,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
         delete: mockDelete,
         resetPassword: mockReset,
         update: mockUpdate,
-        create: vi.fn(),
+        create: vi.fn<Users["create"]>(),
       },
     },
   };

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { ChannelWebTab } from "./channel-web-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { api, type Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
 import { useResource } from "@/hooks/use-resource";
 
 /** Stands in for the page header's save button, which is where this tab's lives. */
@@ -14,28 +15,30 @@ function SaveButton() {
   return <button onClick={() => saveAction.onSave()}>common.save</button>;
 }
 
+type Api = typeof import("@/lib/api").api;
+
 const { mockSecretsList, mockSecretsSet, mockInstanceUpdate, mockToastError, mockChannelsList, mockChannelsSet, mockWebEndpoint } = vi.hoisted(() => ({
-  mockWebEndpoint: vi.fn(),
-  mockChannelsList: vi.fn(),
-  mockChannelsSet: vi.fn(),
-  mockSecretsList: vi.fn(),
-  mockSecretsSet: vi.fn(),
-  mockInstanceUpdate: vi.fn(),
+  mockWebEndpoint: vi.fn<Api["channels"]["webEndpoint"]>(),
+  mockChannelsList: vi.fn<Api["channels"]["list"]>(),
+  mockChannelsSet: vi.fn<Api["channels"]["set"]>(),
+  mockSecretsList: vi.fn<Api["secrets"]["list"]>(),
+  mockSecretsSet: vi.fn<Api["secrets"]["set"]>(),
+  mockInstanceUpdate: vi.fn<Api["instances"]["update"]>(),
   mockToastError: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     secrets: {
-      list: (...a: unknown[]) => mockSecretsList(...a),
-      set: (...a: unknown[]) => mockSecretsSet(...a),
+      list: mockSecretsList,
+      set: mockSecretsSet,
       delete: vi.fn(),
     },
-    instances: { update: (...a: unknown[]) => mockInstanceUpdate(...a) },
+    instances: { update: mockInstanceUpdate },
     channels: {
-      list: (...a: unknown[]) => mockChannelsList(...a),
-      set: (...a: unknown[]) => mockChannelsSet(...a),
-      webEndpoint: (...a: unknown[]) => mockWebEndpoint(...a),
+      list: mockChannelsList,
+      set: mockChannelsSet,
+      webEndpoint: mockWebEndpoint,
     },
   },
   getUserErrorMessage: (_e: unknown, d: string) => d,
@@ -50,7 +53,7 @@ vi.mock("@/lib/i18n/context", () => ({
 }));
 
 function agent(overrides: Partial<Instance> = {}): Instance {
-  return { slug: "bot-1", authEnabled: false, ...overrides } as Instance;
+  return makeInstance({ slug: "bot-1", authEnabled: false, ...overrides });
 }
 
 /** What the section above does for the tab: reads the list and asks again after the channel is saved. */

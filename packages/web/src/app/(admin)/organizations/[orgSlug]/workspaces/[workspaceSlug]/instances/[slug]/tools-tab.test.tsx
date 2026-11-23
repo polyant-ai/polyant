@@ -7,6 +7,8 @@ import type { ToolState, SkillState } from "@/lib/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
+type Api = typeof import("@/lib/api").api;
+
 const {
   mockToastSuccess,
   mockToastError,
@@ -18,11 +20,11 @@ const {
 } = vi.hoisted(() => ({
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
-  mockToolsUpdate: vi.fn(),
-  mockSkillsUpdate: vi.fn(),
-  mockSecretsList: vi.fn(),
-  mockSecretsSet: vi.fn(),
-  mockRequiredSecrets: vi.fn(),
+  mockToolsUpdate: vi.fn<Api["tools"]["update"]>(),
+  mockSkillsUpdate: vi.fn<Api["skills"]["update"]>(),
+  mockSecretsList: vi.fn<Api["secrets"]["list"]>(),
+  mockSecretsSet: vi.fn<Api["secrets"]["set"]>(),
+  mockRequiredSecrets: vi.fn<Api["tools"]["requiredSecrets"]>(),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -51,13 +53,13 @@ const { Forbidden } = vi.hoisted(() => ({ Forbidden: class Forbidden extends Err
 vi.mock("@/lib/api", () => ({
   api: {
     tools: {
-      update: (...args: unknown[]) => mockToolsUpdate(...args),
-      requiredSecrets: (...args: unknown[]) => mockRequiredSecrets(...args),
+      update: mockToolsUpdate,
+      requiredSecrets: mockRequiredSecrets,
     },
-    skills: { update: (...args: unknown[]) => mockSkillsUpdate(...args) },
+    skills: { update: mockSkillsUpdate },
     secrets: {
-      list: (...args: unknown[]) => mockSecretsList(...args),
-      set: (...args: unknown[]) => mockSecretsSet(...args),
+      list: mockSecretsList,
+      set: mockSecretsSet,
       delete: vi.fn(),
     },
   },

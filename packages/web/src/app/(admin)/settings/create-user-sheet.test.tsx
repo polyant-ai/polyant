@@ -3,10 +3,22 @@
 import { screen, waitFor } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
 import { ApiError } from "@/lib/api";
+import type { AdminUser } from "@/lib/api-types";
 import { toast } from "sonner";
 import { CreateUserSheet } from "./create-user-sheet";
 
-const { mockCreate } = vi.hoisted(() => ({ mockCreate: vi.fn() }));
+const { mockCreate } = vi.hoisted(() => ({ mockCreate: vi.fn<typeof import("@/lib/api").api.users.create>() }));
+const ADA: AdminUser = {
+  id: "u-1",
+  email: "ada@example.com",
+  name: null,
+  image: null,
+  isPlatformAdmin: false,
+  mustChangePassword: false,
+  hasPassword: true,
+  createdAt: null,
+  updatedAt: null,
+};
 // A made-up one-time value the drawer shows once; not a credential.
 const ONE_TIME_SECRET = "Gen-Pass-42";
 
@@ -43,7 +55,7 @@ describe("CreateUserSheet", () => {
 
   it("sends trimmed values, leaves a blank password out, and closes", async () => {
     const u = userEvent.setup();
-    mockCreate.mockResolvedValue({ user: { id: "u-1" } });
+    mockCreate.mockResolvedValue({ user: ADA });
     const { onOpenChange, onCreated } = renderDialog();
 
     await u.type(screen.getByLabelText("Email"), "ada@example.com");
@@ -64,7 +76,7 @@ describe("CreateUserSheet", () => {
 
   it("shows a generated password once instead of closing", async () => {
     const u = userEvent.setup();
-    mockCreate.mockResolvedValue({ user: { id: "u-1" }, generatedPassword: ONE_TIME_SECRET });
+    mockCreate.mockResolvedValue({ user: ADA, generatedPassword: ONE_TIME_SECRET });
     const { onOpenChange } = renderDialog();
 
     await u.type(screen.getByLabelText("Email"), "ada@example.com");
