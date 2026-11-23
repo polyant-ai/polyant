@@ -237,6 +237,22 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     memoryConcurrency: z.coerce.number().int().min(1).max(64).default(2),
   }),
 
+  // Channel providers.
+  channels: z.object({
+    /**
+     * Sends every Twilio request (messages, typing indicator, Content API) to
+     * this origin instead of Twilio's hosts, path kept. It exists so the
+     * end-to-end suite can stand in for Twilio with a local server; a real
+     * deployment leaves it unset. Whoever sets it receives the channel's
+     * Twilio credentials, so it is process configuration, never an agent setting.
+     */
+    twilioApiBaseUrl: z
+      .string()
+      .url()
+      .refine((v) => /^https?:$/.test(new URL(v).protocol), "TWILIO_API_BASE_URL must be an http(s) URL")
+      .optional(),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -308,6 +324,9 @@ function loadConfig(): Config {
     backgroundJobs: {
       turnConcurrency: process.env.BACKGROUND_TURN_JOB_CONCURRENCY,
       memoryConcurrency: process.env.BACKGROUND_MEMORY_JOB_CONCURRENCY,
+    },
+    channels: {
+      twilioApiBaseUrl: process.env.TWILIO_API_BASE_URL || undefined,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the
