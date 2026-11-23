@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
 import { SkillsTab } from "./skills-tab";
 import type { SkillState, SkillUpdateResponse } from "@/lib/api";
@@ -33,6 +33,12 @@ vi.mock("./page-actions-context", () => ({
   usePageActions: vi.fn(() => ({ saveAction: null, setSaveAction: vi.fn() })),
   PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
+
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
 
 vi.mock("sonner", () => ({
   toast: {
@@ -314,7 +320,7 @@ describe("SkillsTab", () => {
     renderTab(skills);
 
     await user.click(switchOf("code-review"));
-    await lastSaveAction.current!.onSave();
+    await save();
 
     await waitFor(() => {
       expect(mockSkillsUpdate).toHaveBeenCalledWith(
@@ -331,7 +337,7 @@ describe("SkillsTab", () => {
     mockSkillsUpdate.mockRejectedValueOnce(new Error("Save failed"));
     renderTab();
     await user.click(switchOf("code-review"));
-    await lastSaveAction.current!.onSave();
+    await save();
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Salvataggio fallito"));
   });
 
@@ -349,7 +355,7 @@ describe("SkillsTab", () => {
       />,
     );
     await user.click(switchOf("needs-tool"));
-    await lastSaveAction.current!.onSave();
+    await save();
     await waitFor(() => expect(mockToolsUpdate).toHaveBeenCalledWith("test-instance", ["fetch"]));
   });
 
@@ -359,10 +365,10 @@ describe("SkillsTab", () => {
     mockSkillsUpdate.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
     renderTab();
     await user.click(switchOf("code-review"));
-    const savePromise = lastSaveAction.current!.onSave();
-    await waitFor(() => expect(lastSaveAction.current?.saving).toBe(true));
+    // Starts the save and leaves it pending on the update above.
+    act(() => void lastSaveAction.current!.onSave());
+    expect(lastSaveAction.current?.saving).toBe(true);
     resolveUpdate!({ skills: makeSkills() });
-    await savePromise;
     await waitFor(() => expect(lastSaveAction.current?.saving).toBe(false));
     expect(onSkillsUpdate).toHaveBeenCalled();
   });

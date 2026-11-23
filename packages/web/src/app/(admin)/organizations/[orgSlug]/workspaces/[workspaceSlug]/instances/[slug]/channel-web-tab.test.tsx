@@ -98,10 +98,10 @@ describe("ChannelWebTab", () => {
    * reader happens to remember. "Off" opens all of them, so the copy has to say
    * so rather than leaving an operator to infer it from an endpoint list.
    */
-  it("should_say_the_switch_covers_all_api_access", () => {
+  it("should_say_the_switch_covers_all_api_access", async () => {
     renderTab(agent());
 
-    expect(screen.getByText("channels.tab.webAuthHelp")).toBeInTheDocument();
+    expect(await screen.findByText("channels.tab.webAuthHelp")).toBeInTheDocument();
   });
 
   /**
@@ -160,7 +160,7 @@ describe("ChannelWebTab", () => {
 
     it("shows the key field once a field is mapped, even with authentication off", async () => {
       renderTab(agent({ authEnabled: false, webContextFieldMapping: { phone: "phone" } }));
-      expect(screen.getByText("settings.tab.authApiKey")).toBeInTheDocument();
+      expect(await screen.findByText("settings.tab.authApiKey")).toBeInTheDocument();
     });
 
     it("refuses to save a mapping with no key behind it", async () => {

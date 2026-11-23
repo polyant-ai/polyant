@@ -82,8 +82,10 @@ beforeEach(() => {
 });
 
 describe("AttachmentStorageCard", () => {
-  it("hides the bucket fields while storage is off", () => {
+  it("hides the bucket fields while storage is off", async () => {
     renderWithProvider(<AttachmentStorageCard instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    expect(await screen.findByLabelText("settings.tab.attachmentStorage")).not.toBeChecked();
 
     expect(screen.queryByLabelText("settings.tab.attachmentStorageBucket")).not.toBeInTheDocument();
     expect(screen.queryByText("common.save")).not.toBeInTheDocument();

@@ -19,10 +19,6 @@ const {
   mockUpdateSkill: vi.fn(),
 }));
 
-const { mockDbUpdate } = vi.hoisted(() => ({
-  mockDbUpdate: vi.fn(),
-}));
-
 vi.mock("./skills.store.js", () => ({
   listSkills: mockListSkills,
   getSkill: mockGetSkill,
@@ -30,26 +26,9 @@ vi.mock("./skills.store.js", () => ({
   updateSkill: mockUpdateSkill,
 }));
 
-vi.mock("../database/client.js", () => ({
-  db: {
-    update: mockDbUpdate,
-  },
-}));
-
-vi.mock("./schema.js", () => ({
-  skills: { slug: "slug" },
-  skillVersions: {},
-  skillTools: {},
-}));
-
-vi.mock("drizzle-orm", () => {
-  const sqlFn = (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values });
-  sqlFn.raw = vi.fn();
-  return {
-    eq: vi.fn((...args: unknown[]) => args),
-    sql: sqlFn,
-  };
-});
+// deleteSkill archives through the database; it is tested on Postgres in
+// agents/supervisor/prompt.skills.integration.test.ts.
+vi.mock("../database/client.js", () => ({ db: {} }));
 
 import { SkillsService } from "./skills.service.js";
 
@@ -320,31 +299,5 @@ describe("updateSkill", () => {
     mockUpdateSkill.mockResolvedValue(null);
 
     expect(await service.updateSkill("my-skill", { content: "c" })).toBeNull();
-  });
-});
-
-// =========================================================================
-// deleteSkill()
-// =========================================================================
-
-describe("deleteSkill", () => {
-  it("soft-deletes an existing skill and returns true", async () => {
-    mockGetSkill.mockResolvedValue(buildRow("old-skill", "d", "c"));
-    const mockSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
-    mockDbUpdate.mockReturnValue({ set: mockSet });
-
-    const result = await service.deleteSkill("old-skill");
-
-    expect(result).toBe(true);
-    expect(mockDbUpdate).toHaveBeenCalled();
-  });
-
-  it("returns false when skill does not exist", async () => {
-    mockGetSkill.mockResolvedValue(null);
-
-    const result = await service.deleteSkill("nonexistent");
-
-    expect(result).toBe(false);
-    expect(mockDbUpdate).not.toHaveBeenCalled();
   });
 });

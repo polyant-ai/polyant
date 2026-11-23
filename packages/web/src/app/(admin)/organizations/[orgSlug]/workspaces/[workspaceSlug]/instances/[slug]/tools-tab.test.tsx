@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolsTab } from "./tools-tab";
 import type { ToolState, SkillState } from "@/lib/api";
@@ -111,6 +111,14 @@ function renderTab(overrides: Partial<React.ComponentProps<typeof ToolsTab>> = {
 }
 
 const rowOf = (text: string) => screen.getByText(text).closest("tr") as HTMLElement;
+/** The row once the tab has read the agent's parameters, which it does on mount. */
+const findRow = async (text: string) => (await screen.findByText(text)).closest("tr") as HTMLElement;
+
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
 
 async function disable(user: ReturnType<typeof userEvent.setup>, text: string) {
   await user.click(within(rowOf(text)).getByRole("switch"));
@@ -131,10 +139,10 @@ describe("ToolsTab", () => {
     mockToolsUpdate.mockResolvedValue({ tools: makeTools() });
   });
 
-  it("lists the enabled tools only, with the first line of their description", () => {
+  it("lists the enabled tools only, with the first line of their description", async () => {
     renderTab();
 
-    expect(screen.getByText("readFile")).toBeInTheDocument();
+    expect(await screen.findByText("readFile")).toBeInTheDocument();
     expect(screen.getByText("contact")).toBeInTheDocument();
     expect(screen.getByText("Read files")).toBeInTheDocument();
     expect(screen.queryByText("Usage rules for the model.")).not.toBeInTheDocument();
@@ -143,10 +151,10 @@ describe("ToolsTab", () => {
     expect(screen.queryByText("deal")).not.toBeInTheDocument();
   });
 
-  it("lists an always-enabled tool last, with its switch on and locked", () => {
+  it("lists an always-enabled tool last, with its switch on and locked", async () => {
     renderTab();
 
-    const row = rowOf("readSkill");
+    const row = await findRow("readSkill");
     const lock = within(row).getByRole("switch");
     expect(lock).toBeChecked();
     expect(lock).toBeDisabled();
@@ -154,10 +162,10 @@ describe("ToolsTab", () => {
     expect(rows[rows.length - 1]).toBe(row);
   });
 
-  it("has one Active switch per row in the last column, and no action buttons on the rows", () => {
+  it("has one Active switch per row in the last column, and no action buttons on the rows", async () => {
     renderTab();
 
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+    expect((await screen.findAllByRole("columnheader")).map((h) => h.textContent)).toEqual([
       "tools.columnName",
       "tools.columnDescription",
       "tools.columnOrigin",
@@ -195,17 +203,16 @@ describe("ToolsTab", () => {
     expect(screen.getByText("common.noResults")).toBeInTheDocument();
   });
 
-  it("says no tool is enabled, and offers no search, when there is nothing to list", () => {
+  it("says no tool is enabled, and offers no search, when there is nothing to list", async () => {
     renderTab({ tools: makeTools().map((tool) => ({ ...tool, enabled: false })).filter((tool) => tool.source !== "global") });
 
-    expect(screen.getByText("tools.noneEnabled")).toBeInTheDocument();
+    expect(await screen.findByText("tools.noneEnabled")).toBeInTheDocument();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
-  it("lists the tools alphabetically by the name shown", () => {
+  it("lists the tools alphabetically by the name shown", async () => {
     renderTab();
-    const names = screen
-      .getAllByRole("row")
+    const names = (await screen.findAllByRole("row"))
       .slice(1)
       .flatMap((row) => within(row).queryAllByRole("button").slice(0, 1))
       .map((b) => b.textContent);
@@ -213,8 +220,9 @@ describe("ToolsTab", () => {
     expect(names).toEqual(["contact", "readFile", "saveMemory"]);
   });
 
-  it("starts clean: nothing to save", () => {
+  it("starts clean: nothing to save", async () => {
     renderTab();
+    await screen.findByText("readFile");
     expect(lastSaveAction.current?.isDirty).toBe(false);
   });
 
@@ -242,7 +250,7 @@ describe("ToolsTab", () => {
     expect(lastSaveAction.current?.isDirty).toBe(true);
     expect(mockToolsUpdate).not.toHaveBeenCalled();
 
-    await lastSaveAction.current!.onSave();
+    await save();
     expect(mockToolsUpdate).toHaveBeenCalledWith("agent-1", ["readFile", "saveMemory", "crm:contact", "crm:deal", "readSkill"]);
     expect(props.onToolsUpdate).toHaveBeenCalled();
     expect(mockToastSuccess).toHaveBeenCalledWith("tools.saved");
@@ -262,7 +270,7 @@ describe("ToolsTab", () => {
     expect(within(rowOf("readFile")).getByText("tools.pendingDisable")).toBeInTheDocument();
     expect(lastSaveAction.current?.isDirty).toBe(true);
 
-    await lastSaveAction.current!.onSave();
+    await save();
     expect(mockToolsUpdate).toHaveBeenCalledWith("agent-1", ["saveMemory", "crm:contact", "readSkill"]);
   });
 
@@ -290,7 +298,7 @@ describe("ToolsTab", () => {
     expect(within(confirm).getByText("tools.disableConfirmCascade")).toBeInTheDocument();
     await user.click(within(confirm).getByRole("button", { name: "capabilities.confirm" }));
 
-    await lastSaveAction.current!.onSave();
+    await save();
     expect(mockSkillsUpdate).toHaveBeenCalledWith("agent-1", []);
     expect(mockSkillsUpdate.mock.invocationCallOrder[0]).toBeLessThan(mockToolsUpdate.mock.invocationCallOrder[0]);
   });
@@ -311,20 +319,20 @@ describe("ToolsTab", () => {
     expect(within(rowOf("contact")).queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("warns that a memory tool does nothing while memory is off", () => {
+  it("warns that a memory tool does nothing while memory is off", async () => {
     renderTab({ memoryEnabled: false });
 
-    expect(within(rowOf("saveMemory")).getByRole("img", { name: "tools.memoryDisabledHint" })).toBeInTheDocument();
+    expect(within(await findRow("saveMemory")).getByRole("img", { name: "tools.memoryDisabledHint" })).toBeInTheDocument();
   });
 
   /**
    * The supervisor drops a memory tool silently while memory is off, so the row
    * says so in words and carries the way to the memory card (Avanzate).
    */
-  it("offers to turn memory on beside a memory tool, linking to the Advanced section", () => {
+  it("offers to turn memory on beside a memory tool, linking to the Advanced section", async () => {
     renderTab({ memoryEnabled: false });
 
-    expect(within(rowOf("saveMemory")).getByRole("link", { name: "tools.memoryOffEnable" })).toHaveAttribute("href", "?tab=params");
+    expect(within(await findRow("saveMemory")).getByRole("link", { name: "tools.memoryOffEnable" })).toHaveAttribute("href", "?tab=params");
     expect(within(rowOf("readFile")).queryByRole("link", { name: "tools.memoryOffEnable" })).not.toBeInTheDocument();
   });
 
@@ -424,26 +432,26 @@ describe("ToolsTab", () => {
   });
 
   // Without a display name the namespace is humanized: the origin filter test below reads "Crm".
-  it("names a plugin by its manifest's display name", () => {
+  it("names a plugin by its manifest's display name", async () => {
     renderTab({ plugins: [{ namespace: "crm", name: "crm", version: "1.0.0", displayName: "CRM Suite" }] });
-    expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
+    expect(within(await findRow("contact")).getByText("CRM Suite")).toBeInTheDocument();
   });
 
-  it("names a plugin in the reader's language when its manifest has one per locale", () => {
+  it("names a plugin in the reader's language when its manifest has one per locale", async () => {
     renderTab({
       plugins: [{ namespace: "crm", name: "crm", version: "1.0.0", displayName: { "it-IT": "Suite CRM", "en-US": "CRM Suite" } }],
     });
-    expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
+    expect(within(await findRow("contact")).getByText("CRM Suite")).toBeInTheDocument();
   });
 
-  it("shows a tool's summary in the reader's language instead of its description, and its category by name", () => {
+  it("shows a tool's summary in the reader's language instead of its description, and its category by name", async () => {
     const tools = makeTools().map((tool) =>
       tool.name === "crm:contact"
         ? { ...tool, summary: { "en-US": "Finds a contact in the CRM.", "it-IT": "Trova un contatto nel CRM." } }
         : tool,
     );
     renderTab({ tools });
-    const row = rowOf("contact");
+    const row = await findRow("contact");
     expect(within(row).getByText("Finds a contact in the CRM.")).toBeInTheDocument();
     expect(within(row).queryByText("Find contacts")).not.toBeInTheDocument();
     expect(within(rowOf("readFile")).getByText("Files")).toBeInTheDocument();
@@ -480,7 +488,7 @@ describe("ToolsTab", () => {
     mockToolsUpdate.mockRejectedValue(new Error("boom"));
 
     await disable(user, "readFile");
-    await lastSaveAction.current!.onSave();
+    await save();
 
     expect(mockToastError).toHaveBeenCalledWith("tools.saveFailed");
   });

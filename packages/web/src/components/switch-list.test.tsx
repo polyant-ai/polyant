@@ -69,7 +69,9 @@ describe("SwitchList", () => {
     await user.click(sw);
     expect(sw).toBeChecked();
     expect(onToggle).toHaveBeenCalledWith(ITEMS[0], true);
+    // And keeps it once the write lands.
     release();
+    await waitFor(() => expect(sw).toBeChecked());
   });
 
   it("takes the position back when the write fails", async () => {

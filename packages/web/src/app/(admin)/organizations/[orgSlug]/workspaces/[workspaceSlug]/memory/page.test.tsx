@@ -97,15 +97,17 @@ describe("MemoryPage", () => {
    * the shared view must still own is the agent picker — the thing the agent
    * section drops.
    */
-  it("offers the agent picker when no agent is fixed", () => {
+  it("offers the agent picker when no agent is fixed", async () => {
     render(<MemoryPage />);
 
-    expect(screen.getByText("memory.selectInstance")).toBeInTheDocument();
+    expect(await screen.findByText("memory.selectInstance")).toBeInTheDocument();
   });
 
-  it("drops the agent picker when an agent is fixed", () => {
+  it("drops the agent picker when an agent is fixed", async () => {
     render(<MemoryPage lockedInstanceId="a1" />);
 
+    // The fixed agent's memories are on screen, so the page has settled without a picker.
+    expect(await screen.findByText("memory.empty.title")).toBeInTheDocument();
     expect(screen.queryByText("memory.selectInstance")).not.toBeInTheDocument();
   });
 
@@ -182,11 +184,11 @@ describe("MemoryPage", () => {
     });
   });
 
-  it("shows the search input", () => {
+  it("shows the search input", async () => {
     render(<MemoryPage />);
 
     expect(
-      screen.getByPlaceholderText("memory.searchPlaceholder"),
+      await screen.findByPlaceholderText("memory.searchPlaceholder"),
     ).toBeInTheDocument();
   });
 

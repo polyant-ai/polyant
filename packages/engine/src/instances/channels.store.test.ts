@@ -3,7 +3,7 @@
 /**
  * The channel config keys the panel may read and write. What the store saves and
  * reads is tested against Postgres in `channels.store.integration.test.ts`;
- * WhatsApp credential modes live in `channels.store.whatsapp.test.ts`.
+ * WhatsApp credential modes live in `channels.store.whatsapp.integration.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";

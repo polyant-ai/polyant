@@ -16,7 +16,7 @@
  *    row gone, the heading is the only thing on the page saying where you are.
  */
 
-import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import type { Instance } from "@/lib/api";
 
@@ -329,14 +329,13 @@ describe("InstanceDetailPage — sections", () => {
 
   it("keeps what a section read when the person comes back to it", async () => {
     resetSearch("tab=tools");
-    const { rerender } = render(<InstanceDetailPage />);
+    render(<InstanceDetailPage />);
     await screen.findByText("tab-body:tools");
 
-    resetSearch("tab=logs");
-    rerender(<InstanceDetailPage />);
+    // The address changes under the mounted page, from outside React, as a link does.
+    act(() => resetSearch("tab=logs"));
     await screen.findByText("tab-body:logs");
-    resetSearch("tab=skills");
-    rerender(<InstanceDetailPage />);
+    act(() => resetSearch("tab=skills"));
     await screen.findByText("tab-body:skills");
 
     expect(api.tools.list).toHaveBeenCalledTimes(1);
