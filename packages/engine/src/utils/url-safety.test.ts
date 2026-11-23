@@ -353,6 +353,45 @@ describe("extended SSRF ranges (#82)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 10. "This network" and IPv4-compatible IPv6
+// ---------------------------------------------------------------------------
+describe("0.0.0.0/8 and the IPv4-compatible IPv6 range", () => {
+  // Linux routes 0.0.0.0/8 like any unicast range, and ::/96 may be carried to
+  // its embedded IPv4 address by a tunnel: neither holds a public server.
+  const blocked: [string, string][] = [
+    ["0.0.0.1", "0.0.0.0/8 low"],
+    ["0.1.2.3", "0.0.0.0/8 mid"],
+    ["0.255.255.255", "0.0.0.0/8 high"],
+    ["[::127.0.0.1]", "IPv4-compatible loopback, dotted"],
+    ["[::7f00:1]", "IPv4-compatible loopback, hex"],
+    ["[::a9fe:a9fe]", "IPv4-compatible metadata address"],
+    ["[0:0:0:0:0:0:a00:1]", "IPv4-compatible, long form"],
+    ["[::8.8.8.8]", "IPv4-compatible public address: the whole range is refused"],
+  ];
+
+  it.each(blocked)("rejects direct literal %s (%s)", async (host) => {
+    await expect(assertSafeUrl(new URL(`http://${host}/`))).rejects.toThrow("Blocked: private/reserved IP");
+  });
+
+  it.each([
+    ["0.1.2.3", 4],
+    ["::7f00:1", 6],
+    ["::a00:1", 6],
+  ] as const)("rejects a hostname that resolves to %s", async (address, family) => {
+    mockLookup.mockResolvedValue([{ address, family }]);
+    await expect(assertSafeUrl(new URL("https://rebind.example.com/"))).rejects.toThrow(
+      `resolves to private IP ${address}`,
+    );
+  });
+
+  it.each(["1.0.0.1", "[2001:4860:4860::8888]", "[::ffff:8.8.8.8]", "[1::7f00:1]"])("still allows %s", async (host) => {
+    await expect(assertSafeUrl(new URL(`http://${host}/`))).resolves.toEqual(
+      expect.objectContaining({ address: expect.any(String) }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 11. pinnedLookup callback signature (regression for undici v6+ "Invalid IP
 //     address: undefined")
 // ---------------------------------------------------------------------------

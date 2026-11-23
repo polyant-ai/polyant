@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { lookup } from "dns/promises";
+import { isIPv6 } from "net";
 
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
@@ -18,7 +19,10 @@ const PRIVATE_IP_RANGES = [
   /^172\.(1[6-9]|2\d|3[01])\./,                                      // RFC 1918 Class B
   /^192\.168\./,                                                      // RFC 1918 Class C
   /^169\.254\./,                                                      // Link-local (APIPA / IMDS)
-  /^0\.0\.0\.0$/,                                                     // Unspecified
+  // RFC 1122 "this network" 0.0.0.0/8: 0.0.0.0 reaches the local host, and
+  // Linux routes the rest of the range like any unicast address, so where it
+  // lands depends on the network the engine runs in.
+  /^0\./,
   // RFC 6598 — Shared Address Space (100.64.0.0/10), used by ISPs/cloud internally
   /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
   // RFC 6890 — IETF Protocol Assignments (192.0.0.0/24)
@@ -44,6 +48,26 @@ const PRIVATE_IP_RANGES = [
 
 function isPrivateIP(ip: string): boolean {
   return PRIVATE_IP_RANGES.some((pattern) => pattern.test(ip));
+}
+
+/**
+ * Whether `host` is an IPv6 address in ::/96, the IPv4-compatible range RFC
+ * 4291 deprecated (`::a.b.c.d`, written `::7f00:1` once normalized). No public
+ * server lives there, and whether a connection to it is carried to the embedded
+ * IPv4 address depends on the host's tunnel configuration, so the whole range
+ * is refused, in every spelling (`::` and `::1` are in it too).
+ */
+function isIPv4CompatibleIPv6(host: string): boolean {
+  if (!isIPv6(host)) return false;
+  const [head = "", tail = ""] = host.split("::");
+  const groups = (part: string) => (part === "" ? [] : part.split(":"));
+  const tailGroups = groups(tail);
+  // A dotted IPv4 tail fills the last two groups.
+  const tailCount = tailGroups.length + (tail.includes(".") ? 1 : 0);
+  const all = host.includes("::")
+    ? [...groups(head), ...Array<string>(8 - groups(head).length - tailCount).fill("0"), ...tailGroups]
+    : groups(head);
+  return all.slice(0, 6).every((group) => /^0{1,4}$/.test(group));
 }
 
 function normalizeIpLiteral(value: string): string {
@@ -86,7 +110,7 @@ export function isBlockedHost(host: string): boolean {
   if (mapped) return isBlockedHost(mapped);
 
   if (BLOCKED_HOSTNAMES.has(normalized)) return true;
-  return isPrivateIP(normalized);
+  return isIPv4CompatibleIPv6(normalized) || isPrivateIP(normalized);
 }
 
 
