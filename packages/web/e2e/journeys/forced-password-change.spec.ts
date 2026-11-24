@@ -11,6 +11,10 @@
  *   the obligation to change it;
  * - a forced change that lets the person reach the panel before rotating, or
  *   that a reload escapes;
+ * - a forced change the person clears for themselves: the panel taking
+ *   `mustChangePassword: false` from a session update the browser sends, or
+ *   the engine answering the session cookie before the password is changed;
+ * - an engine that keeps refusing the person after the change went through;
  * - a change that answers success but is not stored: the old password still
  *   signs in, the new one does not, or the next sign-in asks again;
  * - the admin's list still saying the change is required after it was made.
@@ -70,6 +74,24 @@ async function submitLogin(page: Page, email: string, password: string): Promise
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+/**
+ * Ask Auth.js to update the session with `mustChangePassword: false`, the
+ * request `useSession().update()` sends, so the claim would come from the
+ * browser if the panel trusted it.
+ */
+async function sendSessionUpdate(page: Page): Promise<void> {
+  const csrf = await page.request.get("/api/auth/csrf");
+  expect(csrf.ok(), `read the csrf token: ${csrf.status()}`).toBe(true);
+  const { csrfToken } = (await csrf.json()) as { csrfToken: string };
+  const update = await page.request.post("/api/auth/session", {
+    data: { csrfToken, data: { mustChangePassword: false } },
+  });
+  expect(update.ok(), `the session update is answered: ${update.status()}`).toBe(true);
+}
+
+/** An ordinary engine route the panel calls with the session cookie, through the web origin. */
+const ORDINARY_ENGINE_ROUTE = "/api/me/favorite-agents";
+
 async function inFreshContext<T>(browser: Browser, run: (page: Page) => Promise<T>): Promise<T> {
   // An empty state on purpose: a context made here inherits the project's
   // storageState, which is the signed-in panel admin.
@@ -123,12 +145,28 @@ test("a person created with a generated password must replace it at first sign-i
     await page.goto("/settings");
     await expect(page, "another page sends the person back").toHaveURL(/\/password-change$/);
 
+    // The browser cannot clear the obligation by updating its own session.
+    await sendSessionUpdate(page);
+    await page.goto("/settings");
+    await expect(page, "a session update from the browser does not lift the hold").toHaveURL(/\/password-change$/);
+
+    // Nor does the session cookie open the API meanwhile: the engine refuses
+    // ordinary routes and answers only what the change page needs.
+    const refused = await page.request.get(ORDINARY_ENGINE_ROUTE);
+    expect(refused.status(), "the engine refuses an ordinary route before the change").toBe(403);
+    expect(((await refused.json()) as { code?: string }).code).toBe("password_change_required");
+    const me = await page.request.get("/api/me");
+    expect(me.status(), "the change page can still read who is signed in").toBe(200);
+
     await page.getByLabel("New password", { exact: true }).fill(NEW_PASSWORD);
     await page.getByLabel("Confirm new password").fill(NEW_PASSWORD);
     const change = page.waitForResponse((r) => r.url().includes("/api/me/password") && r.request().method() !== "GET");
     await page.getByRole("button", { name: "Update password" }).click();
     expect((await change).ok(), "the change was accepted").toBe(true);
     await page.waitForURL((url) => url.pathname !== "/password-change");
+
+    const allowed = await page.request.get(ORDINARY_ENGINE_ROUTE);
+    expect(allowed.status(), "the same route answers as soon as the password is changed").toBe(200);
   });
 
   // The temporary password no longer signs in.

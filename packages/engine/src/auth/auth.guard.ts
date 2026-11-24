@@ -3,6 +3,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -13,6 +14,8 @@ import { ALLOW_INSTANCE_API_KEY } from "./decorators/allow-instance-api-key.deco
 import { validateSessionToken } from "./auth-user.service.js";
 import { findInstanceByAuthApiKey } from "../instances/secrets.store.js";
 import { validateManagementApiKey } from "./management-api-keys.store.js";
+import { passwordChangePending } from "./password-change-gate.js";
+import { ALLOWS_PENDING_PASSWORD_CHANGE_KEY } from "./decorators/allows-pending-password-change.decorator.js";
 
 const SESSION_COOKIE_NAMES = [
   "authjs.session-token",
@@ -53,6 +56,7 @@ export class AuthGuard implements CanActivate {
 
     const user = await validateSessionToken(token, cookieName);
     if (user) {
+      await this.assertPasswordChangeNotPending(context, user.userId);
       request.user = { ...user, source: "session" };
       return true;
     }
@@ -82,6 +86,30 @@ export class AuthGuard implements CanActivate {
         context.getClass(),
       ]) === true
     );
+  }
+
+  /**
+   * Refuse an account that still has to replace its password, everywhere but
+   * the routes the change itself needs (`@AllowsPendingPasswordChange()`).
+   *
+   * The decision comes from the database (`password-change-gate.ts`), never from
+   * the session's `mustChangePassword` claim: that claim drives the panel's
+   * redirect and nothing else, so a forced change is a control and not a page a
+   * user can step around with the API.
+   */
+  private async assertPasswordChangeNotPending(
+    context: ExecutionContext,
+    userId: string,
+  ): Promise<void> {
+    if (this.flag(context, ALLOWS_PENDING_PASSWORD_CHANGE_KEY)) return;
+    if (await passwordChangePending(userId)) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: "Password change required: set a new password before using the API",
+        error: "Forbidden",
+        code: "password_change_required",
+      });
+    }
   }
 
   private extractToken(request: {

@@ -19,7 +19,10 @@ export default function ForcedPasswordChangePage() {
   const forced = session?.user?.mustChangePassword === true;
 
   async function handleSuccess() {
-    await update({ mustChangePassword: false });
+    // An empty patch still makes this a session UPDATE, which re-reads
+    // `mustChangePassword` from the database; the value itself is never taken
+    // from the client.
+    await update({});
     router.replace("/");
     router.refresh();
   }

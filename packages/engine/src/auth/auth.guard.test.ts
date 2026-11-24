@@ -49,6 +49,15 @@ vi.mock("./management-api-keys.store.js", () => ({
   validateManagementApiKey: mockValidateManagementApiKey,
 }));
 
+// The session branch asks the password-change gate, which reads the users table.
+// Per case: nobody owes a new password unless a test says so.
+const { mockPasswordChangePending } = vi.hoisted(() => ({
+  mockPasswordChangePending: vi.fn().mockResolvedValue(false),
+}));
+vi.mock("./password-change-gate.js", () => ({
+  passwordChangePending: mockPasswordChangePending,
+}));
+
 interface MockRequest {
   headers: Record<string, string | undefined>;
   cookies?: Record<string, string>;

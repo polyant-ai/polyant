@@ -4,6 +4,7 @@ import { eq, sql, desc } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions } from "../auth/users.schema.js";
 import { invalidateSuperadminCache } from "../authz/authz.caches.js";
+import { invalidatePasswordChangePending } from "../auth/password-change-gate.js";
 import {
   applyOnboardingPatch,
   normalizeOnboarding,
@@ -199,6 +200,9 @@ export async function updateUserPassword(
     })
     .where(eq(users.id, id))
     .returning({ id: users.id });
+  // After the write, like the platform-admin flush: an admin reset must hold
+  // the user from their very next request.
+  invalidatePasswordChangePending(id);
   return !!row;
 }
 

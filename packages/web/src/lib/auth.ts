@@ -23,6 +23,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { authConfig } from "./auth.config";
 import { databaseSslFromEnv, databaseUrlFromEnv } from "./db-url";
+import { refreshPasswordChangeClaim } from "./password-change-claim";
 import {
   resolveSignInOrgId,
   type OrgProvisioningPort,
@@ -126,9 +127,26 @@ const orgProvisioningPort: OrgProvisioningPort = {
  */
 const baseJwtCallback = authConfig.callbacks?.jwt;
 
+/** `users.must_change_password` for one user, or null when there is no such user. */
+async function readMustChangePassword(userId: string): Promise<boolean | null> {
+  const [row] = await db
+    .select({ mustChangePassword: usersTable.mustChangePassword })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  return row ? row.mustChangePassword : null;
+}
+
 async function jwtWithOrg(params: Parameters<NonNullable<typeof baseJwtCallback>>[0]) {
   const token = (baseJwtCallback ? await baseJwtCallback(params) : params.token) as JWT;
   if (!token) return token;
+
+  // A session update (the password-change page sends one after a successful
+  // change) refreshes `mustChangePassword` from the database: the client's
+  // patch is ignored by the base callback, so this is the only way it clears.
+  if (params.trigger === "update") {
+    await refreshPasswordChangeClaim(token, readMustChangePassword);
+  }
 
   const { user } = params;
   // Only resolve at sign-in. The id is stamped by the base callback (token.id)
