@@ -25,8 +25,8 @@ import {
   FAKE_TWILIO_URL,
   REPO_ROOT,
   WEB_PACKAGE_ROOT,
-  WEB_PORT,
   WEB_URL,
+  webServerCommand,
 } from "./e2e/setup/test-env.js";
 import { PANEL_STATE, PANEL_VIEWPORT } from "./e2e/support/panel";
 
@@ -134,8 +134,9 @@ export default defineConfig({
       // Production build + start (NOT `next dev`): Next 16 allows only one dev
       // server per project dir, so a running `next dev` would block us. Build +
       // start into an isolated distDir (NEXT_DIST_DIR) coexists with it and is
-      // the correct CI pattern anyway. First run is slower (a full build).
-      command: `npm run build && npm run start -- --port ${WEB_PORT}`,
+      // the correct CI pattern anyway. First run is slower (a full build);
+      // E2E_PREBUILT=1 starts a build made beforehand (see webServerCommand).
+      command: webServerCommand(),
       cwd: WEB_PACKAGE_ROOT,
       url: WEB_URL,
       env: buildWebEnv(),

@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build:e2e": "tsx e2e/setup/build-web.ts",
     "test:e2e": "tsx e2e/setup/prepare-db.ts && playwright test",
     "test:e2e:panel": "tsx e2e/setup/prepare-db.ts && playwright test --project=panel",
     "test:e2e:turn": "tsx e2e/setup/prepare-db.ts && playwright test --project=turn",

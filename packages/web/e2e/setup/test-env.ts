@@ -234,6 +234,12 @@ export function buildEngineEnv(): Record<string, string> {
   };
 }
 
+/**
+ * The web's build directory. Isolated so a production build+start coexists
+ * with a running `next dev` (which holds `.next`) without clobbering it.
+ */
+export const E2E_DIST_DIR = ".next-e2e";
+
 /** Environment for the web (Next.js) child process. */
 export function buildWebEnv(): Record<string, string> {
   return {
@@ -249,8 +255,32 @@ export function buildWebEnv(): Record<string, string> {
     // auth.config.ts. MUST point at the test engine — otherwise it falls back to
     // .env.local's localhost:4000 (the dev engine) and login fails.
     INTERNAL_ENGINE_URL: ENGINE_URL,
-    // Isolated build dir so a production build+start coexists with a running
-    // `next dev` (which holds `.next`) without clobbering it.
-    NEXT_DIST_DIR: ".next-e2e",
+    NEXT_DIST_DIR: E2E_DIST_DIR,
   };
+}
+
+/**
+ * How the harness serves the web: a production build, then `next start`.
+ *
+ * With `E2E_PREBUILT=1` the build already sits in E2E_DIST_DIR (made by
+ * `npm run build:e2e`)
+ * and is only started. The engine URL is fixed into the build (the rewrites
+ * and NEXT_PUBLIC_API_URL), so a build made for another engine port is
+ * refused here instead of failing every page against an engine that is not
+ * there. Everything else the web reads, AUTH_URL included, is read at start.
+ */
+export function webServerCommand(): string {
+  const start = `npm run start -- --port ${WEB_PORT}`;
+  if (process.env.E2E_PREBUILT !== "1") return `npm run build && ${start}`;
+  const manifest = resolve(WEB_PACKAGE_ROOT, E2E_DIST_DIR, "routes-manifest.json");
+  if (!existsSync(manifest)) {
+    throw new Error(`E2E_PREBUILT=1 but there is no build in ${E2E_DIST_DIR}: run \`npm run build:e2e\` first.`);
+  }
+  if (!readFileSync(manifest, "utf8").includes(`"${ENGINE_URL}/`)) {
+    throw new Error(
+      `The build in ${E2E_DIST_DIR} was made for another engine than ${ENGINE_URL}: ` +
+        "rebuild it with `npm run build:e2e` and the same E2E_ENGINE_PORT.",
+    );
+  }
+  return start;
 }
