@@ -54,6 +54,12 @@ engine port + 2 (`:4102`). Two runs on one machine keep apart with
 `E2E_ENGINE_PORT`, `E2E_WEB_PORT`, `E2E_FAKE_MODEL_PORT`, `E2E_FAKE_TWILIO_PORT`
 and `E2E_DB_NAME`.
 
+Every run builds the web first. To build once for several runs (rerunning a
+suite while you work), run `npm run build:e2e -w @polyant/web` and then the suites
+with `E2E_PREBUILT=1`, which only starts that build. The build holds the
+engine's URL, so it serves only runs with the same `E2E_ENGINE_PORT`; the
+harness refuses one made for another port.
+
 ## Layout
 
 | Path | Purpose |
