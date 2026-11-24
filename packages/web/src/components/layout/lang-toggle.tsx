@@ -49,7 +49,8 @@ function FlagGB({ className }: { className?: string }) {
   );
 }
 
-const LANGUAGES: { locale: Locale; flag: React.FC<{ className?: string }>; label: string }[] = [
+/** The languages the panel speaks, with the flag that marks each. */
+export const LANGUAGES: { locale: Locale; flag: React.FC<{ className?: string }>; label: string }[] = [
   { locale: "it", flag: FlagIT, label: "Italiano" },
   { locale: "en", flag: FlagGB, label: "English" },
 ];

@@ -4,8 +4,6 @@
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { LangToggle } from "@/components/layout/lang-toggle";
 import { HelpMenu } from "@/components/onboarding/help-menu";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { ActivityTicker } from "@/components/layout/activity-ticker/activity-ticker";
@@ -20,8 +18,6 @@ export function Header({ user }: { user?: NavUserProps["user"] }) {
       </div>
       <div className="flex-1 md:hidden" />
       <HelpMenu />
-      <LangToggle />
-      <ThemeToggle />
       {user && <NavUser user={user} />}
     </header>
   );

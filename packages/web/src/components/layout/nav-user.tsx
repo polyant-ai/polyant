@@ -3,7 +3,8 @@
 "use client";
 
 import { useState } from "react";
-import { LogOut, KeyRound } from "lucide-react";
+import { Languages, LogOut, KeyRound, SunMoon } from "lucide-react";
+import { useTheme } from "next-themes";
 import { signOut } from "next-auth/react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,7 +13,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -26,6 +32,13 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/context";
 import { initials } from "@/lib/utils";
 import { ChangePasswordForm } from "@/components/auth/change-password-form";
+import { LANGUAGES } from "@/components/layout/lang-toggle";
+import type { Locale } from "@/lib/i18n/types";
+
+const THEMES = [
+  { value: "light", labelKey: "common.themeLight" },
+  { value: "dark", labelKey: "common.themeDark" },
+] as const;
 
 export interface NavUserProps {
   user: {
@@ -35,9 +48,15 @@ export interface NavUserProps {
   };
 }
 
-/** The signed-in user's menu, at the far right of the header. */
+/**
+ * The signed-in user's menu, at the far right of the header. It also holds the
+ * language and the theme: preferences set once, which need no place in the header.
+ */
 export function NavUser({ user }: NavUserProps) {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
+  const { theme, setTheme } = useTheme();
+  const currentLanguage = LANGUAGES.find((l) => l.locale === locale) ?? LANGUAGES[0];
+  const currentTheme = THEMES.find((th) => th.value === theme) ?? THEMES[0];
   const [pwdOpen, setPwdOpen] = useState(false);
 
   return (
@@ -87,6 +106,40 @@ export function NavUser({ user }: NavUserProps) {
             <KeyRound className="mr-2 size-4" />
             {t("settings.password.title")}
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Languages className="mr-2 size-4" />
+              <span className="flex-1">{t("common.language")}</span>
+              <span className="text-xs text-muted-foreground">{currentLanguage.label}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={locale} onValueChange={(value) => setLocale(value as Locale)}>
+                {LANGUAGES.map((lang) => (
+                  <DropdownMenuRadioItem key={lang.locale} value={lang.locale} className="gap-2">
+                    <lang.flag className="h-3.5 w-5" />
+                    {lang.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <SunMoon className="mr-2 size-4" />
+              <span className="flex-1">{t("common.theme")}</span>
+              <span className="text-xs text-muted-foreground">{t(currentTheme.labelKey)}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={currentTheme.value} onValueChange={setTheme}>
+                {THEMES.map((th) => (
+                  <DropdownMenuRadioItem key={th.value} value={th.value}>
+                    {t(th.labelKey)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
             <LogOut className="mr-2 size-4" />
