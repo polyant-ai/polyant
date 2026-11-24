@@ -6,7 +6,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleHelp, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,17 +33,14 @@ export function HelpMenu() {
 
   return (
     <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8" data-tour="help">
-              <CircleHelp className="size-4" />
-              <span className="sr-only">{t("onboarding.help.menu")}</span>
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("onboarding.help.menu")}</TooltipContent>
-      </Tooltip>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="gap-1.5" data-tour="help">
+          <CircleHelp className="size-4" />
+          {/* The label from small screens up; on a phone the icon alone, still named. */}
+          <span className="hidden sm:inline">{t("onboarding.help.menu")}</span>
+          <span className="sr-only sm:hidden">{t("onboarding.help.menu")}</span>
+        </Button>
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         {onboarding && (
           <>
