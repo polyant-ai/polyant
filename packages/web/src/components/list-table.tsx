@@ -32,6 +32,12 @@ export function ListHead({ className, align, children }: { className?: string; a
 }
 
 /**
+ * A row that is off reads greyed. Its text turns muted instead of the whole row
+ * fading: opacity on text that is already muted fell to about 2.4:1 (WCAG 1.4.3).
+ */
+const MUTED_ROW = "text-muted-foreground [&_*]:text-muted-foreground";
+
+/**
  * One row. With `onOpen`, the whole row opens its detail; `selected` while that
  * detail is open. Two states every list draws the same way: `muted` for a row
  * that is switched off or about to be removed, `accent` for one about to be added.
@@ -55,7 +61,7 @@ export function ListRow({ onOpen, href, selected, muted, accent, children }: {
   return (
     <TableRow
       data-state={selected ? "selected" : undefined}
-      className={cn(onOpen && "cursor-pointer", muted && "opacity-60", accent && "shadow-[inset_3px_0_0_var(--accent)]")}
+      className={cn(onOpen && "cursor-pointer", muted && MUTED_ROW, accent && "shadow-[inset_3px_0_0_var(--accent)]")}
       onClick={onOpen}
     >
       {children}
@@ -75,7 +81,7 @@ function HrefRow({ href, selected, muted, accent, children }: {
   return (
     <TableRow
       data-state={selected ? "selected" : undefined}
-      className={cn("cursor-pointer", muted && "opacity-60", accent && "shadow-[inset_3px_0_0_var(--accent)]")}
+      className={cn("cursor-pointer", muted && MUTED_ROW, accent && "shadow-[inset_3px_0_0_var(--accent)]")}
       onClick={() => router.push(href)}
     >
       {children}

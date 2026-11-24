@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { queryClient } from "../../database/client.js";
 import { resolveDatabaseAvailability } from "../../database/test-db.js";
 import { consumeOAuthState, createOAuthState } from "./oauth-states.store.js";
@@ -56,6 +56,25 @@ describe.skipIf(!DB_AVAILABLE)("OAuth state store (integration)", () => {
     await queryClient`UPDATE oauth_states SET expires_at = now() - interval '1 second' WHERE state = ${state}`;
 
     expect(await consumeOAuthState(state)).toBeNull();
+  });
+
+  it("refuses a nonce that expires at the instant it is consumed, which the sweep keeps", async () => {
+    // The sweep deletes rows expired strictly before now; a row expiring at
+    // exactly now survives it and comes back from the delete. Only Date is
+    // faked: the driver's own timers keep running.
+    const state = nonce();
+    await create(state);
+    const instant = new Date(Date.now() + 60_000);
+    await queryClient`UPDATE oauth_states SET expires_at = ${instant.toISOString()} WHERE state = ${state}`;
+
+    vi.useFakeTimers({ toFake: ["Date"], now: instant });
+    try {
+      expect(await consumeOAuthState(state)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+    const [{ left }] = await queryClient<{ left: number }[]>`SELECT count(*)::int AS left FROM oauth_states WHERE state = ${state}`;
+    expect(left).toBe(0);
   });
 
   it("leaves other live authorizations in place when it sweeps", async () => {

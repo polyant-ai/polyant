@@ -15,13 +15,22 @@ const ENGINE_MESSAGE_LIMIT = 100;
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => ({ t: (key: string) => key, locale: "en" }) }));
 vi.mock("@/lib/activity-stream/own-playground-chats", () => ({ rememberPlaygroundChat: () => {} }));
 
-const loaded = vi.hoisted(() => ({ messages: [] as unknown[] }));
+type Api = typeof import("@/lib/api").api;
+type Messages = Awaited<ReturnType<Api["conversations"]["messages"]>>["messages"];
+
+const loaded = vi.hoisted(() => ({ messages: [] as Messages }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   api: {
     conversations: {
-      messages: async () => ({ messages: loaded.messages }),
-      hookExecutions: async () => ({ executions: [] }),
+      messages: (async () => ({
+        messages: loaded.messages,
+        total: loaded.messages.length,
+        limit: loaded.messages.length,
+        offset: 0,
+        order: "asc",
+      })) satisfies Api["conversations"]["messages"],
+      hookExecutions: (async () => ({ executions: [] })) satisfies Api["conversations"]["hookExecutions"],
     },
   },
 }));
@@ -69,7 +78,13 @@ describe("playground request on a long conversation", () => {
       id: `m${i}`,
       role: i % 2 === 0 ? "user" : "assistant",
       content: `message ${i}`,
+      steps: null,
+      reasoning: null,
+      attachments: null,
+      metadata: null,
       createdAt: null,
+      promptTokens: null,
+      completionTokens: null,
     }));
     const { result } = renderHook(() => useChat("agent"));
     await act(() => result.current.loadConversation("agent:web:api-chat-1", "agent"));

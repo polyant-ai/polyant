@@ -8,11 +8,12 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { OnboardingState } from "@/lib/api-types";
+import { makeInstance } from "@/test-fixtures/api";
 
 const h = vi.hoisted(() => ({
-  update: vi.fn(),
-  create: vi.fn(),
-  send: vi.fn(),
+  update: vi.fn<typeof import("@/lib/api").api.me.updateOnboarding>(),
+  create: vi.fn<typeof import("@/lib/api").api.instances.create>(),
+  send: vi.fn<typeof import("@/lib/onboarding/wizard-chat").sendWizardChat>(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,15 +30,15 @@ vi.mock("@/lib/api", async () => {
     api: {
       ...actual.api,
       me: { ...actual.api.me, updateOnboarding: h.update },
-      models: { list: vi.fn().mockResolvedValue({ providers: {}, embedders: [] }) },
+      models: { list: vi.fn<typeof actual.api.models.list>().mockResolvedValue({ providers: {}, embedders: [] }) },
       instances: {
         ...actual.api.instances,
-        list: vi.fn().mockResolvedValue({ instances: [] }),
+        list: vi.fn<typeof actual.api.instances.list>().mockResolvedValue({ instances: [] }),
         create: h.create,
-        get: vi.fn().mockResolvedValue({ instance: { authEnabled: true } }),
+        get: vi.fn<typeof actual.api.instances.get>().mockResolvedValue({ instance: makeInstance({ authEnabled: true }) }),
       },
-      channels: { ...actual.api.channels, list: vi.fn().mockResolvedValue({ channels: [] }) },
-      secrets: { ...actual.api.secrets, list: vi.fn().mockResolvedValue({ secrets: [] }) },
+      channels: { ...actual.api.channels, list: vi.fn<typeof actual.api.channels.list>().mockResolvedValue({ channels: [] }) },
+      secrets: { ...actual.api.secrets, list: vi.fn<typeof actual.api.secrets.list>().mockResolvedValue({ secrets: [] }) },
     },
   };
 });
@@ -75,8 +76,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.update.mockResolvedValue({});
-  h.create.mockResolvedValue({ instance: { slug: "helper", name: "Helper" } });
+  h.update.mockResolvedValue({ onboarding: ONBOARDING });
+  h.create.mockResolvedValue({ instance: makeInstance({ slug: "helper", name: "Helper" }) });
 });
 
 async function toChat(user: ReturnType<typeof userEvent.setup>) {
@@ -115,7 +116,7 @@ async function sendAndLeave(user: ReturnType<typeof userEvent.setup>) {
 
 describe("the chat step", () => {
   it("is recorded as done after an assistant reply", async () => {
-    h.send.mockImplementation(async (_slug, _opts, onText: (d: string) => void) => {
+    h.send.mockImplementation(async (_slug, _opts, onText) => {
       onText("Hi there");
       return "Hi there";
     });

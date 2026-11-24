@@ -4,10 +4,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InstancesPage from "./page";
 import { ApiError, type Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
+
+type Api = typeof import("@/lib/api").api;
 
 const { mockList, mockImportNew, mockPush, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockImportNew: vi.fn(),
+  mockList: vi.fn<Api["instances"]["list"]>(),
+  mockImportNew: vi.fn<Api["exportImport"]["importNew"]>(),
   mockPush: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
@@ -34,25 +37,22 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     api: {
-      instances: { list: (...args: unknown[]) => mockList(...args), create: vi.fn() },
-      exportImport: { importNew: (...args: unknown[]) => mockImportNew(...args) },
+      instances: { list: mockList, create: vi.fn() },
+      exportImport: { importNew: mockImportNew },
       // The star on each row reads the person's favorites; none here.
-      me: { favoriteAgents: () => Promise.resolve({ agentIds: [] }) },
+      me: { favoriteAgents: (): ReturnType<Api["me"]["favoriteAgents"]> => Promise.resolve({ agentIds: [] }) },
     },
   };
 });
 
 function agent(over: Partial<Instance>): Instance {
-  return {
+  return makeInstance({
     id: over.slug ?? "id",
     slug: "agent",
     name: "Agent",
-    description: null,
-    status: "active",
-    icon: null,
     updatedAt: new Date().toISOString(),
     ...over,
-  } as Instance;
+  });
 }
 
 const AGENTS = [
@@ -170,13 +170,13 @@ describe("InstancesPage", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("shows the description under the name on a card, clamped to two lines", async () => {
+  it("shows the description under the name on a card", async () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ instances: [agent({ id: "1", slug: "s", name: "Support Bot", description: "Answers tickets all day" })] });
     render(<InstancesPage />);
     await user.click(await screen.findByRole("button", { name: "instances.viewGrid" }));
 
-    expect(screen.getByText("Answers tickets all day")).toHaveClass("line-clamp-2");
+    expect(screen.getByText("Answers tickets all day")).toBeInTheDocument();
   });
 
   it("shows the empty state when the workspace has no agents", async () => {

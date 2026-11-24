@@ -14,11 +14,13 @@
 
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { queryClient } from "../database/client.js";
+import { hashPassword } from "../users/password.util.js";
 import {
   createManagementApiKey,
   deleteManagementApiKey,
+  hashManagementApiKeySecret,
   listManagementApiKeys,
   validateManagementApiKey,
 } from "./management-api-keys.store.js";
@@ -125,5 +127,40 @@ describe.skipIf(!DB_AVAILABLE)("management API keys store (integration)", () => 
 
     expect(await validateManagementApiKey(tampered)).toBeNull();
     expect(await validateManagementApiKey(token)).not.toBeNull();
+  });
+  it("records when a key was last used, and issues a different secret and id each time", async () => {
+    const input = { organizationId: orgA, name: "ci", permissions: [], expiresAt: null };
+    const a = await createManagementApiKey(input);
+    const b = await createManagementApiKey(input);
+    expect(a.token).not.toBe(b.token);
+    expect(a.key.id).not.toBe(b.key.id);
+
+    expect((await listManagementApiKeys(orgA)).find((k) => k.id === a.key.id)?.lastUsedAt).toBeNull();
+    await validateManagementApiKey(a.token);
+    // The stamp is written after the answer, off the request's path.
+    await vi.waitFor(async () =>
+      expect((await listManagementApiKeys(orgA)).find((k) => k.id === a.key.id)?.lastUsedAt).toBeInstanceOf(Date));
+  });
+
+  it("refuses a well-formed token whose id was never issued", async () => {
+    expect(await validateManagementApiKey(`pk_${randomUUID()}_secret`)).toBeNull();
+  });
+
+  // Keys issued before the SHA-256 digest were stored as bcrypt hashes.
+  it("accepts a key stored as bcrypt and stores its SHA-256 digest the first time it verifies", async () => {
+    const { key, token } = await createManagementApiKey({ organizationId: orgA, name: "legacy", permissions: [], expiresAt: null });
+    const secret = token.slice(`pk_${key.id}_`.length);
+    const bcrypt = await hashPassword(secret);
+    await queryClient`UPDATE management_api_keys SET key_hash = ${bcrypt} WHERE id = ${key.id}`;
+    const stored = async () =>
+      (await queryClient<{ key_hash: string }[]>`SELECT key_hash FROM management_api_keys WHERE id = ${key.id}`)[0]!.key_hash;
+
+    expect(await validateManagementApiKey(`pk_${key.id}_wrong-secret`)).toBeNull();
+    expect(await stored()).toBe(bcrypt);
+
+    expect((await validateManagementApiKey(token))?.orgId).toBe(orgA);
+    // Rewritten after the answer, off the request's path.
+    await vi.waitFor(async () => expect(await stored()).toBe(hashManagementApiKeySecret(secret)));
+    expect((await validateManagementApiKey(token))?.orgId).toBe(orgA);
   });
 });

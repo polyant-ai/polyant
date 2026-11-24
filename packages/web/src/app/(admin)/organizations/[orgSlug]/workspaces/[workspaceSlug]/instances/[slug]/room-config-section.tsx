@@ -92,9 +92,10 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
       </div>
 
       <div className="space-y-1">
-        <Label>{t("room.config.prompt")}</Label>
+        <Label htmlFor="room-prompt">{t("room.config.prompt")}</Label>
         <p className="text-xs text-muted-foreground">{t("room.config.promptHelp")}</p>
         <Textarea
+          id="room-prompt"
           className="min-h-[120px]"
           placeholder={t("room.config.promptPlaceholder")}
           value={form.prompt}
@@ -104,9 +105,9 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
-          <Label>{t("room.config.outboundChannel")}</Label>
+          <Label htmlFor="room-outbound-channel">{t("room.config.outboundChannel")}</Label>
           <Select value={form.outboundChannel || "none"} onValueChange={(v) => onChange({ ...form, outboundChannel: v === "none" ? "" : v })}>
-            <SelectTrigger>
+            <SelectTrigger id="room-outbound-channel">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -118,9 +119,9 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label>{t("room.config.outboundTarget")}</Label>
+          <Label htmlFor="room-outbound-target">{t("room.config.outboundTarget")}</Label>
           <p className="text-xs text-muted-foreground">{t("room.config.outboundTargetHelp")}</p>
-          <Input value={form.outboundTarget} onChange={(e) => onChange({ ...form, outboundTarget: e.target.value })} />
+          <Input id="room-outbound-target" value={form.outboundTarget} onChange={(e) => onChange({ ...form, outboundTarget: e.target.value })} />
         </div>
       </div>
 

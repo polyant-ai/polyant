@@ -798,6 +798,7 @@
   "common.activeNamed": "Attivo: {name}",
   "common.name": "Nome",
   "common.role": "Ruolo",
+  "common.agent": "Agente",
   "common.toggleTheme": "Cambia tema",
   "skills.fetchFailed": "Caricamento skill fallito",
   "skills.deleteFailed": "Eliminazione skill fallita",

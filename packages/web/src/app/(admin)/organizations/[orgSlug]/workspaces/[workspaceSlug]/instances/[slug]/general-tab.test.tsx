@@ -38,22 +38,17 @@ const {
   mockSecretsList,
   mockSecretsSet,
   mockSecretsDelete,
-  mockOrgSecretsList,
 } = vi.hoisted(() => ({
-  mockUpdate: vi.fn(),
+  mockUpdate: vi.fn<typeof import("@/lib/api").api.instances.update>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
-  // Untyped `vi.fn()` and resolved in `beforeEach`: an inline zero-arg
-  // implementation makes the spread wrapper below a type error.
-  mockSecretsList: vi.fn(),
-  mockSecretsSet: vi.fn(),
-  mockSecretsDelete: vi.fn(),
-  mockOrgSecretsList: vi.fn(),
+  mockSecretsList: vi.fn<typeof import("@/lib/api").api.secrets.list>(),
+  mockSecretsSet: vi.fn<typeof import("@/lib/api").api.secrets.set>(),
+  mockSecretsDelete: vi.fn<typeof import("@/lib/api").api.secrets.delete>(),
 }));
 
-// LangSmith moved into this tab, and its key comes through `useInstanceSecret` —
-// which reads the agent's secrets and its organization's to tell "configured"
-// from "inherited". Hence the two extra readers here.
+// LangSmith moved into this tab, and its key comes through `useInstanceSecret`,
+// which reads the agent's secrets.
 vi.mock("@/lib/tenant/use-org-slug", () => ({ useOrgSlug: () => "acme" }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -71,14 +66,13 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/api", () => ({
   api: {
     instances: {
-      update: (...args: unknown[]) => mockUpdate(...args),
+      update: (...args: Parameters<typeof mockUpdate>) => mockUpdate(...args),
     },
     secrets: {
-      list: (...args: unknown[]) => mockSecretsList(...args),
-      set: (...args: unknown[]) => mockSecretsSet(...args),
-      delete: (...args: unknown[]) => mockSecretsDelete(...args),
+      list: (...args: Parameters<typeof mockSecretsList>) => mockSecretsList(...args),
+      set: (...args: Parameters<typeof mockSecretsSet>) => mockSecretsSet(...args),
+      delete: (...args: Parameters<typeof mockSecretsDelete>) => mockSecretsDelete(...args),
     },
-    organizationSecrets: { list: (...args: unknown[]) => mockOrgSecretsList(...args) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -142,8 +136,7 @@ describe("GeneralTab", () => {
     vi.clearAllMocks();
     mockSecretsList.mockResolvedValue({ secrets: [] });
     mockSecretsSet.mockResolvedValue({ secrets: [] });
-    mockSecretsDelete.mockResolvedValue({});
-    mockOrgSecretsList.mockResolvedValue({ secrets: [] });
+    mockSecretsDelete.mockResolvedValue({ deleted: true });
   });
 
   it("renders all form fields with instance values", () => {
@@ -293,7 +286,7 @@ describe("GeneralTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance();
 
-    let resolveUpdate: (value: unknown) => void;
+    let resolveUpdate: (value: { instance: Instance }) => void;
     mockUpdate.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveUpdate = resolve;

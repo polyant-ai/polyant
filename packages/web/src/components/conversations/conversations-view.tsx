@@ -118,7 +118,7 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
             setPage(1);
           }}
         >
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-[200px]" aria-label={t("common.agent")}>
             <SelectValue placeholder={t("conversations.allInstances")} />
           </SelectTrigger>
           <SelectContent>
@@ -196,6 +196,7 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
                       <TableCell className="text-center">
                         {conv.channel ? (
                           <span
+                            role="img"
                             title={conv.channel}
                             aria-label={conv.channel}
                             className="inline-flex text-muted-foreground"

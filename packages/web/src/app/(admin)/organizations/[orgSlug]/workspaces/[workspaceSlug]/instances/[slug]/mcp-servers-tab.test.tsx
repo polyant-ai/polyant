@@ -5,12 +5,14 @@ import userEvent from "@testing-library/user-event";
 import { McpServersTab } from "./mcp-servers-tab";
 import type { McpServer } from "@/lib/api";
 
+type Api = typeof import("@/lib/api").api;
+
 const { mockList, mockSet, mockDelete, mockConnect, mockDisconnect } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockDelete: vi.fn(),
-  mockSet: vi.fn(),
-  mockConnect: vi.fn(),
-  mockDisconnect: vi.fn(),
+  mockList: vi.fn<Api["mcpServers"]["list"]>(),
+  mockDelete: vi.fn<Api["mcpServers"]["delete"]>(),
+  mockSet: vi.fn<Api["mcpServers"]["set"]>(),
+  mockConnect: vi.fn<Api["mcpServers"]["connectShared"]>(),
+  mockDisconnect: vi.fn<Api["mcpServers"]["disconnectShared"]>(),
 }));
 
 const i18n = vi.hoisted(() => ({ t: (key: string) => key, locale: "en", setLocale: () => {} }));
@@ -19,12 +21,12 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/api", () => ({
   api: {
     mcpServers: {
-      list: (...a: unknown[]) => mockList(...a),
-      set: (...a: unknown[]) => mockSet(...a),
-      delete: (...a: unknown[]) => mockDelete(...a),
+      list: mockList,
+      set: mockSet,
+      delete: mockDelete,
       test: vi.fn(),
-      connectShared: (...a: unknown[]) => mockConnect(...a),
-      disconnectShared: (...a: unknown[]) => mockDisconnect(...a),
+      connectShared: mockConnect,
+      disconnectShared: mockDisconnect,
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -181,7 +183,7 @@ describe("McpServersTab — the list", () => {
   });
 
   it("edits in a drawer, not a dialog, and deletes only from it after the confirmation", async () => {
-    mockDelete.mockResolvedValue({});
+    mockDelete.mockResolvedValue({ deleted: true });
     const user = userEvent.setup();
     render(<McpServersTab slug="agent" />);
 

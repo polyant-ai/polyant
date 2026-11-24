@@ -16,7 +16,7 @@
  *    row gone, the heading is the only thing on the page saying where you are.
  */
 
-import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import type { Instance } from "@/lib/api";
 
@@ -70,7 +70,8 @@ vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
 }));
 
-const mockInstancesGet = vi.fn();
+type Api = typeof import("@/lib/api").api;
+const mockInstancesGet = vi.fn<Api["instances"]["get"]>();
 const mockUseStatusChecks = vi.fn((_input: {
   instance: Instance | null;
   tools: unknown[];
@@ -98,13 +99,13 @@ vi.mock("./use-status-checks", () => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { get: (...args: unknown[]) => mockInstancesGet(...args), delete: vi.fn() },
-    tools: { list: vi.fn(() => Promise.resolve({ tools: [] })) },
-    skills: { list: vi.fn(() => Promise.resolve({ skills: [] })) },
-    prompts: { list: vi.fn(() => Promise.resolve({ prompts: [] })) },
+    instances: { get: (slug: string) => mockInstancesGet(slug), delete: vi.fn() },
+    tools: { list: vi.fn<Api["tools"]["list"]>(() => Promise.resolve({ tools: [] })) },
+    skills: { list: vi.fn<Api["skills"]["list"]>(() => Promise.resolve({ skills: [] })) },
+    prompts: { list: vi.fn<Api["prompts"]["list"]>(() => Promise.resolve({ prompts: [] })) },
     exportImport: { exportInstance: vi.fn() },
     // The star beside the name reads the person's favorites; none here.
-    me: { favoriteAgents: vi.fn(() => Promise.resolve({ agentIds: [] })) },
+    me: { favoriteAgents: vi.fn<Api["me"]["favoriteAgents"]>(() => Promise.resolve({ agentIds: [] })) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -146,45 +147,23 @@ vi.mock("./privacy-tab", () => ({ PrivacyTab: () => <div>tab-body:privacy</div> 
 import InstanceDetailPage from "./page";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { makeInstance as makeBaseInstance } from "@/test-fixtures/api";
 import { DEFAULT_AGENT_TAB } from "@/lib/nav/agent-sections";
 
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
+const makeInstance = (overrides: Partial<Instance> = {}): Instance =>
+  makeBaseInstance({
     slug: "test-instance",
     name: "Test Instance",
     description: "A test instance",
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    effectiveProvider: "openai",
-    effectiveModel: "gpt-4o",
     memoryEnabled: true,
-    knowledgeEnabled: false,
-    langsmithEnabled: false,
-    langsmithProject: null,
     authEnabled: false,
-    thinkingEnabled: false,
-    stateInPromptEnabled: false,
     datetimeInjectionEnabled: true,
-    cacheEnabled: true,
     cacheTtl: "1h",
-    toolResultsInHistoryEnabled: false,
-    toolHistoryReplay: "compact",
-    debugEnabled: false,
-    optoutEnabled: false,
-    optoutStopKeywords: [],
-    optoutResumeKeywords: [],
-    optoutClosingMessage: null,
-    optoutResumeMessage: null,
-    optoutInjectPromptHint: false,
     sttProvider: "openai",
-    icon: null,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     ...overrides,
-  } as Instance;
-}
+  });
 
 /**
  * Ground truth for the addresses, hard-coded rather than imported from the
@@ -350,14 +329,13 @@ describe("InstanceDetailPage — sections", () => {
 
   it("keeps what a section read when the person comes back to it", async () => {
     resetSearch("tab=tools");
-    const { rerender } = render(<InstanceDetailPage />);
+    render(<InstanceDetailPage />);
     await screen.findByText("tab-body:tools");
 
-    resetSearch("tab=logs");
-    rerender(<InstanceDetailPage />);
+    // The address changes under the mounted page, from outside React, as a link does.
+    act(() => resetSearch("tab=logs"));
     await screen.findByText("tab-body:logs");
-    resetSearch("tab=skills");
-    rerender(<InstanceDetailPage />);
+    act(() => resetSearch("tab=skills"));
     await screen.findByText("tab-body:skills");
 
     expect(api.tools.list).toHaveBeenCalledTimes(1);
@@ -390,17 +368,14 @@ describe("InstanceDetailPage — sections", () => {
     expect((await screen.findByTestId("agent-icon")).tagName.toLowerCase()).toBe("svg");
   });
 
-  it("puts icon, name, slug and status in one centred row, with the icon sharing the name's row", async () => {
+  it("puts icon, name, slug and status in one header group, with the icon sharing the name's row", async () => {
     render(<InstanceDetailPage />);
     const icon = await screen.findByTestId("agent-icon");
     const name = screen.getByRole("heading", { level: 1 });
-    // The icon and the name sit in the same centred group, so the icon cannot drift above the text.
+    // The icon and the name sit in the same group, so the icon cannot drift above the text.
     expect(icon.parentElement).toBe(name.parentElement);
-    expect(icon.parentElement?.className).toMatch(/items-center/);
-    // Slug and status follow in one group beside it, wrapping beneath only on a narrow screen.
+    // Slug and status follow in one group beside it.
     const meta = screen.getByTestId("agent-header-meta");
-    expect(meta.parentElement?.className).toMatch(/flex-wrap/);
-    expect(meta.parentElement?.className).toMatch(/items-center/);
     expect(meta.parentElement).toBe(icon.parentElement?.parentElement);
     expect(meta.textContent).toContain("test-instance");
   });

@@ -13,7 +13,6 @@ const {
   mockMarkEventsCompleted,
   mockAppendDailyLog,
   mockSetRoomConversationId,
-  mockDb,
   mockTraceStore,
   mockExtractMemories,
   mockChat,
@@ -34,9 +33,6 @@ const {
   mockMarkEventsCompleted: vi.fn(),
   mockAppendDailyLog: vi.fn(),
   mockSetRoomConversationId: vi.fn(),
-  mockDb: {
-    select: vi.fn(),
-  },
   mockTraceStore: {
     record: vi.fn(),
   },
@@ -60,29 +56,18 @@ vi.mock("./room.store.js", () => ({
   setRoomConversationId: mockSetRoomConversationId,
 }));
 const mockRoomLog = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
-vi.mock("../database/client.js", () => ({ db: mockDb }));
+// The definition lookup answers no rows here: which definitions a cycle reads,
+// and how their source type renders a payload, run on Postgres in
+// room-engine.integration.test.ts.
+vi.mock("../database/client.js", () => ({
+  db: { select: () => ({ from: () => ({ innerJoin: () => ({ where: async () => [] }) }) }) },
+}));
 vi.mock("../analytics/trace.store.js", () => ({ traceStore: mockTraceStore }));
 vi.mock("../memory/extractor.js", () => ({ extractMemories: mockExtractMemories }));
 vi.mock("../ai-gateway/index.js", () => ({ chat: mockChat }));
 vi.mock("../utils/create-logger.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
   createLogger: () => mockRoomLog,
-}));
-vi.mock("../webhooks/webhooks.schema.js", () => ({
-  eventDefinitions: {
-    name: "name",
-    interpretationPrompt: "interpretation_prompt",
-    id: "id",
-    eventSourceId: "event_source_id",
-  },
-  eventSources: {
-    id: "id",
-    sourceType: "source_type",
-  },
-}));
-vi.mock("drizzle-orm", () => ({
-  inArray: vi.fn((...args: unknown[]) => ({ type: "inArray", args })),
-  eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
 }));
 vi.mock("../config.js", () => ({
   config: {
@@ -158,22 +143,6 @@ const INSTANCE_CONFIG = {
   datetime: { timezone: "UTC", locale: "en-US" },
 };
 
-function createChainMock(resolvedValue: unknown = []) {
-  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
-  const self = new Proxy(chain, {
-    get(_target, prop: string) {
-      if (prop === "then") {
-        return (resolve: (v: unknown) => void) => resolve(resolvedValue);
-      }
-      if (!chain[prop]) {
-        chain[prop] = vi.fn(() => self);
-      }
-      return chain[prop];
-    },
-  });
-  return self;
-}
-
 /* ── setup ──────────────────────────────────────────────────────── */
 
 beforeEach(() => {
@@ -207,8 +176,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { type: "test" }, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([{ name: "Test Def", interpretationPrompt: "Handle it" }]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -223,8 +190,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -375,7 +340,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      mockDb.select.mockReturnValue(createChainMock([]) as never);
       mockRoomLog.warn.mockClear();
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
@@ -388,8 +352,6 @@ describe("executeRoomCycle", () => {
   describe("early exit conditions", () => {
     it("should return early (no-op) when no pending events and no human message", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -412,7 +374,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      mockDb.select.mockReturnValue(createChainMock([]) as never);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -423,7 +384,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      mockDb.select.mockReturnValue(createChainMock([]) as never);
       mockConversationStore.appendMessages.mockImplementation(async (_id: string, msgs: Array<{ role: string }>) => {
         if (msgs[0]?.role === "assistant") throw new Error("database unavailable");
       });
@@ -437,8 +397,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { action: "test" }, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([{ name: "Test", interpretationPrompt: "Handle it" }]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -451,7 +409,6 @@ describe("executeRoomCycle", () => {
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { a: 1 }, matchedAt: new Date(), createdAt: new Date() },
         humanEvent("second", "msg-2"),
       ]);
-      mockDb.select.mockReturnValue(createChainMock([]) as never);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -464,8 +421,6 @@ describe("executeRoomCycle", () => {
 
     it("should proceed when there is a human message even without pending events", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Hello, can you help?")]);
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
@@ -475,86 +430,8 @@ describe("executeRoomCycle", () => {
   });
 
   describe("synthetic message construction", () => {
-    it("should include pending events with IDs and payloads in the message", async () => {
-      const events = [
-        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: { type: "order.created", orderId: 123 }, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
-        { id: "evt-2", eventDefinitionId: "def-1", rawPayload: { type: "order.created", orderId: 456 }, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
-      ];
-      mockListAndMarkPendingEvents.mockResolvedValue(events);
-      const selChain = createChainMock([{ name: "Order Def", interpretationPrompt: "Process the order" }]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
-
-      const message = mockSupervise.mock.calls[0][0].message as string;
-      expect(message).toContain("## Pending Events (2)");
-      expect(message).toContain("Event ID: evt-1");
-      expect(message).toContain("Event ID: evt-2");
-      expect(message).toContain('"orderId":123');
-      expect(message).toContain('"orderId":456');
-    });
-
-    it("renders a GitHub payload without its API URL templates", async () => {
-      // The synthetic message is the user turn, so it is re-sent on every step —
-      // whatever noise it carries is paid for 7-11 times per cycle (#381).
-      const rawPayload = {
-        action: "opened",
-        issue: { number: 7, title: "Broken link", html_url: "https://github.com/acme/app/issues/7" },
-        sender: { login: "octocat", node_id: "MDQ6", followers_url: "https://api.github.com/users/octocat/followers" },
-      };
-      mockListAndMarkPendingEvents.mockResolvedValue([
-        { id: "evt-1", eventDefinitionId: "def-1", rawPayload, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
-      ]);
-      mockDb.select.mockReturnValue(createChainMock([
-        { id: "def-1", name: "Issues", interpretationPrompt: "Triage it", sourceType: "github" },
-      ]) as any);
-
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
-
-      const message = mockSupervise.mock.calls[0][0].message as string;
-      expect(message).toContain('"login":"octocat"');
-      expect(message).toContain('"title":"Broken link"');
-      expect(message).toContain("https://github.com/acme/app/issues/7");
-      expect(message).not.toContain("followers_url");
-      expect(message).not.toContain("node_id");
-    });
-
-    it("renders an unknown source type's payload unchanged", async () => {
-      const rawPayload = { objectId: 42, portal_url: "https://app.hubspot.com/x" };
-      mockListAndMarkPendingEvents.mockResolvedValue([
-        { id: "evt-1", eventDefinitionId: "def-1", rawPayload, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
-      ]);
-      mockDb.select.mockReturnValue(createChainMock([
-        { id: "def-1", name: "Deals", interpretationPrompt: "Handle it", sourceType: "hubspot" },
-      ]) as any);
-
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
-
-      const message = mockSupervise.mock.calls[0][0].message as string;
-      expect(message).toContain("portal_url");
-    });
-
-    it("should include event handling instructions from definitions", async () => {
-      mockListAndMarkPendingEvents.mockResolvedValue([
-        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
-      ]);
-      const selChain = createChainMock([
-        { name: "Ticket Alert", interpretationPrompt: "Notify the team about the new ticket and ask for assignment." },
-      ]);
-      mockDb.select.mockReturnValue(selChain as any);
-
-      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
-
-      const message = mockSupervise.mock.calls[0][0].message as string;
-      expect(message).toContain("## Event Handling Instructions");
-      expect(message).toContain("### Ticket Alert");
-      expect(message).toContain("Notify the team about the new ticket");
-    });
-
     it("should include human message section when provided", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Please check the latest tickets")]);
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
@@ -568,8 +445,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -583,8 +458,6 @@ describe("executeRoomCycle", () => {
   describe("conversation persistence", () => {
     it("should append human message to conversation history before calling supervisor", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Human says hello")]);
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
@@ -603,8 +476,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -622,8 +493,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -646,8 +515,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom({ prompt: "Check for duplicates before acting." }), asInstanceSlug("test-slug"), OWNER);
 
@@ -660,8 +527,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom({ prompt: "" }), asInstanceSlug("test-slug"), OWNER);
 
@@ -675,8 +540,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -692,8 +555,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -715,8 +576,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -731,8 +590,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -750,8 +607,6 @@ describe("executeRoomCycle", () => {
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
         { id: "evt-2", eventDefinitionId: "def-2", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -764,8 +619,6 @@ describe("executeRoomCycle", () => {
 
     it("should mention human message in activity log when present", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       mockListAndMarkPendingEvents.mockResolvedValue([humanEvent("Help me")]);
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
@@ -783,8 +636,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -807,8 +658,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 
@@ -829,7 +678,6 @@ describe("executeRoomCycle", () => {
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
         humanEvent("hello"),
       ]);
-      mockDb.select.mockReturnValue(createChainMock([]) as never);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
       await new Promise((r) => setTimeout(r, 10));
@@ -848,8 +696,6 @@ describe("executeRoomCycle", () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
-      const selChain = createChainMock([]);
-      mockDb.select.mockReturnValue(selChain as any);
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), OWNER);
 

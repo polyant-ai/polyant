@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PromptsTab } from "./prompts-tab";
 import type { PromptSection } from "@/lib/api";
 
 const { mockPromptsUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
-  mockPromptsUpdate: vi.fn(),
+  mockPromptsUpdate: vi.fn<typeof import("@/lib/api").api.prompts.update>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
 }));
@@ -26,6 +26,12 @@ vi.mock("./page-actions-context", () => ({
   },
 }));
 
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
+
 vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => mockToastSuccess(...args),
@@ -37,7 +43,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
-    api: { prompts: { update: (...args: unknown[]) => mockPromptsUpdate(...args) } },
+    api: { prompts: { update: mockPromptsUpdate } },
   };
 });
 
@@ -68,9 +74,10 @@ describe("PromptsTab", () => {
   it("shows every section's prompt in its own editor, with an anchor to each", () => {
     renderTab();
 
-    expect(screen.getByDisplayValue("You are a helpful assistant.")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Be warm and concise.")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Never share secrets.")).toBeInTheDocument();
+    // Each editor is named by its section title, so a screen reader says which prompt it is.
+    expect(screen.getByRole("textbox", { name: "prompts.section.identity" })).toHaveValue("You are a helpful assistant.");
+    expect(screen.getByRole("textbox", { name: "prompts.section.soul" })).toHaveValue("Be warm and concise.");
+    expect(screen.getByRole("textbox", { name: "prompts.section.safety" })).toHaveValue("Never share secrets.");
 
     const nav = screen.getByRole("navigation", { name: "prompts.sidebarTitle" });
     // The seeded sections carry English titles in the database; the panel shows its own labels.
@@ -125,7 +132,7 @@ describe("PromptsTab", () => {
     const safety = screen.getByDisplayValue("Never share secrets.");
     await user.type(safety, "!");
     await user.type(safety, "{Backspace}");
-    await lastSaveAction.current!.onSave();
+    await save();
 
     expect(mockPromptsUpdate).toHaveBeenCalledTimes(1);
     expect(mockPromptsUpdate).toHaveBeenCalledWith("support-bot", [
@@ -142,7 +149,7 @@ describe("PromptsTab", () => {
     const { onUpdate } = renderTab();
 
     await user.type(screen.getByDisplayValue("Never share secrets."), " Ever.");
-    await lastSaveAction.current!.onSave();
+    await save();
 
     expect(mockToastError).toHaveBeenCalledWith("prompts.saveFailed");
     expect(onUpdate).not.toHaveBeenCalled();

@@ -10,6 +10,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { OnboardingState } from "@/lib/api-types";
+import { makeInstance } from "@/test-fixtures/api";
 
 const h = vi.hoisted(() => ({
   pathname: { value: "/organizations/acme" },
@@ -17,8 +18,10 @@ const h = vi.hoisted(() => ({
   params: { value: { workspaceSlug: "general" } as { workspaceSlug?: string } },
   push: vi.fn(),
   replace: vi.fn(),
-  update: vi.fn(),
-  getInstance: vi.fn(),
+  update: vi.fn<typeof import("@/lib/api").api.me.updateOnboarding>(),
+  getInstance: vi.fn<typeof import("@/lib/api").api.instances.get>(),
+  instancesList: vi.fn<typeof import("@/lib/api").api.instances.list>(),
+  modelsList: vi.fn<typeof import("@/lib/api").api.models.list>(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -35,8 +38,8 @@ vi.mock("@/lib/api", async () => {
     api: {
       ...actual.api,
       me: { ...actual.api.me, updateOnboarding: h.update },
-      instances: { ...actual.api.instances, get: h.getInstance, list: vi.fn().mockResolvedValue({ instances: [] }) },
-      models: { list: vi.fn().mockResolvedValue({ providers: {}, embedders: [] }) },
+      instances: { ...actual.api.instances, get: h.getInstance, list: h.instancesList },
+      models: { list: h.modelsList },
     },
   };
 });
@@ -117,7 +120,9 @@ beforeEach(() => {
   h.tab.value = null;
   h.params.value = { workspaceSlug: "general" };
   h.update.mockResolvedValue({ onboarding: state() });
-  h.getInstance.mockResolvedValue({ instance: { slug: "support" } });
+  h.getInstance.mockResolvedValue({ instance: makeInstance({ slug: "support" }) });
+  h.instancesList.mockResolvedValue({ instances: [] });
+  h.modelsList.mockResolvedValue({ providers: {}, embedders: [] });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
     x: 10, y: 10, left: 10, top: 10, right: 210, bottom: 60, width: 200, height: 50, toJSON: () => ({}),
   });
@@ -184,8 +189,8 @@ describe("leaving the wizard", () => {
 
     const patch = patches().find((p) => p.wizard === "skipped");
     expect(patch).toBeDefined();
-    expect(patch.steps.provider).toBe("skip");
-    expect(patch.steps.welcome).toBe("done");
+    expect(patch?.steps?.provider).toBe("skip");
+    expect(patch?.steps?.welcome).toBe("done");
     expect(await screen.findByRole("heading", { name: "The Dashboard" })).toBeInTheDocument();
     expect(h.push).toHaveBeenCalledWith("/organizations/acme");
   });

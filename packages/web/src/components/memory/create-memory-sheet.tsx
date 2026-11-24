@@ -74,13 +74,13 @@ function CreateMemoryForm({ onOpenChange, instances, defaultInstanceId, onCreate
     >
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label>{t("memory.create.instance")}</Label>
+        <Label htmlFor="memory-create-instance">{t("memory.create.instance")}</Label>
         <Select
           value={instanceId}
           onValueChange={setInstanceId}
           disabled={!!defaultInstanceId}
         >
-          <SelectTrigger>
+          <SelectTrigger id="memory-create-instance">
             <SelectValue placeholder={t("memory.create.instance")} />
           </SelectTrigger>
           <SelectContent>
@@ -105,9 +105,9 @@ function CreateMemoryForm({ onOpenChange, instances, defaultInstanceId, onCreate
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>{t("memory.create.category")}</Label>
+          <Label htmlFor="memory-create-category">{t("memory.create.category")}</Label>
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
+            <SelectTrigger id="memory-create-category">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -121,9 +121,9 @@ function CreateMemoryForm({ onOpenChange, instances, defaultInstanceId, onCreate
         </div>
 
         <div className="space-y-2">
-          <Label>{t("memory.create.importance")}</Label>
+          <Label htmlFor="memory-create-importance">{t("memory.create.importance")}</Label>
           <Select value={importance} onValueChange={setImportance}>
-            <SelectTrigger>
+            <SelectTrigger id="memory-create-importance">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

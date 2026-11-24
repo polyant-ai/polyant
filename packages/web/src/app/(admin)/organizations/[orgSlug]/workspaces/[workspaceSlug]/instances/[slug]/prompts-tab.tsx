@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   User,
@@ -55,6 +55,7 @@ interface Props {
 
 export function PromptsTab({ slug, prompts, onUpdate }: Props) {
   const { t } = useI18n();
+  const headingIdPrefix = useId();
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<string>(prompts[0]?.key ?? "");
@@ -185,7 +186,8 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
           anchors above, so the editors take the full page width. */}
       <div className="min-w-0">
         <div className="space-y-10">
-          {prompts.map((prompt) => {
+          {prompts.map((prompt, index) => {
+            const headingId = `${headingIdPrefix}-${index}`;
             const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;
             const dirty = dirtyKeys.has(prompt.key);
             const value = edited[prompt.key] ?? prompt.content;
@@ -202,7 +204,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
               >
                 <header className="mb-3 flex items-center gap-2">
                   <Icon className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-base font-semibold">{sectionLabel(prompt)}</h3>
+                  <h3 id={headingId} className="text-base font-semibold">{sectionLabel(prompt)}</h3>
                   {dirty && (
                     <Badge variant="secondary" className="ml-auto text-xs">
                       {t("prompts.modified")}
@@ -215,6 +217,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
                   </p>
                 )}
                 <Textarea
+                  aria-labelledby={headingId}
                   className="min-h-[240px] font-mono text-sm"
                   value={value}
                   onChange={(e) => handleChange(prompt.key, e.target.value)}

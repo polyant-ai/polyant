@@ -111,7 +111,7 @@ export function ChannelSection({
                   type="button"
                   onClick={() => onToggleFieldVisibility(fieldId)}
                   aria-label={t(visible ? "common.hide" : "common.show")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-1 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
                 >
                   {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -153,10 +153,10 @@ export function ChannelSection({
       {def.type === "agent" && (
         <div className="flex items-start justify-between gap-4 border-t pt-4">
           <div className="space-y-1">
-            <Label className="text-sm font-medium">{t("channels.tab.a2a")}</Label>
+            <Label htmlFor="channel-a2a-enabled" className="text-sm font-medium">{t("channels.tab.a2a")}</Label>
             <p className="text-sm text-muted-foreground">{t("channels.tab.a2aHelp")}</p>
           </div>
-          <Switch checked={a2aEnabled} onCheckedChange={onA2aEnabledChange} />
+          <Switch id="channel-a2a-enabled" checked={a2aEnabled} onCheckedChange={onA2aEnabledChange} />
         </div>
       )}
     </section>

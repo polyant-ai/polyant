@@ -16,14 +16,15 @@ import { toast } from "sonner";
 import type { MessageDebug, PathModelCall } from "@/lib/api";
 import { DebugSheet } from "./debug-sheet";
 
-const messageDebug = vi.fn();
-const callExchanges = vi.fn();
+type Conversations = typeof import("@/lib/api").api.conversations;
+const messageDebug = vi.fn<Conversations["messageDebug"]>();
+const callExchanges = vi.fn<Conversations["callExchanges"]>();
 
 vi.mock("@/lib/api", () => ({
   api: {
     conversations: {
-      messageDebug: (...args: unknown[]) => messageDebug(...args),
-      callExchanges: (...args: unknown[]) => callExchanges(...args),
+      messageDebug: (...args: Parameters<Conversations["messageDebug"]>) => messageDebug(...args),
+      callExchanges: (...args: Parameters<Conversations["callExchanges"]>) => callExchanges(...args),
     },
   },
 }));

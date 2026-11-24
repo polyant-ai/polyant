@@ -17,7 +17,7 @@ vi.mock("twilio", () => {
   return { default: Twilio, Twilio };
 });
 
-import { TwilioWhatsAppClient } from "./twilio-client.js";
+import { TwilioWhatsAppClient, twilioEndpoint } from "./twilio-client.js";
 
 describe("TwilioWhatsAppClient", () => {
   beforeEach(() => {
@@ -266,5 +266,27 @@ describe("TwilioWhatsAppClient", () => {
         TwilioWhatsAppClient.create({ ...API_KEY_CREDENTIALS, apiKeySecret: "" }, "+14155238886"),
       ).toThrow();
     });
+  });
+});
+
+// A deployment without TWILIO_API_BASE_URL must keep talking to Twilio itself;
+// one with it (the end-to-end suite's fake Twilio) must get every Twilio host,
+// path and query intact.
+describe("twilioEndpoint", () => {
+  const messages = "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json";
+
+  it("leaves a Twilio URL untouched when no base URL is configured", () => {
+    expect(twilioEndpoint(messages, undefined)).toBe(messages);
+  });
+
+  it("sends every Twilio host to the configured origin, keeping path and query", () => {
+    const base = "http://127.0.0.1:4612";
+    expect(twilioEndpoint(messages, base)).toBe("http://127.0.0.1:4612/2010-04-01/Accounts/AC123/Messages.json");
+    expect(twilioEndpoint("https://messaging.twilio.com/v2/Indicators/Typing.json", base)).toBe(
+      "http://127.0.0.1:4612/v2/Indicators/Typing.json",
+    );
+    expect(twilioEndpoint("https://content.twilio.com/v1/Content/HX1?x=1", base)).toBe(
+      "http://127.0.0.1:4612/v1/Content/HX1?x=1",
+    );
   });
 });

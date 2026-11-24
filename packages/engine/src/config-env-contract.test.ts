@@ -59,8 +59,11 @@ describe("configuration environment contract", () => {
     const configSource = readFileSync(configPath, "utf8");
     const sampleSource = readFileSync(samplePath, "utf8");
     const documented = documentedEnvironmentNames(sampleSource);
-    const missing = directEnvironmentNames(configSource).filter((name) => !documented.has(name));
+    const read = directEnvironmentNames(configSource);
+    const missing = read.filter((name) => !documented.has(name));
 
+    // The scan found the reads it exists for.
+    expect(read).toContain("AUTH_SECRET");
     expect(missing, "Missing from .env.example").toEqual([]);
   });
 

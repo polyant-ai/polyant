@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { TenantContextPayload } from "@/lib/api-types";
 import { TenantProvider, useTenant, resetTenantCache } from "./tenant-context";
 
-const { mockMeGet } = vi.hoisted(() => ({ mockMeGet: vi.fn() }));
+const { mockMeGet } = vi.hoisted(() => ({ mockMeGet: vi.fn<typeof import("@/lib/api").api.me.get>() }));
 
 vi.mock("@/lib/api", () => ({
-  api: { me: { get: (...args: unknown[]) => mockMeGet(...args) } },
+  api: { me: { get: (...args: Parameters<typeof mockMeGet>) => mockMeGet(...args) } },
   ApiError: class ApiError extends Error {
     constructor(
       public status: number,
@@ -39,7 +40,7 @@ function renderProbe() {
   );
 }
 
-const PAYLOAD = {
+const PAYLOAD: TenantContextPayload = {
   organization: { slug: "default", name: "Default" },
   workspaces: [{ slug: "general", name: "General", isDefault: true }],
 };
@@ -146,7 +147,7 @@ describe("TenantProvider", () => {
       const tenant = useTenant();
       return tenant.status === "ready" ? <Page /> : <span>skeleton</span>;
     }
-    let answer: (payload: typeof PAYLOAD) => void = () => {};
+    let answer: (payload: TenantContextPayload) => void = () => {};
     mockMeGet.mockResolvedValueOnce(PAYLOAD);
     mockMeGet.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
 

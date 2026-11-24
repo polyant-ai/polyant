@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,15 +46,16 @@ interface SettingsFieldProps {
 /** When the hook runs. */
 export function HookEventField({ value, onChange, disabled = false }: SettingsFieldProps) {
   const { t } = useI18n();
+  const id = useId();
   return (
     <div className="space-y-2">
-      <Label>{t("hooks.event")}</Label>
+      <Label htmlFor={id}>{t("hooks.event")}</Label>
       <Select
         value={value.event}
         disabled={disabled}
         onValueChange={(v) => onChange({ ...value, event: v as HookEvent })}
       >
-        <SelectTrigger>
+        <SelectTrigger id={id}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

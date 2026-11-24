@@ -231,9 +231,9 @@ export function TriggersWebhooksTab({ slug }: Props) {
             <Input id="new-source-name" value={newSourceForm.name} onChange={(e) => setNewSourceForm((p) => ({ ...p, name: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <Label>{t("room.sources.type")}</Label>
+            <Label htmlFor="new-source-type">{t("room.sources.type")}</Label>
             <Select value={newSourceForm.sourceType} onValueChange={(v) => setNewSourceForm((p) => ({ ...p, sourceType: v }))}>
-              <SelectTrigger>
+              <SelectTrigger id="new-source-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

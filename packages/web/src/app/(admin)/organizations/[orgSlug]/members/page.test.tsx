@@ -5,8 +5,9 @@ import userEvent from "@testing-library/user-event";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockMembersList = vi.fn();
-const mockMembersRemove = vi.fn();
+type Members = typeof import("@/lib/api").api.members;
+const mockMembersList = vi.fn<Members["list"]>();
+const mockMembersRemove = vi.fn<Members["remove"]>();
 const mockToastError = vi.fn();
 
 class ApiError extends Error {
@@ -22,9 +23,9 @@ class ApiError extends Error {
 vi.mock("@/lib/api", () => ({
   api: {
     members: {
-      list: (...args: unknown[]) => mockMembersList(...args),
-      assign: vi.fn(),
-      remove: (...args: unknown[]) => mockMembersRemove(...args),
+      list: (...args: Parameters<Members["list"]>) => mockMembersList(...args),
+      assign: vi.fn<Members["assign"]>(),
+      remove: (...args: Parameters<Members["remove"]>) => mockMembersRemove(...args),
     },
   },
   getUserErrorMessage: (_err: unknown, fallback: string) => fallback,

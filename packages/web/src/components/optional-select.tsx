@@ -15,12 +15,15 @@ const ALL = "_all";
 export function OptionalSelect({
   value,
   onChange,
+  label,
   allLabel,
   options,
   className = "w-[200px]",
 }: {
   value: string;
   onChange: (value: string) => void;
+  /** The filter's accessible name: what it filters by, since the toolbar shows no label. */
+  label: string;
   allLabel: string;
   options: readonly { value: string; label: string }[];
   /** Width (or any class) of the trigger. */
@@ -28,7 +31,7 @@ export function OptionalSelect({
 }) {
   return (
     <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? "" : next)}>
-      <SelectTrigger className={className}>
+      <SelectTrigger className={className} aria-label={label}>
         <SelectValue placeholder={allLabel} />
       </SelectTrigger>
       <SelectContent>

@@ -197,10 +197,11 @@ export function MonitorView({
           <button
             type="button"
             onClick={() => onChange({ ...value, type: "" })}
-            aria-label={t("monitor.filter.clearType")}
             className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
+            {/* The name starts with the visible chip text, then says what a click does. */}
             {t("monitor.filter.onlyType", { type: labels.typeLong(filters.type) })}
+            <span className="sr-only">, {t("monitor.filter.clearType")}</span>
             <X className="size-3" aria-hidden />
           </button>
         </div>

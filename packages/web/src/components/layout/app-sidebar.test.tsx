@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { I18nProvider } from "@/lib/i18n/context";
 import { AppSidebar } from "./app-sidebar";
 import type { TenantContextValue } from "@/lib/tenant/tenant-context";
 import type { Instance } from "@/lib/api";
+import { makeInstance } from "@/test-fixtures/api";
 import { forgetFavoriteAgents } from "@/lib/nav/favorite-agents";
+
+type Api = typeof import("@/lib/api").api;
 
 const { mockPathname, mockParams, mockApi } = vi.hoisted(() => ({
   mockPathname: { value: "/" },
   mockParams: { value: {} as { orgSlug?: string; workspaceSlug?: string } },
   mockApi: {
-    favoriteAgents: vi.fn(),
-    listInstances: vi.fn(),
+    favoriteAgents: vi.fn<Api["me"]["favoriteAgents"]>(),
+    listInstances: vi.fn<Api["instances"]["list"]>(),
   },
 }));
 
@@ -82,6 +85,12 @@ beforeAll(() => {
 // The property that replaced the agent rail: ONE column of navigation at a time.
 // Two adjacent vertical lists at the same visual weight read as one two-level tree
 // cut in half — neither can say "you are here", so both try to.
+/** The sidebar reads the person's stars on mount; the nav is checked once that answer has landed. */
+async function waitForStars() {
+  await waitFor(() => expect(mockApi.favoriteAgents).toHaveBeenCalled());
+  await act(() => mockApi.favoriteAgents.mock.results[0]!.value);
+}
+
 describe("AppSidebar — a destination takes over the sidebar", () => {
   const AGENT = "/organizations/default/workspaces/general/instances/bot-1";
 
@@ -89,7 +98,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     mockPathname.value = "/";
   });
 
-  it("shows the agent's sections under their headings, and NOT the daily nav", () => {
+  it("shows the agent's sections under their headings, and NOT the daily nav", async () => {
     mockPathname.value = AGENT;
     render(
       <I18nProvider initialLocale="it">
@@ -99,6 +108,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
       </I18nProvider>,
     );
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     // The way back out; the agent's name is the page heading, not a line here.
     expect(within(content).getByRole("link", { name: /agenti/i })).toBeInTheDocument();
@@ -126,7 +136,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     ).toBe(`${AGENT}?tab=conversations`);
   });
 
-  it("shows the way back and then the sections, with no line naming the agent between them", () => {
+  it("shows the way back and then the sections, with no line naming the agent between them", async () => {
     mockPathname.value = AGENT;
     render(
       <I18nProvider initialLocale="it">
@@ -136,13 +146,14 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
       </I18nProvider>,
     );
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     // The agent's name is the page heading; repeating its slug under the back link was noise.
     expect(within(content).getByRole("link", { name: /agenti/i })).toBeInTheDocument();
     expect(within(content).queryByText("bot-1")).not.toBeInTheDocument();
   });
 
-  it("shows the daily nav, and no agent entries, everywhere else", () => {
+  it("shows the daily nav, and no agent entries, everywhere else", async () => {
     render(
       <I18nProvider initialLocale="it">
         <SidebarProvider>
@@ -151,6 +162,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
       </I18nProvider>,
     );
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /conversazioni/i })).toBeInTheDocument();
     expect(within(content).queryByText("Risorse")).not.toBeInTheDocument();
@@ -172,23 +184,26 @@ describe("AppSidebar — Members is org administration, Settings is platform adm
       </I18nProvider>,
     );
 
-  it("offers Members to a non-platform-admin, who may well be the org Owner", () => {
+  it("offers Members to a non-platform-admin, who may well be the org Owner", async () => {
     renderAs(false);
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
   });
 
-  it("still keeps Settings to a platform admin", () => {
+  it("still keeps Settings to a platform admin", async () => {
     renderAs(false);
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).queryByRole("link", { name: /impostazioni/i })).not.toBeInTheDocument();
   });
 
-  it("shows both to a platform admin", () => {
+  it("shows both to a platform admin", async () => {
     renderAs(true);
 
+    await waitForStars();
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /impostazioni/i })).toBeInTheDocument();
@@ -198,7 +213,7 @@ describe("AppSidebar — Members is org administration, Settings is platform adm
 // The mark is the one way home from anywhere in the panel; a plain <span> there
 // leaves a user on a deep page with only the browser's back button.
 describe("AppSidebar — the Polyant mark", () => {
-  it("is a link named Polyant that leads to the root page", () => {
+  it("is a link named Polyant that leads to the root page", async () => {
     render(
       <I18nProvider initialLocale="it">
         <SidebarProvider>
@@ -207,6 +222,7 @@ describe("AppSidebar — the Polyant mark", () => {
       </I18nProvider>,
     );
 
+    await waitForStars();
     const header = document.querySelector<HTMLElement>('[data-sidebar="header"]')!;
     expect(within(header).getByRole("link", { name: "Polyant" }).getAttribute("href")).toBe("/");
   });
@@ -215,7 +231,7 @@ describe("AppSidebar — the Polyant mark", () => {
 // The person's starred agents, one click away at the foot of the daily list.
 describe("AppSidebar — Favorites", () => {
   const agent = (id: string, name: string, slug: string): Instance =>
-    ({ id, name, slug, icon: null, status: "active" }) as Instance;
+    makeInstance({ id, name, slug, icon: null, status: "active" });
 
   const renderSidebar = () =>
     render(
@@ -257,8 +273,8 @@ describe("AppSidebar — Favorites", () => {
     mockApi.favoriteAgents.mockResolvedValue({ agentIds: ["id-alpha"] });
     renderSidebar();
     await waitFor(() => expect(mockApi.favoriteAgents).toHaveBeenCalled());
-    // Let a fetch the stars would trigger have its turn.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Let the stars land, and a fetch they would trigger have its turn.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(mockApi.listInstances).not.toHaveBeenCalled();
     expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
   });

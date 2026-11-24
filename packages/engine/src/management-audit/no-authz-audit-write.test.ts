@@ -29,9 +29,15 @@ function collectTsFiles(dir: string): string[] {
 }
 
 describe("authz_audit_logs has no OSS write path", () => {
+  const files = collectTsFiles(ENGINE_SRC);
+
+  it("scans the file that declares the table, so the scan is looking at real code", () => {
+    expect(files.map((f) => f.slice(ENGINE_SRC.length + 1))).toContain("authz/authz-audit-log.schema.ts");
+  });
+
   it("no OSS source inserts into authzAuditLogs", () => {
     const offenders: string[] = [];
-    for (const file of collectTsFiles(ENGINE_SRC)) {
+    for (const file of files) {
       const src = readFileSync(file, "utf8");
       // A write is an `insert(...)` whose argument is the authz audit table.
       if (/insert\s*\(\s*authzAuditLogs\b/.test(src)) {
