@@ -76,6 +76,15 @@ export class ComputeConstruct extends Construct {
     // Secrets Manager read for app secret
     props.appSecret.grantRead(taskRole);
 
+    // First admin's password. The engine seeds the admin only when
+    // INITIAL_ADMIN_PASSWORD is set and the users table is empty; without it
+    // nobody can sign in to a new deployment. Read it from Secrets Manager.
+    const adminSecret = new secretsmanager.Secret(this, "AdminSecret", {
+      secretName: `polyant-initial-admin-${props.stage}`,
+      description: "Password of the first panel admin (administrator@local), used at first boot only",
+      generateSecretString: { passwordLength: 24, excludePunctuation: true },
+    });
+
     // CloudWatch Logs
     taskRole.addToPolicy(
       new iam.PolicyStatement({
@@ -143,6 +152,7 @@ export class ComputeConstruct extends Construct {
         // verify). Harmless placeholder otherwise. No GOOGLE_* variables are
         // injected anywhere: federated sign-in is not part of this edition.
         AUTH_INTERNAL_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_internal_secret"),
+        INITIAL_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(adminSecret),
       },
       logging: ecs.LogDrivers.awsLogs({
         logGroup: engineLogGroup,
@@ -177,13 +187,16 @@ export class ComputeConstruct extends Construct {
         INTERNAL_ENGINE_URL: "http://localhost:4000",
         HOSTNAME: "0.0.0.0",
         ...(props.domainName ? { NEXTAUTH_URL: `https://${props.domainName}` } : {}),
-        // Gateway-authenticated mode: ALB OIDC authenticates upstream;
-        // web middleware sees no Auth.js cookie and silently returns null
-        // (no decrypt → no MissingSecret throw), so AUTH_SECRET is not needed.
-        // AUTH_TRUST_HOST tells Auth.js to trust X-Forwarded-Host behind the ALB.
-        ...(props.auth
-          ? { AUTH_TRUST_HOST: "true" }
-          : {}),
+        // The panel signs users in with Auth.js whether or not ALB OIDC sits in
+        // front, and it is reached only through the ALB: Auth.js must trust the
+        // forwarded host, or every /api/auth route answers 500 (UntrustedHost).
+        AUTH_TRUST_HOST: "true",
+      },
+      secrets: {
+        // Same values the engine reads: the session JWT is decrypted on both
+        // sides, and the internal secret signs web → engine credential checks.
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_secret"),
+        AUTH_INTERNAL_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_internal_secret"),
       },
       logging: ecs.LogDrivers.awsLogs({
         logGroup: webLogGroup,
@@ -347,6 +360,11 @@ export class ComputeConstruct extends Construct {
     new CfnOutput(this, "AppUrl", {
       value: appUrl,
       description: "Application URL",
+    });
+
+    new CfnOutput(this, "InitialAdminSecret", {
+      value: adminSecret.secretName,
+      description: "Secrets Manager secret holding the first admin's password (sign in as administrator@local)",
     });
   }
 }
