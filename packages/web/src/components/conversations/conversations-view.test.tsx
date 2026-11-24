@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ConversationListItem } from "@/lib/api-types";
+import { makeConversationList, makeConversationListItem } from "@/test-fixtures/conversations";
 
 const { mockList, mockInstances, mockPush, mockSetSearch } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockInstances: vi.fn(),
+  mockList: vi.fn<typeof import("@/lib/api").api.conversations.list>(),
+  mockInstances: vi.fn<typeof import("@/lib/api").api.instances.list>(),
   mockPush: vi.fn(),
   mockSetSearch: vi.fn(),
 }));
@@ -18,8 +20,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/tenant/use-workspace-slug", () => ({ useWorkspaceSlug: () => "sales" }));
 vi.mock("@/lib/api", () => ({
   api: {
-    conversations: { list: (...a: unknown[]) => mockList(...a) },
-    instances: { list: (...a: unknown[]) => mockInstances(...a) },
+    conversations: { list: (...a: Parameters<typeof mockList>) => mockList(...a) },
+    instances: { list: (...a: Parameters<typeof mockInstances>) => mockInstances(...a) },
   },
   getUserErrorMessage: (_e: unknown, fallback: string) => fallback,
 }));
@@ -41,8 +43,8 @@ vi.mock("@/hooks/use-pagination", () => ({
 
 import { ConversationsView } from "./conversations-view";
 
-function conv(over: Record<string, unknown>) {
-  return {
+function conv(over: Partial<ConversationListItem>) {
+  return makeConversationListItem({
     id: "1",
     conversationId: "bot:web:1",
     title: "Refund question",
@@ -53,13 +55,11 @@ function conv(over: Record<string, unknown>) {
     messageCount: 4,
     conversationTokens: 100,
     serviceTokens: 0,
-    cachedInputTokens: 0,
-    cacheCreationInputTokens: 0,
     conversationCost: 0.01,
     serviceCost: 0,
     updatedAt: new Date().toISOString(),
     ...over,
-  };
+  });
 }
 
 describe("ConversationsView", () => {
@@ -68,10 +68,7 @@ describe("ConversationsView", () => {
     pagination.search = "";
     pagination.page = 1;
     mockInstances.mockResolvedValue({ instances: [] });
-    mockList.mockResolvedValue({
-      conversations: [conv({}), conv({ id: "2", conversationId: "bot:web:2", title: "Another" })],
-      total: 2,
-    });
+    mockList.mockResolvedValue(makeConversationList([conv({}), conv({ id: "2", conversationId: "bot:web:2", title: "Another" })], { total: 2 }));
   });
 
   it("links the title to the conversation's page and goes there from the rest of the row", async () => {
@@ -87,10 +84,7 @@ describe("ConversationsView", () => {
   });
 
   it("keeps the engine's order, most recent first, instead of sorting by title", async () => {
-    mockList.mockResolvedValue({
-      conversations: [conv({ title: "Zulu" }), conv({ id: "2", conversationId: "b", title: "Alpha" })],
-      total: 2,
-    });
+    mockList.mockResolvedValue(makeConversationList([conv({ title: "Zulu" }), conv({ id: "2", conversationId: "b", title: "Alpha" })], { total: 2 }));
     render(<ConversationsView />);
     await screen.findByText("Zulu");
 
@@ -115,7 +109,7 @@ describe("ConversationsView", () => {
   });
 
   it("says nothing matched when a search has no result, and the plain empty state otherwise", async () => {
-    mockList.mockResolvedValue({ conversations: [], total: 0 });
+    mockList.mockResolvedValue(makeConversationList([], { total: 0 }));
     const { unmount } = render(<ConversationsView />);
     expect(await screen.findByText("conversations.empty.title")).toBeInTheDocument();
     unmount();
@@ -131,16 +125,16 @@ describe("ConversationsView", () => {
     render(<ConversationsView />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("common.loadFailed");
-    mockList.mockResolvedValue({ conversations: [conv({})], total: 1 });
+    mockList.mockResolvedValue(makeConversationList([conv({})], { total: 1 }));
     await user.click(screen.getByRole("button", { name: "common.retry" }));
     await waitFor(() => expect(screen.getByText("Refund question")).toBeInTheDocument());
   });
 
   // A slow search that answers after the next one must not replace its rows.
   it("shows the rows of the search on screen, not of a slower earlier one", async () => {
-    let answerFirst: (value: unknown) => void = () => {};
-    mockList.mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)));
-    mockList.mockResolvedValueOnce({ conversations: [conv({ title: "Fresh" })], total: 1 });
+    let answerFirst: (value: Awaited<ReturnType<typeof mockList>>) => void = () => {};
+    mockList.mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof mockList>>>((resolve) => (answerFirst = resolve)));
+    mockList.mockResolvedValueOnce(makeConversationList([conv({ title: "Fresh" })], { total: 1 }));
     const { rerender } = render(<ConversationsView />);
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
 
@@ -148,15 +142,16 @@ describe("ConversationsView", () => {
     rerender(<ConversationsView />);
     expect(await screen.findByText("Fresh")).toBeInTheDocument();
 
-    answerFirst({ conversations: [conv({ id: "9", conversationId: "old", title: "Stale" })], total: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    answerFirst(makeConversationList([conv({ id: "9", conversationId: "old", title: "Stale" })], { total: 1 }));
+    // Give the stale answer its turn to (wrongly) land.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(screen.queryByText("Stale")).not.toBeInTheDocument();
     expect(screen.getByText("Fresh")).toBeInTheDocument();
   });
 
   // Moving to another page keeps the table and its pager in place until the new rows arrive.
   it("keeps the current rows and the pager on screen while the next page loads", async () => {
-    mockList.mockResolvedValueOnce({ conversations: [conv({ title: "First page" })], total: 45 });
+    mockList.mockResolvedValueOnce(makeConversationList([conv({ title: "First page" })], { total: 45 }));
     mockList.mockReturnValueOnce(new Promise(() => {}));
     const { rerender } = render(<ConversationsView />);
     expect(await screen.findByText("First page")).toBeInTheDocument();

@@ -33,6 +33,18 @@ describe("ChatArea", () => {
     expect(screen.queryByPlaceholderText(/key|token|chiave/i)).toBeNull();
     expect(screen.queryByText("playground.authKeyToggle")).toBeNull();
   });
+
+  it("names the icon-only conversation state button", () => {
+    render(
+      <TooltipProvider><ChatArea
+        messages={[]} historicalHookExecutions={[]} isStreaming={false} instanceSlug="shop" error={null}
+        conversations={[]} conversationsLoading={false} activeConversationId={null}
+        onSend={vi.fn()} onStop={vi.fn()} onInstanceChange={vi.fn()} onNewChat={vi.fn()} onSelectConversation={vi.fn()}
+      /></TooltipProvider>,
+    );
+    // The tooltip text is not a name: without aria-label a screen reader hears only "button".
+    expect(screen.getByRole("button", { name: "conversations.state.button" })).toBeDisabled();
+  });
 });
 
 describe("ChatArea empty state", () => {

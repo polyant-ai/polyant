@@ -11,13 +11,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { EventSource } from "@/lib/api";
+
+type Api = typeof import("@/lib/api").api;
 
 const { mockList, mockWebhookUrl, mockRotateToken, mockUpdate, mockDelete } = vi.hoisted(() => ({
-  mockUpdate: vi.fn(),
-  mockDelete: vi.fn(),
-  mockList: vi.fn(),
-  mockWebhookUrl: vi.fn(),
-  mockRotateToken: vi.fn(),
+  mockUpdate: vi.fn<Api["eventSources"]["update"]>(),
+  mockDelete: vi.fn<Api["eventSources"]["delete"]>(),
+  mockList: vi.fn<Api["eventSources"]["list"]>(),
+  mockWebhookUrl: vi.fn<Api["eventSources"]["webhookUrl"]>(),
+  mockRotateToken: vi.fn<Api["eventSources"]["rotateToken"]>(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -44,7 +47,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { TriggersWebhooksTab } from "./triggers-webhooks-tab";
 
 /** Shape of a list-endpoint row, deliberately without webhookUrl/webhookToken. */
-const SOURCE = {
+const SOURCE: EventSource = {
   id: "src-1",
   name: "Source 1",
   sourceType: "webhook",

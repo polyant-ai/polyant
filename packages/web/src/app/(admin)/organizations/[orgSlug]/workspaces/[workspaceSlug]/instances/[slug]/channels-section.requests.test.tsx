@@ -4,17 +4,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChannelsSection } from "./channels-section";
 import { PageActionsProvider } from "./page-actions-context";
-import type { Instance } from "@/lib/api";
+import { makeChannel, makeInstance } from "@/test-fixtures/api";
 
-const { mockChannelsList } = vi.hoisted(() => ({ mockChannelsList: vi.fn() }));
+type Api = typeof import("@/lib/api").api;
+const { mockChannelsList } = vi.hoisted(() => ({ mockChannelsList: vi.fn<Api["channels"]["list"]>() }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     channels: {
-      list: (...a: unknown[]) => mockChannelsList(...a),
-      slackWebhookUrl: vi.fn().mockResolvedValue({ webhookUrl: "" }),
+      list: (...a: Parameters<Api["channels"]["list"]>) => mockChannelsList(...a),
+      slackWebhookUrl: vi.fn<Api["channels"]["slackWebhookUrl"]>().mockResolvedValue({ webhookUrl: "" }),
     },
-    secrets: { list: vi.fn().mockResolvedValue({ secrets: [] }) },
+    secrets: { list: vi.fn<Api["secrets"]["list"]>().mockResolvedValue({ secrets: [] }) },
   },
   getUserErrorMessage: (_e: unknown, d: string) => d,
 }));
@@ -23,11 +24,11 @@ vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (k: string) => k, locale: "en", setLocale: vi.fn() }),
 }));
 
-const instance = { slug: "bot-1", authEnabled: false, a2aEnabled: false } as Instance;
+const instance = makeInstance({ slug: "bot-1", authEnabled: false, a2aEnabled: false });
 
 describe("ChannelsSection — how many times the channel list is read", () => {
   it("reads it once on opening and never again while moving between channels", async () => {
-    mockChannelsList.mockResolvedValue({ channels: [{ channelType: "telegram", enabled: true, config: {} }] });
+    mockChannelsList.mockResolvedValue({ channels: [makeChannel({ channelType: "telegram" })] });
     const user = userEvent.setup();
     render(
       <PageActionsProvider>

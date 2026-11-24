@@ -113,6 +113,7 @@ export function ChatArea({
                 variant="ghost"
                 size="icon"
                 className="size-8"
+                aria-label={t("conversations.state.button")}
                 disabled={!activeConversationId}
                 onClick={() => setStateOpen(true)}
               >

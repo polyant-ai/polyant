@@ -2,17 +2,18 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ConversationListItem, Instance } from "@/lib/api";
+import type { Instance } from "@/lib/api";
+import { makeConversationListItem } from "@/test-fixtures/conversations";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockConversationsList = vi.fn();
-const mockInstancesList = vi.fn();
+const mockConversationsList = vi.fn<typeof import("@/lib/api").api.conversations.list>();
+const mockInstancesList = vi.fn<typeof import("@/lib/api").api.instances.list>();
 
 vi.mock("@/lib/api", () => ({
   api: {
-    instances: { list: (...args: unknown[]) => mockInstancesList(...args) },
-    conversations: { list: (...args: unknown[]) => mockConversationsList(...args) },
+    instances: { list: (...args: Parameters<typeof mockInstancesList>) => mockInstancesList(...args) },
+    conversations: { list: (...args: Parameters<typeof mockConversationsList>) => mockConversationsList(...args) },
   },
 }));
 
@@ -90,30 +91,7 @@ import ConversationsPage from "./page";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeConversation(overrides: Partial<ConversationListItem> = {}): ConversationListItem {
-  return {
-    id: "c1",
-    conversationId: "conv-1",
-    title: "Test Conversation",
-    summary: "A summary",
-    channel: "telegram",
-    userIdentifier: null,
-    instanceId: "inst-1",
-    instanceName: "My Instance",
-    messageCount: 5,
-    totalTokens: 1200,
-    totalCost: 0.0035,
-    conversationTokens: 1000,
-    conversationCost: 0.003,
-    serviceTokens: 200,
-    serviceCost: 0.0005,
-    cachedInputTokens: 0,
-    cacheCreationInputTokens: 0,
-    createdAt: "2025-01-01T00:00:00Z",
-    updatedAt: "2025-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
+const makeConversation = makeConversationListItem;
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -181,16 +159,16 @@ describe("ConversationsPage", () => {
   it("renders the page title and subtitle", async () => {
     render(<ConversationsPage />);
 
-    expect(screen.getByText("conversations.title")).toBeInTheDocument();
+    expect(await screen.findByText("conversations.title")).toBeInTheDocument();
     expect(screen.getByText("conversations.subtitle")).toBeInTheDocument();
   });
 
-  it("shows loading state initially", () => {
+  it("shows loading state initially", async () => {
     // Make the API call hang so loading stays visible
     mockConversationsList.mockReturnValue(new Promise(() => {}));
     render(<ConversationsPage />);
 
-    expect(screen.getByRole("status", { name: "common.loading" })).toBeInTheDocument();
+    expect(await screen.findByRole("status", { name: "common.loading" })).toBeInTheDocument();
   });
 
   it("shows empty state when no conversations are returned", async () => {
@@ -267,11 +245,11 @@ describe("ConversationsPage", () => {
     });
   });
 
-  it("shows the search input", () => {
+  it("shows the search input", async () => {
     render(<ConversationsPage />);
 
     expect(
-      screen.getByPlaceholderText("conversations.searchPlaceholder"),
+      await screen.findByPlaceholderText("conversations.searchPlaceholder"),
     ).toBeInTheDocument();
   });
 

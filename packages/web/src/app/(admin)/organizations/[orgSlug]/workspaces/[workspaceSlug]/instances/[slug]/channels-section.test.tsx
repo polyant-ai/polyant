@@ -3,20 +3,22 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { ChannelsSection } from "./channels-section";
 import { PageActionsProvider } from "./page-actions-context";
-import type { Instance } from "@/lib/api";
+import { makeChannel, makeInstance } from "@/test-fixtures/api";
 
-const { mockChannelsList } = vi.hoisted(() => ({ mockChannelsList: vi.fn() }));
+const { mockChannelsList } = vi.hoisted(() => ({
+  mockChannelsList: vi.fn<typeof import("@/lib/api").api.channels.list>(),
+}));
 
 vi.mock("./channel-web-tab", () => ({ ChannelWebTab: () => <div>web-panel</div> }));
 vi.mock("./channels-tab", () => ({ ChannelsTab: () => <div>other-panel</div> }));
 vi.mock("@/lib/api", () => ({
-  api: { channels: { list: (...a: unknown[]) => mockChannelsList(...a) } },
+  api: { channels: { list: mockChannelsList } },
 }));
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (k: string) => k, locale: "en", setLocale: vi.fn() }),
 }));
 
-const instance = { slug: "bot-1", authEnabled: true } as Instance;
+const instance = makeInstance({ slug: "bot-1", authEnabled: true });
 
 function dotOf(label: string): HTMLElement {
   return screen.getByText(label).querySelector("span[aria-hidden]") as HTMLElement;
@@ -37,7 +39,7 @@ describe("ChannelsSection — Web is a channel", () => {
   });
 
   it("shows Web live when its channel row is enabled", async () => {
-    mockChannelsList.mockResolvedValue({ channels: [{ channelType: "web", enabled: true, config: {} }] });
+    mockChannelsList.mockResolvedValue({ channels: [makeChannel({ channelType: "web" })] });
     render(
       <PageActionsProvider>
         <ChannelsSection instance={instance} onUpdate={vi.fn()} />

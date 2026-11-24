@@ -14,14 +14,16 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Instance } from "@/lib/api";
+import type { Instance, ModelsResponse, SecretStatus } from "@/lib/api";
+
+type Api = typeof import("@/lib/api").api;
 
 const mocks = vi.hoisted(() => ({
-  update: vi.fn(),
-  models: vi.fn(),
-  secretsList: vi.fn(),
-  secretsSet: vi.fn(),
-  secretsDelete: vi.fn(),
+  update: vi.fn<Api["instances"]["update"]>(),
+  models: vi.fn<Api["models"]["list"]>(),
+  secretsList: vi.fn<Api["secrets"]["list"]>(),
+  secretsSet: vi.fn<Api["secrets"]["set"]>(),
+  secretsDelete: vi.fn<Api["secrets"]["delete"]>(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -54,6 +56,7 @@ vi.mock("@/lib/api", () => ({
   getUserErrorMessage: (_err: unknown, fallback: string) => fallback,
 }));
 
+import { makeModelInfo } from "@/test-fixtures/instance-tabs";
 import { ModelTab } from "./model-tab";
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
@@ -106,16 +109,16 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 }
 
 
-const MODELS = {
+const MODELS: ModelsResponse = {
   providers: {
     openai: {
       models: [
-        { id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
-        { id: "o3", tier: "heavy", costInput: 0.01, costOutput: 0.03, fastMultiplier: 2, supportsThinking: true, supportsTemperature: false },
+        makeModelInfo({ id: "gpt-4o", tier: "standard" }),
+        makeModelInfo({ id: "o3", tier: "heavy", fastMultiplier: 2, supportsThinking: true, supportsTemperature: false }),
       ],
     },
-    anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075, supportsThinking: false, supportsTemperature: true }] },
-    bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
+    anthropic: { models: [makeModelInfo({ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075 })] },
+    bedrock: { models: [makeModelInfo({ id: "titan", tier: "standard" })] },
   },
   // The embedder select renders from THIS list, never from a copy in the component.
   embedders: [
@@ -124,7 +127,7 @@ const MODELS = {
   ],
 };
 
-const STORED = [
+const STORED: SecretStatus[] = [
   { key: "openai_api_key", configured: true },
   { key: "anthropic_api_key", configured: false },
 ];
@@ -153,10 +156,10 @@ describe("ModelTab", () => {
     vi.clearAllMocks();
     mocks.models.mockResolvedValue(MODELS);
     mocks.secretsList.mockResolvedValue({ secrets: STORED });
-    mocks.secretsSet.mockImplementation(async (_slug: string, entries: { key: string }[]) => ({
+    mocks.secretsSet.mockImplementation(async (_slug, entries) => ({
       secrets: [...STORED.filter((s) => !entries.some((e) => e.key === s.key)), ...entries.map((e) => ({ key: e.key, configured: true }))],
     }));
-    mocks.update.mockImplementation(async (_slug: string, body: Partial<Instance>) => ({ instance: makeInstance(body) }));
+    mocks.update.mockImplementation(async (_slug, body) => ({ instance: makeInstance(body) }));
   });
 
   it("lists each task with its provider, model and whether its key is in place", async () => {

@@ -12,10 +12,13 @@ import type { ReactElement } from "react";
 import { SettingsTab } from "./settings-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import type { Instance } from "@/lib/api";
+import { makeInstance as baseInstance } from "@/test-fixtures/api";
+
+type Api = typeof import("@/lib/api").api;
 
 const mocks = vi.hoisted(() => ({
-  update: vi.fn(),
-  models: vi.fn(),
+  update: vi.fn<Api["instances"]["update"]>(),
+  models: vi.fn<Api["models"]["list"]>(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -45,25 +48,14 @@ function renderWithProvider(ui: ReactElement) {
 }
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
+  return baseInstance({
     id: "inst-1",
     slug: "test-instance",
     name: "Test Instance",
     status: "active",
-    stateInPromptEnabled: false,
     datetimeInjectionEnabled: true,
-    datetimeTimezone: null,
-    datetimeLocale: null,
-    dedupSimilarityThreshold: null,
-    messageSoftDebounceMs: null,
-    messageTypingDelayMs: null,
-    messageMaxRestarts: null,
-    toolResultsInHistoryEnabled: false,
-    toolHistoryReplay: "compact",
-    debugEnabled: false,
-    intermediateText: null,
     ...overrides,
-  } as Instance;
+  });
 }
 
 /** Pick an option of the intermediate-text select, by its label. */

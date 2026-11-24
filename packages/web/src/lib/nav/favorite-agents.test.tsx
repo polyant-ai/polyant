@@ -12,10 +12,12 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 
+type Api = typeof import("@/lib/api").api;
+
 const h = vi.hoisted(() => ({
-  favoriteAgents: vi.fn(),
-  addFavoriteAgent: vi.fn(),
-  removeFavoriteAgent: vi.fn(),
+  favoriteAgents: vi.fn<Api["me"]["favoriteAgents"]>(),
+  addFavoriteAgent: vi.fn<Api["me"]["addFavoriteAgent"]>(),
+  removeFavoriteAgent: vi.fn<Api["me"]["removeFavoriteAgent"]>(),
   toastError: vi.fn(),
 }));
 

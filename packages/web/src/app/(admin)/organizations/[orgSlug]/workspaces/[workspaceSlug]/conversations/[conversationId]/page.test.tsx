@@ -6,11 +6,13 @@ import type { ConversationListItem, ConversationMessage } from "@/lib/api";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockGet = vi.fn();
-const mockMessages = vi.fn();
-const mockHookExecutions = vi.fn();
-const mockDelete = vi.fn();
-const mockRename = vi.fn();
+const { mockGet, mockMessages, mockHookExecutions, mockDelete, mockRename } = vi.hoisted(() => ({
+  mockGet: vi.fn<typeof import("@/lib/api").api.conversations.get>(),
+  mockMessages: vi.fn<typeof import("@/lib/api").api.conversations.messages>(),
+  mockHookExecutions: vi.fn<typeof import("@/lib/api").api.conversations.hookExecutions>(),
+  mockDelete: vi.fn<typeof import("@/lib/api").api.conversations.delete>(),
+  mockRename: vi.fn<typeof import("@/lib/api").api.conversations.rename>(),
+}));
 const mockPush = vi.fn();
 const search = vi.hoisted(() => ({ current: new URLSearchParams() }));
 
@@ -20,11 +22,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...actual,
     api: {
       conversations: {
-        get: (...args: unknown[]) => mockGet(...args),
-        messages: (...args: unknown[]) => mockMessages(...args),
-        hookExecutions: (...args: unknown[]) => mockHookExecutions(...args),
-        delete: (...args: unknown[]) => mockDelete(...args),
-        rename: (...args: unknown[]) => mockRename(...args),
+        get: mockGet,
+        messages: mockMessages,
+        hookExecutions: mockHookExecutions,
+        delete: mockDelete,
+        rename: mockRename,
       },
     },
   };

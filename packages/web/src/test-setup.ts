@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { loadCatalog } from "@/lib/i18n/catalogs";
+import { installActGuard } from "./test-act-guard";
 
 // jsdom does not implement the pointer-capture or scroll APIs that Radix UI
 // primitives (Select, etc.) call on open. Polyfill them as no-ops so those
@@ -24,3 +25,6 @@ globalThis.ResizeObserver ??= class {
 // them. Tests render many providers synchronously, so both catalogues are loaded
 // once, up front.
 await Promise.all([loadCatalog("en"), loadCatalog("it")]);
+
+// A React state change the test did not wait for fails the test that caused it.
+installActGuard();

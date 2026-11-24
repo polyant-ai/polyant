@@ -4,8 +4,8 @@
  * Unit tests for MembersController: it is a pure HTTP bridge, so the tests
  * assert (1) every handler declares the MEMBER_MANAGE permission and the class
  * carries a throttle window (the guardrail + rate-limit acceptance criteria),
- * and (2) each handler delegates to MembersService with the path params and the
- * current user.
+ * (2) the handlers that reshape a request or a response do it right, and (3)
+ * the role changes are audited.
  */
 
 import "reflect-metadata";
@@ -72,11 +72,6 @@ describe("MembersController", () => {
   it("assign delegates with slug, target user, role and caller", async () => {
     await ctx.controller.assign("default", "u2", { roleKey: "member" }, caller as never);
     expect(ctx.members.assign).toHaveBeenCalledWith("default", "u2", "member", caller);
-  });
-
-  it("remove delegates with slug, target user and caller", async () => {
-    await ctx.controller.remove("default", "u2", caller as never);
-    expect(ctx.members.remove).toHaveBeenCalledWith("default", "u2", caller);
   });
 
   it("audits the role grant with the granted role key", async () => {

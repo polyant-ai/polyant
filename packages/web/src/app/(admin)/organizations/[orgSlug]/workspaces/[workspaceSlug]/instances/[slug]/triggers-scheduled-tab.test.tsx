@@ -9,13 +9,16 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ScheduledTask } from "@/lib/api";
+import { makeScheduledTask } from "@/test-fixtures/instance-tabs";
+
+type Api = typeof import("@/lib/api").api;
 
 const { mockList, mockCreate, mockUpdate, mockDelete, mockRun, mockToast } = vi.hoisted(() => ({
-  mockList: vi.fn(),
-  mockCreate: vi.fn(),
-  mockUpdate: vi.fn(),
-  mockDelete: vi.fn(),
-  mockRun: vi.fn(),
+  mockList: vi.fn<Api["scheduledTasks"]["list"]>(),
+  mockCreate: vi.fn<Api["scheduledTasks"]["create"]>(),
+  mockUpdate: vi.fn<Api["scheduledTasks"]["update"]>(),
+  mockDelete: vi.fn<Api["scheduledTasks"]["delete"]>(),
+  mockRun: vi.fn<Api["scheduledTasks"]["run"]>(),
   mockToast: { success: vi.fn(), error: vi.fn() },
 }));
 
@@ -41,32 +44,14 @@ vi.mock("sonner", () => ({ toast: mockToast }));
 import { TriggersScheduledTab } from "./triggers-scheduled-tab";
 
 function task(over: Partial<ScheduledTask> = {}): ScheduledTask {
-  return {
-    id: "task-1",
+  return makeScheduledTask({
     name: "Daily digest",
     description: "Morning summary",
-    schedule: { type: "cron", expression: "0 9 * * *", timezone: "UTC" },
     scheduleHuman: "every day at 09:00",
     prompt: "Summarise yesterday",
-    enabled: true,
-    nextRunAt: null,
-    lastRunAt: null,
-    lastRunStatus: null,
-    lastError: null,
-    lastConversationId: null,
-    consecutiveErrors: 0,
-    totalRuns: 0,
-    deleteAfterRun: false,
-    maxRetries: 0,
-    maxRunMs: null,
-    outboundChannel: null,
-    outboundTarget: null,
     keepHistory: false,
-    createdBy: null,
-    createdAt: null,
-    updatedAt: null,
     ...over,
-  };
+  });
 }
 
 const DIGEST = task();

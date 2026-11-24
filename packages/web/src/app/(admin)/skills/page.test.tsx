@@ -2,14 +2,16 @@
 
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
+import type { LibrarySkillDetail, LibrarySkillSummary } from "@/lib/api-types";
 
+type Api = typeof import("@/lib/api").api;
 const { list, get, update, remove, versions, getVersion, replace, searchParams } = vi.hoisted(() => ({
-  getVersion: vi.fn(),
-  list: vi.fn(),
-  get: vi.fn(),
-  update: vi.fn(),
-  remove: vi.fn(),
-  versions: vi.fn(),
+  getVersion: vi.fn<Api["skillLibrary"]["getVersion"]>(),
+  list: vi.fn<Api["skillLibrary"]["list"]>(),
+  get: vi.fn<Api["skillLibrary"]["get"]>(),
+  update: vi.fn<Api["skillLibrary"]["update"]>(),
+  remove: vi.fn<Api["skillLibrary"]["delete"]>(),
+  versions: vi.fn<Api["skillLibrary"]["versions"]>(),
   replace: vi.fn(),
   searchParams: { current: new URLSearchParams() },
 }));
@@ -23,18 +25,18 @@ vi.mock("@/lib/api", () => ({
   getUserErrorMessage: (_e: unknown, fallback: string) => fallback,
   api: {
     skillLibrary: { list, get, update, delete: remove, versions, getVersion },
-    tools: { catalog: async () => ({ tools: [] }) },
-    exportImport: { exportSkill: vi.fn(), importSkills: vi.fn() },
+    tools: { catalog: async (): ReturnType<Api["tools"]["catalog"]> => ({ tools: [] }) },
+    exportImport: { exportSkill: vi.fn<Api["exportImport"]["exportSkill"]>(), importSkills: vi.fn<Api["exportImport"]["importSkills"]>() },
   },
 }));
 
 import SkillsPage from "./page";
 
-const summaries = [
+const summaries: LibrarySkillSummary[] = [
   { name: "web-research", displayName: "Ricerca web", description: "Cerca in rete", category: "general" },
   { name: "mail-writer", displayName: "Scrittore di mail", description: "Scrive email formali", category: "office" },
 ];
-const detail = { name: "web-research", displayName: "Ricerca web", description: "Cerca in rete", content: "# Come", category: "general" };
+const detail: LibrarySkillDetail = { name: "web-research", displayName: "Ricerca web", description: "Cerca in rete", content: "# Come", category: "general" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -98,7 +100,7 @@ describe("skills catalog", () => {
 
   it("deletes only from the drawer, after the confirmation", async () => {
     const user = userEvent.setup();
-    remove.mockResolvedValue(undefined);
+    remove.mockResolvedValue({ deleted: true });
     renderWithProviders(<SkillsPage />);
     await user.click(await screen.findByText("Cerca in rete"));
     const drawer = await screen.findByRole("dialog");

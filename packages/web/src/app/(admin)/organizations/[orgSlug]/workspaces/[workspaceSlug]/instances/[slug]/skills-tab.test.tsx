@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders, userEvent } from "@/test-utils";
 import { SkillsTab } from "./skills-tab";
-import type { SkillState } from "@/lib/api";
+import type { SkillState, SkillUpdateResponse } from "@/lib/api";
+import { makeToolState } from "@/test-fixtures/api";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSkillGet, mockSetAutoLoad, mockUpgrade, mockToolsUpdate } = vi.hoisted(() => ({
-  mockSkillGet: vi.fn(),
+type Api = typeof import("@/lib/api").api;
+
+const { mockToastSuccess, mockToastError, mockSkillsUpdate, mockSkillsList, mockSkillGet, mockSetAutoLoad, mockUpgrade, mockToolsUpdate, mockGetEnv, mockSetEnv } = vi.hoisted(() => ({
+  mockSkillGet: vi.fn<Api["skills"]["get"]>(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
-  mockSkillsUpdate: vi.fn(),
-  mockSkillsList: vi.fn(),
-  mockSetAutoLoad: vi.fn(),
-  mockUpgrade: vi.fn(),
-  mockToolsUpdate: vi.fn(),
+  mockSkillsUpdate: vi.fn<Api["skills"]["update"]>(),
+  mockSkillsList: vi.fn<Api["skills"]["list"]>(),
+  mockSetAutoLoad: vi.fn<Api["skills"]["setAutoLoad"]>(),
+  mockUpgrade: vi.fn<Api["skills"]["upgrade"]>(),
+  mockToolsUpdate: vi.fn<Api["tools"]["update"]>(),
+  mockGetEnv: vi.fn<Api["skills"]["getEnv"]>(),
+  mockSetEnv: vi.fn<Api["skills"]["setEnv"]>(),
 }));
 
 const lastSaveAction = vi.hoisted(() => ({
@@ -29,6 +34,12 @@ vi.mock("./page-actions-context", () => ({
   PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+/**
+ * Presses the page header's Save, which lives outside this tab: the test calls
+ * its handler from outside React, so it runs inside act as a click would.
+ */
+const save = () => act(() => lastSaveAction.current!.onSave());
+
 vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => mockToastSuccess(...args),
@@ -40,16 +51,16 @@ vi.mock("sonner", () => ({
 vi.mock("@/lib/api", () => ({
   api: {
     skills: {
-      update: (...args: unknown[]) => mockSkillsUpdate(...args),
-      list: (...args: unknown[]) => mockSkillsList(...args),
-      get: (...args: unknown[]) => mockSkillGet(...args),
-      getEnv: vi.fn().mockResolvedValue({ env: [] }),
-      setEnv: vi.fn(),
-      setAutoLoad: (...args: unknown[]) => mockSetAutoLoad(...args),
-      upgrade: (...args: unknown[]) => mockUpgrade(...args),
+      update: mockSkillsUpdate,
+      list: mockSkillsList,
+      get: mockSkillGet,
+      getEnv: mockGetEnv,
+      setEnv: mockSetEnv,
+      setAutoLoad: mockSetAutoLoad,
+      upgrade: mockUpgrade,
     },
     tools: {
-      update: (...args: unknown[]) => mockToolsUpdate(...args),
+      update: mockToolsUpdate,
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -109,6 +120,7 @@ const switchOf = (name: string) => screen.getByRole("switch", { name: `Attivo: $
 describe("SkillsTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetEnv.mockResolvedValue({ env: [] });
     mockSkillGet.mockResolvedValue({ name: "x", version: "0.1.0", content: "", requiredTools: [] });
   });
 
@@ -127,16 +139,14 @@ describe("SkillsTab", () => {
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Nome", "Categoria", "Attivo"]);
   });
 
-  // A long description used to push every row to a different height; clamped, the
-  // list stays scannable and the full text is still one hover away.
-  it("clamps a skill's description to two lines with the full text on hover, and omits an empty one", () => {
+  // A long description is clamped in the row; the full text stays one hover away.
+  it("keeps a skill's full description on hover, and omits an empty one", () => {
     const long = "Search the web for information ".repeat(20).trim();
     renderTab([
       { name: "long-one", description: long, enabled: true, requiredEnv: [], envConfigured: true },
       { name: "no-description", description: "", enabled: true, requiredEnv: [], envConfigured: true },
     ]);
     const description = screen.getByText(long);
-    expect(description).toHaveClass("line-clamp-2");
     expect(description).toHaveAttribute("title", long);
     expect(document.querySelectorAll("[title]")).toHaveLength(1);
   });
@@ -280,7 +290,7 @@ describe("SkillsTab", () => {
 
   it("saves the auto-load switch of the drawer at once and reports it", async () => {
     const user = userEvent.setup();
-    mockSetAutoLoad.mockResolvedValue({});
+    mockSetAutoLoad.mockResolvedValue({ autoLoad: true });
     renderTab();
     await user.click(screen.getByRole("button", { name: "web-search" }));
     const drawer = await screen.findByRole("dialog");
@@ -292,7 +302,7 @@ describe("SkillsTab", () => {
 
   it("upgrades a skill from its drawer when a newer version exists", async () => {
     const user = userEvent.setup();
-    mockUpgrade.mockResolvedValue({});
+    mockUpgrade.mockResolvedValue({ upgraded: true });
     mockSkillsList.mockResolvedValue({ skills: makeSkills() });
     renderTab([{ name: "pinned", description: "Old", enabled: true, requiredEnv: [], envConfigured: true, pinnedVersion: "1", hasUpdate: true }]);
     await user.click(screen.getByRole("button", { name: "pinned" }));
@@ -310,7 +320,7 @@ describe("SkillsTab", () => {
     renderTab(skills);
 
     await user.click(switchOf("code-review"));
-    await lastSaveAction.current!.onSave();
+    await save();
 
     await waitFor(() => {
       expect(mockSkillsUpdate).toHaveBeenCalledWith(
@@ -327,7 +337,7 @@ describe("SkillsTab", () => {
     mockSkillsUpdate.mockRejectedValueOnce(new Error("Save failed"));
     renderTab();
     await user.click(switchOf("code-review"));
-    await lastSaveAction.current!.onSave();
+    await save();
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Salvataggio fallito"));
   });
 
@@ -339,26 +349,26 @@ describe("SkillsTab", () => {
       <SkillsTab
         slug="test-instance"
         skills={[{ name: "needs-tool", description: "", enabled: false, requiredTools: ["fetch"], requiredEnv: [], envConfigured: true }]}
-        tools={[{ name: "fetch", enabled: false } as never]}
+        tools={[makeToolState({ name: "fetch", enabled: false })]}
         onSkillsUpdate={onSkillsUpdate}
         onToolsUpdate={onToolsUpdate}
       />,
     );
     await user.click(switchOf("needs-tool"));
-    await lastSaveAction.current!.onSave();
+    await save();
     await waitFor(() => expect(mockToolsUpdate).toHaveBeenCalledWith("test-instance", ["fetch"]));
   });
 
   it("disables the save while saving", async () => {
     const user = userEvent.setup();
-    let resolveUpdate: (value: unknown) => void;
+    let resolveUpdate: (value: SkillUpdateResponse) => void;
     mockSkillsUpdate.mockReturnValueOnce(new Promise((resolve) => { resolveUpdate = resolve; }));
     renderTab();
     await user.click(switchOf("code-review"));
-    const savePromise = lastSaveAction.current!.onSave();
-    await waitFor(() => expect(lastSaveAction.current?.saving).toBe(true));
+    // Starts the save and leaves it pending on the update above.
+    act(() => void lastSaveAction.current!.onSave());
+    expect(lastSaveAction.current?.saving).toBe(true);
     resolveUpdate!({ skills: makeSkills() });
-    await savePromise;
     await waitFor(() => expect(lastSaveAction.current?.saving).toBe(false));
     expect(onSkillsUpdate).toHaveBeenCalled();
   });

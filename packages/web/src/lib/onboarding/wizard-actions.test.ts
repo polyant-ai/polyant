@@ -6,26 +6,30 @@
  * its key exists answers every caller with 401.
  */
 
+import { makeInstance } from "@/test-fixtures/api";
+
+type Api = typeof import("@/lib/api").api;
+
 const calls = vi.hoisted(() => [] as string[]);
 const h = vi.hoisted(() => ({
-  create: vi.fn(),
-  secrets: vi.fn(),
-  update: vi.fn(),
-  prompts: vi.fn(),
-  channels: vi.fn(),
-  upload: vi.fn(),
+  create: vi.fn<Api["instances"]["create"]>(),
+  secrets: vi.fn<Api["secrets"]["set"]>(),
+  update: vi.fn<Api["instances"]["update"]>(),
+  prompts: vi.fn<Api["prompts"]["update"]>(),
+  channels: vi.fn<Api["channels"]["set"]>(),
+  upload: vi.fn<Api["knowledge"]["upload"]>(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
     instances: {
-      create: (...a: unknown[]) => (calls.push("create"), h.create(...a)),
-      update: (...a: unknown[]) => (calls.push("update"), h.update(...a)),
+      create: (...a: Parameters<Api["instances"]["create"]>) => (calls.push("create"), h.create(...a)),
+      update: (...a: Parameters<Api["instances"]["update"]>) => (calls.push("update"), h.update(...a)),
     },
-    secrets: { set: (...a: unknown[]) => (calls.push("secrets"), h.secrets(...a)) },
-    prompts: { update: (...a: unknown[]) => (calls.push("prompts"), h.prompts(...a)) },
-    channels: { set: (...a: unknown[]) => (calls.push("channels"), h.channels(...a)) },
-    knowledge: { upload: (...a: unknown[]) => (calls.push("upload"), h.upload(...a)) },
+    secrets: { set: (...a: Parameters<Api["secrets"]["set"]>) => (calls.push("secrets"), h.secrets(...a)) },
+    prompts: { update: (...a: Parameters<Api["prompts"]["update"]>) => (calls.push("prompts"), h.prompts(...a)) },
+    channels: { set: (...a: Parameters<Api["channels"]["set"]>) => (calls.push("channels"), h.channels(...a)) },
+    knowledge: { upload: (...a: Parameters<Api["knowledge"]["upload"]>) => (calls.push("upload"), h.upload(...a)) },
   },
 }));
 
@@ -53,8 +57,12 @@ const draft = {
 beforeEach(() => {
   calls.length = 0;
   vi.clearAllMocks();
-  h.create.mockResolvedValue({ instance: { slug: "support-bot", name: "Support bot" } });
-  for (const m of [h.secrets, h.update, h.prompts, h.channels, h.upload]) m.mockResolvedValue({});
+  h.create.mockResolvedValue({ instance: makeInstance({ slug: "support-bot", name: "Support bot" }) });
+  h.secrets.mockResolvedValue({ secrets: [] });
+  h.update.mockResolvedValue({ instance: makeInstance({ slug: "support-bot", name: "Support bot" }) });
+  h.prompts.mockResolvedValue({ prompts: [] });
+  h.channels.mockResolvedValue({ channel: null });
+  h.upload.mockResolvedValue({ document: { id: "doc-1", filename: "Hours.md", status: "ready" } });
 });
 
 describe("collected key", () => {

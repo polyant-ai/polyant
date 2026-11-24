@@ -394,12 +394,12 @@ export function TriggersScheduledTab({ slug }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>{t("scheduledTasks.form.scheduleType")}</Label>
+              <Label htmlFor="task-schedule-type">{t("scheduledTasks.form.scheduleType")}</Label>
               <Select
                 value={form.scheduleType}
                 onValueChange={(v) => setForm((f) => ({ ...f, scheduleType: v as ScheduleType }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id="task-schedule-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -445,12 +445,12 @@ export function TriggersScheduledTab({ slug }: Props) {
                   />
                 </div>
                 <div className="w-28 space-y-2">
-                  <Label>{t("scheduledTasks.form.unit")}</Label>
+                  <Label htmlFor="task-interval-unit">{t("scheduledTasks.form.unit")}</Label>
                   <Select
                     value={form.intervalUnit}
                     onValueChange={(v) => setForm((f) => ({ ...f, intervalUnit: v as "m" | "h" | "d" }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="task-interval-unit">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -465,30 +465,32 @@ export function TriggersScheduledTab({ slug }: Props) {
 
             {form.scheduleType === "one-shot" && (
               <div className="space-y-2">
-                <Label>{t("scheduledTasks.form.runAt")}</Label>
+                <Label htmlFor="task-run-at">{t("scheduledTasks.form.runAt")}</Label>
                 <Input
+                  id="task-run-at"
                   type="datetime-local"
                   value={form.runAt}
                   onChange={(e) => setForm((f) => ({ ...f, runAt: e.target.value }))}
                 />
                 <div className="flex items-center gap-2 pt-1">
                   <Switch
+                    id="task-delete-after-run"
                     checked={form.deleteAfterRun}
                     onCheckedChange={(v) => setForm((f) => ({ ...f, deleteAfterRun: v }))}
                   />
-                  <Label className="text-sm font-normal">{t("scheduledTasks.form.deleteAfterRun")}</Label>
+                  <Label htmlFor="task-delete-after-run" className="text-sm font-normal">{t("scheduledTasks.form.deleteAfterRun")}</Label>
                 </div>
               </div>
             )}
 
             {/* Output channel */}
             <div className="space-y-2 border-t pt-4">
-              <Label>{t("scheduledTasks.form.outboundChannel")}</Label>
+              <Label htmlFor="task-outbound-channel">{t("scheduledTasks.form.outboundChannel")}</Label>
               <Select
                 value={form.outboundChannel || "none"}
                 onValueChange={(v) => setForm((f) => ({ ...f, outboundChannel: (v === "none" ? "" : v) as OutboundChannelType }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id="task-outbound-channel">
                   <SelectValue placeholder={t("scheduledTasks.form.noChannel")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -503,8 +505,9 @@ export function TriggersScheduledTab({ slug }: Props) {
 
             {form.outboundChannel && (
               <div className="space-y-2">
-                <Label>{t("scheduledTasks.form.outboundTarget")}</Label>
+                <Label htmlFor="task-outbound-target">{t("scheduledTasks.form.outboundTarget")}</Label>
                 <Input
+                  id="task-outbound-target"
                   value={form.outboundTarget}
                   onChange={(e) => setForm((f) => ({ ...f, outboundTarget: e.target.value }))}
                   placeholder={t("scheduledTasks.form.outboundTargetPlaceholder")}
@@ -514,11 +517,12 @@ export function TriggersScheduledTab({ slug }: Props) {
 
             <div className="flex items-center gap-2 border-t pt-4">
               <Switch
+                id="task-keep-history"
                 checked={form.keepHistory}
                 onCheckedChange={(v) => setForm((f) => ({ ...f, keepHistory: v }))}
               />
               <div>
-                <Label className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</Label>
+                <Label htmlFor="task-keep-history" className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</Label>
                 <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.keepHistoryHelp")}</p>
               </div>
             </div>

@@ -37,6 +37,8 @@ jobs:
     outputs:
       code: ${{ steps.classify.outputs.code }}
       docker: ${{ steps.classify.outputs.docker }}
+      panel: ${{ steps.classify.outputs.panel }}
+      schema: ${{ steps.classify.outputs.schema }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -122,9 +124,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install
-      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
-      # fails the build if a PR lowers coverage. Local runs stay fast without it.
-      - run: npm run test:unit -w @polyant/engine -- --coverage
+      # Coverage into a blob report and no floor: the floors in
+      # vitest.config.ts apply to the unit and integration tiers merged, in
+      # the Unit coverage job.
+      - run: >-
+          npm run test:unit -w @polyant/engine --
+          --coverage --coverage.thresholds=false
+          --reporter=default --reporter=blob --outputFile.blob=coverage-blobs/unit.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unit-blob
+          path: packages/engine/coverage-blobs/unit.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # The engine's coverage ratchet, on the unit and integration tiers merged:
+  # code only an integration test exercises counts as covered, so replacing a
+  # chained database mock with a real test does not lower the total. Merging
+  # also re-reports every test, so a failure shows up here too.
+  unit-coverage:
+    name: Unit coverage
+    needs: [changes, test, integration]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "*-blob"
+          merge-multiple: true
+          path: packages/engine/coverage-blobs
+      - name: Merge the tiers and check the coverage floors
+        working-directory: packages/engine
+        run: npx vitest --merge-reports=coverage-blobs --coverage --coverage.reporter=text-summary --reporter=dot
 
   test-web:
     name: Web Tests
@@ -187,7 +221,117 @@ jobs:
       # On the freshly migrated database, before any test writes to it: a column
       # added to a schema file without its migration fails here, not in production.
       - run: npm run ci:schema-drift
-      - run: npm run test:integration -w @polyant/engine
+      - run: >-
+          npm run test:integration -w @polyant/engine --
+          --coverage --coverage.thresholds=false
+          --reporter=default --reporter=blob --outputFile.blob=coverage-blobs/integration.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: integration-blob
+          path: packages/engine/coverage-blobs/integration.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # Every page of the panel in a real browser, against the engine and a
+  # production build of the web on a migrated and seeded database: the page
+  # catalog's own checks and axe (WCAG 2.2 A/AA) in both themes, then one real
+  # turn (playground and API, a tool call, against a fake model), and the
+  # journeys that save something and read it back. It runs when
+  # a change could alter a page; the RBAC specs stay in the nightly E2E.
+  panel:
+    name: Panel pages (accessibility) and a turn (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.panel == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Split by test across two runners. Each builds the web and boots the
+    # engine (the panel-setup sign-in runs in every shard, as a dependency),
+    # so the wall time is the build plus half of the pages.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    services:
+      postgres:
+        # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: polyant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # e2e/setup/test-env.ts reads the server coordinates from here; the
+      # migration step validates the engine config, hence the two secrets.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+      AUTH_SECRET: polyant-e2e-auth-secret-at-least-32-characters-long
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      # The panel suites only read, as their own user.
+      E2E_WORKERS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Check every panel page and a real turn
+        run: npm run test:e2e:panel -w @polyant/web -- --project=turn --project=journeys --shard=${{ matrix.shard }}/2
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: panel-report-${{ matrix.shard }}
+          path: |
+            packages/web/playwright-report
+            packages/web/test-results
+          retention-days: 14
+
+  # A database built by the previous release, with its seed data, upgraded to
+  # this version: every migration recorded as applied (drizzle skips entries
+  # under its watermark and still reports success) and no table losing rows
+  # without a migration of this version deleting them.
+  upgrade:
+    name: Upgrade from the previous release
+    needs: changes
+    if: needs.changes.outputs.schema == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: polyant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The previous release is found among the tags.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: ./.github/actions/install
+      - run: npx tsx scripts/ci/upgrade-from-release.mts
 
   build:
     name: Build
@@ -209,24 +353,29 @@ jobs:
       - run: diff -r packages/engine/src/database/migrations packages/engine/dist/database/migrations
 
   docker:
-    name: Docker build (${{ matrix.image }})
+    name: Docker images
     needs: changes
     if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        image: [engine, web]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      # Build only, no push: catches a Dockerfile that no longer builds from a
-      # clean checkout (missing dirs, stray context files) before a release does.
+      # Build, no push: catches a Dockerfile that no longer builds from a clean
+      # checkout (missing dirs, stray context files) before a release does.
       # Plain `docker build`: this repository allows only GitHub-owned actions
       # and a short list of others, so the Docker build actions (and their
       # layer cache) are not available here. The path filter above is what
       # keeps this job off most pull requests.
-      - run: docker build -f Dockerfile.${{ matrix.image }} .
+      - name: Build the engine image
+        run: docker build -t polyant-smoke-engine -f Dockerfile.engine .
+      # The web's rewrites are fixed at build time, so this one points at the
+      # engine's name on the smoke test's network.
+      - name: Build the web image
+        run: docker build -t polyant-smoke-web --build-arg NEXT_PUBLIC_API_URL=http://engine:4000 -f Dockerfile.web .
+      # Then runs them as an installation does: migrations on an empty
+      # database, the engine healthy, the web serving and reaching the engine.
+      - name: Smoke-test the images
+        run: scripts/ci/smoke-images.sh polyant-smoke-engine polyant-smoke-web
 
   # The single required check. It needs every job above (Repository checks
   # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of
@@ -235,7 +384,7 @@ jobs:
   # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
-    needs: [changes, repository, static, test, test-web, integration, build, docker]
+    needs: [changes, repository, static, test, unit-coverage, test-web, integration, panel, upgrade, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

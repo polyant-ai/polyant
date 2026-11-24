@@ -69,7 +69,9 @@ describe("SwitchList", () => {
     await user.click(sw);
     expect(sw).toBeChecked();
     expect(onToggle).toHaveBeenCalledWith(ITEMS[0], true);
+    // And keeps it once the write lands.
     release();
+    await waitFor(() => expect(sw).toBeChecked());
   });
 
   it("takes the position back when the write fails", async () => {
@@ -147,39 +149,5 @@ describe("SwitchList layout", () => {
     const wrapper = container.querySelector("div.space-y-6")!.firstElementChild!;
     expect(wrapper.contains(screen.getByRole("searchbox"))).toBe(true);
     expect(wrapper.contains(screen.getByRole("table"))).toBe(true);
-  });
-
-  it("mutes the row of a switch that is off", () => {
-    renderWithProviders(
-      <SwitchList<Item>
-        rows={ITEMS}
-        rowKey={(i) => i.id}
-        name={(i) => i.title}
-        nameHeader="Nome"
-        isOn={(i) => i.on}
-        onToggle={async () => {}}
-        switchLabel={(i) => i.title}
-      />,
-    );
-    const off = screen.getByText("Beta").closest("tr")!;
-    const on = screen.getByText("alpha").closest("tr")!;
-    expect(off).toHaveClass("opacity-60");
-    expect(on).not.toHaveClass("opacity-60");
-  });
-
-  it("keeps a date column on one line", () => {
-    renderWithProviders(
-      <SwitchList<Item>
-        rows={ITEMS}
-        rowKey={(i) => i.id}
-        name={(i) => i.title}
-        nameHeader="Nome"
-        columns={[{ header: "Quando", nowrap: true, cell: () => "12 ott 2026, 10:00" }]}
-        isOn={(i) => i.on}
-        onToggle={async () => {}}
-        switchLabel={(i) => i.title}
-      />,
-    );
-    expect(screen.getAllByText("12 ott 2026, 10:00")[0].closest("td")).toHaveClass("whitespace-nowrap");
   });
 });

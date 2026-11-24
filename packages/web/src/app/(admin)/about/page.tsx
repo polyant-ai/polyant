@@ -123,7 +123,7 @@ export default function AboutPage() {
       <p className="mt-6 text-center text-sm text-muted-foreground">
         {t("about.maintainedByPrefix")}{" "}
         <a
-          className="text-accent-strong underline-offset-4 hover:underline"
+          className="underline underline-offset-4 hover:text-accent-strong"
           href="https://www.exelab.com/"
           {...externalLinkProps}
         >

@@ -6,17 +6,26 @@ import { useState } from "react";
 import type { FeedEvent } from "@/lib/activity-stream/types";
 import type { MonitorDetail, MonitorItem, MonitorPage } from "@/lib/api-types";
 import { renderWithProviders } from "@/test-utils";
+import { makeInstance } from "@/test-fixtures/api";
 
-const list = vi.fn<(params?: Record<string, unknown>) => Promise<MonitorPage>>();
-const detail = vi.fn<(type: string, id: string) => Promise<MonitorDetail>>();
+type Api = typeof import("@/lib/api").api;
+const list = vi.fn<Api["monitor"]["list"]>();
+const detail = vi.fn<Api["monitor"]["detail"]>();
 
 vi.mock("@/lib/api", () => ({
   api: {
     monitor: {
-      list: (params?: Record<string, unknown>) => list(params),
+      list: (params?: Parameters<Api["monitor"]["list"]>[0]) => list(params),
       detail: (type: string, id: string) => detail(type, id),
     },
-    instances: { list: async () => ({ instances: [{ id: "i1", slug: "sales", name: "Sales" }, { id: "i2", slug: "ops", name: "Ops" }] }) },
+    instances: {
+      list: async (): ReturnType<Api["instances"]["list"]> => ({
+        instances: [
+          makeInstance({ id: "i1", slug: "sales", name: "Sales" }),
+          makeInstance({ id: "i2", slug: "ops", name: "Ops" }),
+        ],
+      }),
+    },
   },
 }));
 
@@ -96,7 +105,7 @@ describe("MonitorView", () => {
     renderWithProviders(<Harness initial={{ ...NO_FILTERS, group: "agents", type: "tool_call" }} />);
     await screen.findByText("crm: create_contact");
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ group: "agents", types: ["tool_call"] }));
-    await user.click(screen.getByRole("button", { name: "Togli il filtro" }));
+    await user.click(screen.getByRole("button", { name: /Togli il filtro/ }));
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ types: undefined })));
   });
 

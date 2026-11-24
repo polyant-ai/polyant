@@ -2,12 +2,16 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ManagementApiKey } from "@/lib/api";
+import { makeManagementApiKey } from "@/test-fixtures/instance-tabs";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-const mockList = vi.fn();
-const mockCreate = vi.fn();
-const mockRemove = vi.fn();
+type ApiKeys = typeof import("@/lib/api").api.apiKeys;
+
+const mockList = vi.fn<ApiKeys["list"]>();
+const mockCreate = vi.fn<ApiKeys["create"]>();
+const mockRemove = vi.fn<ApiKeys["remove"]>();
 const mockToastError = vi.fn();
 
 class ApiError extends Error {
@@ -23,9 +27,9 @@ class ApiError extends Error {
 vi.mock("@/lib/api", () => ({
   api: {
     apiKeys: {
-      list: (...args: unknown[]) => mockList(...args),
-      create: (...args: unknown[]) => mockCreate(...args),
-      remove: (...args: unknown[]) => mockRemove(...args),
+      list: (...args: Parameters<ApiKeys["list"]>) => mockList(...args),
+      create: (...args: Parameters<ApiKeys["create"]>) => mockCreate(...args),
+      remove: (...args: Parameters<ApiKeys["remove"]>) => mockRemove(...args),
     },
   },
   getUserErrorMessage: (_err: unknown, fallback: string) => fallback,
@@ -45,16 +49,14 @@ import ApiKeysPage from "./page";
 
 const TOKEN = "pk_33333333-3333-4333-8333-333333333333_" + "a".repeat(64);
 
-function key(over: Record<string, unknown> = {}) {
-  return {
+function key(over: Partial<ManagementApiKey> = {}): ManagementApiKey {
+  return makeManagementApiKey({
     id: "k1",
     name: "ci",
     permissions: ["org:write"],
-    expiresAt: null,
-    lastUsedAt: null,
     createdAt: "2026-10-01T10:00:00.000Z",
     ...over,
-  };
+  });
 }
 
 describe("ApiKeysPage", () => {
@@ -130,7 +132,7 @@ describe("ApiKeysPage", () => {
     await user.click(screen.getByRole("button", { name: "common.add" }));
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-    const sent = new Date(mockCreate.mock.calls[0][1].expiresAt);
+    const sent = new Date(String(mockCreate.mock.calls[0][1].expiresAt));
     expect([sent.getFullYear(), sent.getMonth(), sent.getDate(), sent.getHours()]).toEqual([
       2099, 2, 15, 23,
     ]);

@@ -3,6 +3,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CreateInstanceSheet } from "./create-instance-sheet";
+import { makeInstance } from "@/test-fixtures/api";
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
@@ -22,12 +23,14 @@ vi.mock("@/lib/i18n/context", () => ({
   })),
 }));
 
-const createMock = vi.fn();
+const { createMock } = vi.hoisted(() => ({
+  createMock: vi.fn<typeof import("@/lib/api").api.instances.create>(),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
     instances: {
-      create: (...args: unknown[]) => createMock(...args),
+      create: createMock,
     },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
@@ -147,7 +150,7 @@ describe("CreateInstanceSheet", () => {
   it("calls api.instances.create on submit and navigates to instance page", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();
-    createMock.mockResolvedValueOnce({ instance: { slug: "my-bot" } });
+    createMock.mockResolvedValueOnce({ instance: makeInstance({ slug: "my-bot" }) });
 
     renderSheet({ onCreated });
 
@@ -174,7 +177,7 @@ describe("CreateInstanceSheet", () => {
 
   it("omits description from API call when empty", async () => {
     const user = userEvent.setup();
-    createMock.mockResolvedValueOnce({ instance: { slug: "bot" } });
+    createMock.mockResolvedValueOnce({ instance: makeInstance({ slug: "bot" }) });
 
     renderSheet();
 
