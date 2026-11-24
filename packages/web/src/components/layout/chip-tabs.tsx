@@ -74,7 +74,7 @@ export function ChipTabs({
             >
               {Icon && <Icon className="h-4 w-4 shrink-0" />}
               <span className="truncate">{label}</span>
-              {count !== undefined && <span className="text-xs tabular-nums opacity-80">{count}</span>}
+              {count !== undefined && <span className="text-xs tabular-nums">{count}</span>}
               {badge}
             </TabsPrimitive.Trigger>
           ))}
