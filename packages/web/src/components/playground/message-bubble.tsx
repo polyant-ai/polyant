@@ -29,7 +29,7 @@ export function MessageBubble({ message, showActivity, onDebugClick }: MessageBu
   }
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}${message.sentHere ? " animate-conversation-enter" : ""}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}${message.sentHere ? " animate-conversation-enter" : ""}`} data-private>
       <div className={`${isUser ? "max-w-[75%]" : "max-w-[85%]"} min-w-0`}>
         {!isUser && showActivity && (message.hookExecutions.length > 0 || message.reasoning.length > 0 || message.steps.some((step) => step.toolCalls.length > 0)) && (
           <div className="mb-3">

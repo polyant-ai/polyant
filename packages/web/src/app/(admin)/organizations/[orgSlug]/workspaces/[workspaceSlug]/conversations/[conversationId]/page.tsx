@@ -448,7 +448,7 @@ export default function ConversationDetailPage() {
       : conversationId);
 
   return (
-    <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col">
+    <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col" data-private>
       <Link
         href={backHref}
         className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"

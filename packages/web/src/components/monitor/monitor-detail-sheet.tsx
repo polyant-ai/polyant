@@ -140,6 +140,7 @@ export function MonitorDetailSheet({
 
   return (
     <ListDrawer
+      private
       open={item !== null}
       onOpenChange={(open) => !open && onClose()}
       title={item ? itemSummary(item, t, fmt.currency) : ""}

@@ -134,7 +134,7 @@ export function MonitorView({
   const liveActive = realLive && !paused;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-private>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <ChipTabs
           tabs={tabs}

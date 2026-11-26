@@ -63,7 +63,7 @@ export function ChatHistoryDialog({
           {t("playground.history")}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" data-private>
         <DialogHeader>
           <DialogTitle>{t("playground.historyTitle")}</DialogTitle>
         </DialogHeader>

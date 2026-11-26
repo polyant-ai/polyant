@@ -10,6 +10,7 @@ export function ActivityTicker() {
 
   return (
     <div
+      data-private
       role="status"
       aria-live="polite"
       aria-atomic="true"

@@ -108,7 +108,7 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
   }, [list.error, t]);
 
   return (
-    <div>
+    <div data-private>
       <ListToolbar value={search} onChange={setSearch} label={t("conversations.searchPlaceholder")}>
         {!lockedInstanceId && (
         <Select

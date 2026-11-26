@@ -28,7 +28,7 @@ export function ConversationSummary({ summary }: { summary: string }) {
   }, [summary, expanded]);
 
   return (
-    <div className="mt-1 text-sm text-muted-foreground">
+    <div className="mt-1 text-sm text-muted-foreground" data-private>
       <p ref={ref} className={expanded ? undefined : "line-clamp-2"}>
         {summary}
       </p>
