@@ -17,8 +17,8 @@ vi.mock("./oauth-providers.js", () => ({
   getOAuthProvider: (...args: unknown[]) => mockGetOAuthProvider(...args),
   resolveOAuthCredentials: (...args: unknown[]) => mockResolveOAuthCredentials(...args),
   refreshAccessToken: (...args: unknown[]) => mockRefreshAccessToken(...args),
-  oauthTokenStateKey: (provider: string) => `${provider}_oauth_token`,
-  oauthRefreshStateKey: (provider: string) => `${provider}_oauth_refresh`,
+  oauthTokenStateKey: (provider: string, scope?: string | null) => `${scope ? `${scope}:` : ""}${provider}_oauth_token`,
+  oauthRefreshStateKey: (provider: string, scope?: string | null) => `${scope ? `${scope}:` : ""}${provider}_oauth_refresh`,
 }));
 
 import { needsRefresh, getValidAccessToken } from "./oauth-token-service.js";
@@ -138,5 +138,23 @@ describe("getValidAccessToken", () => {
 
     expect(result).toBeNull();
     expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a scoped token with its scope's provider and keeps it under the scope's keys", async () => {
+    mockGetPrincipalSecret
+      .mockResolvedValueOnce({ value: "at-old", expiresAt: new Date(Date.now() - 1) })
+      .mockResolvedValueOnce({ value: "rt-old", expiresAt: null });
+    mockGetOAuthProvider.mockReturnValue(PROVIDER);
+    mockResolveOAuthCredentials.mockResolvedValue({ clientId: "cid", clientSecret: "csecret" });
+    mockRefreshAccessToken.mockResolvedValue({ accessToken: "at-new", refreshToken: "rt-new" });
+
+    const result = await getValidAccessToken(SLUG, CONVERSATION_ID, "google", "scope-a");
+
+    expect(result).toBe("at-new");
+    expect(mockGetPrincipalSecret).toHaveBeenNthCalledWith(1, CONVERSATION_ID, "scope-a:google_oauth_token");
+    expect(mockGetPrincipalSecret).toHaveBeenNthCalledWith(2, CONVERSATION_ID, "scope-a:google_oauth_refresh");
+    expect(mockGetOAuthProvider).toHaveBeenCalledWith("google", "scope-a");
+    expect(mockSetPrincipalSecret).toHaveBeenCalledWith(CONVERSATION_ID, SLUG, "scope-a:google_oauth_token", "at-new", null);
+    expect(mockSetPrincipalSecret).toHaveBeenCalledWith(CONVERSATION_ID, SLUG, "scope-a:google_oauth_refresh", "rt-new", null);
   });
 });

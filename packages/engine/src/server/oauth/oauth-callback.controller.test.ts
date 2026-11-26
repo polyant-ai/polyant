@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Response } from "express";
 
 const mockGetOAuthProvider = vi.fn();
+const mockHasOAuthProvider = vi.fn();
 const mockExchangeCodeForToken = vi.fn();
 const mockResolveOAuthCredentials = vi.fn();
 const mockConsumeOAuthState = vi.fn();
@@ -11,10 +12,11 @@ const mockSetPrincipalSecret = vi.fn();
 
 vi.mock("./oauth-providers.js", () => ({
   getOAuthProvider: (...args: unknown[]) => mockGetOAuthProvider(...args),
+  hasOAuthProvider: (...args: unknown[]) => mockHasOAuthProvider(...args),
   exchangeCodeForToken: (...args: unknown[]) => mockExchangeCodeForToken(...args),
   resolveOAuthCredentials: (...args: unknown[]) => mockResolveOAuthCredentials(...args),
-  oauthTokenStateKey: (provider: string) => `${provider}_oauth_token`,
-  oauthRefreshStateKey: (provider: string) => `${provider}_oauth_refresh`,
+  oauthTokenStateKey: (provider: string, scope?: string | null) => `${scope ? `${scope}:` : ""}${provider}_oauth_token`,
+  oauthRefreshStateKey: (provider: string, scope?: string | null) => `${scope ? `${scope}:` : ""}${provider}_oauth_refresh`,
 }));
 
 vi.mock("./oauth-states.store.js", () => ({
@@ -26,6 +28,7 @@ vi.mock("../../conversations/principal-secrets.store.js", () => ({
 }));
 
 import { OAuthCallbackController } from "./oauth-callback.controller.js";
+import { resetOAuthAuthorizationScopes, setOAuthAuthorizationScopes } from "./oauth-authorization-scopes.port.js";
 
 const PROVIDER = { name: "github", authorizeUrl: "https://x", tokenUrl: "https://y", scope: "", extraAuthorizeParams: {}, pkce: false };
 
@@ -42,8 +45,12 @@ describe("OAuthCallbackController.callback", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // By default a name is known exactly when the shared registry holds it.
+    mockHasOAuthProvider.mockImplementation((name: string) => mockGetOAuthProvider(name) !== undefined);
     controller = new OAuthCallbackController();
   });
+
+  afterEach(() => resetOAuthAuthorizationScopes());
 
   it("404s on an unknown provider and HTML-escapes the reflected path segment (XSS guard)", async () => {
     mockGetOAuthProvider.mockReturnValue(undefined);
@@ -159,6 +166,57 @@ describe("OAuthCallbackController.callback", () => {
 
     expect(mockSetPrincipalSecret).toHaveBeenCalledTimes(1);
     expect(mockSetPrincipalSecret).toHaveBeenCalledWith("conv-1", "default", "github_oauth_token", "at-1", null);
+  });
+
+  it("reads the shared registry and the bare keys when no scope store is registered", async () => {
+    mockGetOAuthProvider.mockReturnValue(PROVIDER);
+    mockConsumeOAuthState.mockResolvedValue({
+      conversationId: "conv-1", instanceId: "default", provider: "github", codeVerifier: null,
+    });
+    mockResolveOAuthCredentials.mockResolvedValue({ clientId: "cid", clientSecret: "csecret" });
+    mockExchangeCodeForToken.mockResolvedValue({ accessToken: "at-1" });
+
+    await controller.callback("github", "code-abc", "state-1", mockResponse());
+
+    expect(mockGetOAuthProvider).toHaveBeenLastCalledWith("github", null);
+    expect(mockSetPrincipalSecret).toHaveBeenCalledWith("conv-1", "default", "github_oauth_token", "at-1", null);
+  });
+
+  it("completes a scoped authorization with its scope's provider and keys, never the shared one of the same name", async () => {
+    const scoped = { ...PROVIDER, tokenUrl: "https://scoped.example/token" };
+    mockGetOAuthProvider.mockImplementation((_name: string, scope?: string | null) => (scope === "scope-a" ? scoped : PROVIDER));
+    setOAuthAuthorizationScopes({
+      remember: async () => {},
+      scopeOf: async (state) => (state === "state-1" ? "scope-a" : null),
+    });
+    mockConsumeOAuthState.mockResolvedValue({
+      conversationId: "conv-1", instanceId: "default", provider: "github", codeVerifier: null,
+    });
+    mockResolveOAuthCredentials.mockResolvedValue({ clientId: "cid", clientSecret: "csecret" });
+    mockExchangeCodeForToken.mockResolvedValue({ accessToken: "at-1", refreshToken: "rt-1" });
+
+    await controller.callback("github", "code-abc", "state-1", mockResponse());
+
+    expect(mockExchangeCodeForToken).toHaveBeenCalledWith(scoped, "code-abc", expect.anything(), null);
+    expect(mockSetPrincipalSecret).toHaveBeenCalledWith("conv-1", "default", "scope-a:github_oauth_token", "at-1", null);
+    expect(mockSetPrincipalSecret).toHaveBeenCalledWith("conv-1", "default", "scope-a:github_oauth_refresh", "rt-1", null);
+  });
+
+  it("lets a name held only in a scoped registry reach the state, and 404s when the authorization's scope lacks it", async () => {
+    mockGetOAuthProvider.mockReturnValue(undefined);
+    mockHasOAuthProvider.mockReturnValue(true);
+    setOAuthAuthorizationScopes({ remember: async () => {}, scopeOf: async () => "scope-b" });
+    mockConsumeOAuthState.mockResolvedValue({
+      conversationId: "conv-1", instanceId: "default", provider: "github", codeVerifier: null,
+    });
+    const res = mockResponse();
+
+    await controller.callback("github", "code-abc", "state-1", res);
+
+    expect(mockConsumeOAuthState).toHaveBeenCalledWith("state-1");
+    expect(mockGetOAuthProvider).toHaveBeenCalledWith("github", "scope-b");
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(mockExchangeCodeForToken).not.toHaveBeenCalled();
   });
 
   it("502s when the token exchange throws", async () => {

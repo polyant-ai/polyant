@@ -6,8 +6,11 @@ import {
   buildAuthorizeUrl,
   generatePkcePair,
   getOAuthProvider,
+  hasOAuthProvider,
   knownProviderNames,
+  oauthRefreshStateKey,
   oauthSecretKeys,
+  oauthTokenStateKey,
   registerOAuthProvider,
   resolveClientId,
   _resetOAuthRegistryForTests,
@@ -113,5 +116,57 @@ describe("oauth broker credential resolution", () => {
     const { clientIdKey, clientSecretKey } = oauthSecretKeys("github");
     expect(specs.get(clientIdKey)?.sensitive).toBe(false);
     expect(specs.get(clientSecretKey)?.sensitive).toBe(true);
+  });
+});
+
+describe("provider scopes", () => {
+  const elsewhere = (authorizeUrl: string): OAuthProvider => ({ ...GH, authorizeUrl });
+
+  it("should_resolve_and_key_exactly_as_before_without_a_scope", () => {
+    registerOAuthProvider(GH);
+    expect(getOAuthProvider("github")).toEqual(GH);
+    expect(getOAuthProvider("github", null)).toEqual(GH);
+    expect(oauthTokenStateKey("github")).toBe("github_oauth_token");
+    expect(oauthRefreshStateKey("github")).toBe("github_oauth_refresh");
+    expect(knownProviderNames()).toEqual(["github"]);
+  });
+
+  it("should_keep_a_scoped_provider_apart_from_the_shared_one_of_the_same_name_whichever_registers_first", () => {
+    registerOAuthProvider(elsewhere("https://a.example/authorize"), "scope-a");
+    expect(() => registerOAuthProvider(GH)).not.toThrow();
+
+    expect(getOAuthProvider("github")).toEqual(GH);
+    expect(getOAuthProvider("github", "scope-a")?.authorizeUrl).toBe("https://a.example/authorize");
+    expect(knownProviderNames()).toEqual(["github"]);
+  });
+
+  it("should_keep_two_scopes_apart_and_never_fall_back_to_the_shared_registry", () => {
+    registerOAuthProvider(GH);
+    registerOAuthProvider(elsewhere("https://a.example/authorize"), "scope-a");
+    registerOAuthProvider(elsewhere("https://b.example/authorize"), "scope-b");
+
+    expect(getOAuthProvider("github", "scope-a")?.authorizeUrl).toBe("https://a.example/authorize");
+    expect(getOAuthProvider("github", "scope-b")?.authorizeUrl).toBe("https://b.example/authorize");
+    expect(getOAuthProvider("github", "scope-c")).toBeUndefined();
+    expect(getOAuthProvider("google", "scope-a")).toBeUndefined();
+  });
+
+  it("should_still_reject_a_divergent_definition_inside_one_scope", () => {
+    registerOAuthProvider(GH, "scope-a");
+    expect(() => registerOAuthProvider({ ...GH, scope: "repo" }, "scope-a")).toThrow(/OAuth provider conflict "github"/);
+  });
+
+  it("should_know_a_name_held_only_in_a_scoped_registry", () => {
+    expect(hasOAuthProvider("github")).toBe(false);
+    registerOAuthProvider(GH, "scope-a");
+    expect(hasOAuthProvider("github")).toBe(true);
+    expect(hasOAuthProvider("git")).toBe(false);
+    expect(knownProviderNames()).toEqual([]);
+  });
+
+  it("should_store_a_scoped_provider's_tokens_under_keys_of_their_own", () => {
+    expect(oauthTokenStateKey("github", "scope-a")).toBe("scope-a:github_oauth_token");
+    expect(oauthRefreshStateKey("github", "scope-a")).toBe("scope-a:github_oauth_refresh");
+    expect(oauthTokenStateKey("github", "scope-a")).not.toBe(oauthTokenStateKey("github", "scope-b"));
   });
 });

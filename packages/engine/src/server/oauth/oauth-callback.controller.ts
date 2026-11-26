@@ -6,12 +6,14 @@ import { Public } from "../../auth/decorators/public.decorator.js";
 import { setPrincipalSecret } from "../../conversations/principal-secrets.store.js";
 import {
   getOAuthProvider,
+  hasOAuthProvider,
   exchangeCodeForToken,
   resolveOAuthCredentials,
   oauthTokenStateKey,
   oauthRefreshStateKey,
 } from "./oauth-providers.js";
 import { consumeOAuthState } from "./oauth-states.store.js";
+import { getOAuthAuthorizationScopes } from "./oauth-authorization-scopes.port.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { errMsg } from "../../utils/error.js";
 
@@ -44,8 +46,8 @@ export class OAuthCallbackController {
     @Query("state") state: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const provider = getOAuthProvider(providerName);
-    if (!provider) {
+    // The name may live only in a scoped registry; the state says which one.
+    if (!hasOAuthProvider(providerName)) {
       res.status(404).type("html").send(page("Errore", `Provider OAuth sconosciuto: ${providerName}.`));
       return;
     }
@@ -54,6 +56,9 @@ export class OAuthCallbackController {
       return;
     }
 
+    // The registry the authorize link was built from, read before the state
+    // is consumed. Null (the shared registry) unless a scope was recorded.
+    const scope = await getOAuthAuthorizationScopes().scopeOf(state);
     // Consume the single-use state nonce → conversation + PKCE verifier. Reject
     // unknown/expired (CSRF) and a provider that doesn't match the path.
     const pending = await consumeOAuthState(state);
@@ -62,6 +67,11 @@ export class OAuthCallbackController {
       return;
     }
     const { conversationId, instanceId: slug, codeVerifier } = pending;
+    const provider = getOAuthProvider(providerName, scope);
+    if (!provider) {
+      res.status(404).type("html").send(page("Errore", `Provider OAuth sconosciuto: ${providerName}.`));
+      return;
+    }
 
     try {
       const creds = await resolveOAuthCredentials(providerName, asInstanceSlug(slug));
@@ -76,9 +86,9 @@ export class OAuthCallbackController {
       // Encrypted vault (NOT conversation_state) so tokens are never in the
       // cleartext, promptable state blob.
       const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000) : null;
-      await setPrincipalSecret(conversationId, slug, oauthTokenStateKey(providerName), accessToken, expiresAt);
+      await setPrincipalSecret(conversationId, slug, oauthTokenStateKey(providerName, scope), accessToken, expiresAt);
       if (refreshToken) {
-        await setPrincipalSecret(conversationId, slug, oauthRefreshStateKey(providerName), refreshToken, null);
+        await setPrincipalSecret(conversationId, slug, oauthRefreshStateKey(providerName, scope), refreshToken, null);
       }
       res.type("html").send(page(`${providerName} collegato ✅`, "Puoi tornare alla chat e continuare."));
     } catch (err) {
