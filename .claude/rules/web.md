@@ -18,3 +18,7 @@ paths:
 - Preserve keyboard access, labels, focus states, and semantic HTML.
 - Run the narrow test first, then web typecheck, lint, and build when routing or bundling
   changes.
+- An element that renders end-user or conversation content (message bodies, transcripts,
+  prompts, memories, room activity, knowledge excerpts) carries `data-private` on its root,
+  or uses a component that already does (`MarkdownRenderer`, `ListDrawer` with `private`).
+  Session-replay and analytics tools rely on it to leave that content out.
