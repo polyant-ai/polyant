@@ -64,6 +64,7 @@ import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation"
 import { useFollowBottom } from "@/hooks/use-follow-bottom";
 import { JumpToLatest } from "@/components/messages/jump-to-latest";
 import { LiveTurn } from "@/components/messages/live-turn";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 const MESSAGES_PAGE_SIZE = 50;
 
@@ -765,18 +766,19 @@ export default function ConversationDetailPage() {
                 autoFocus
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="rename-id">{t("conversations.detail.renameIdLabel")}</Label>
-              <Input
-                id="rename-id"
-                value={renameId}
-                onChange={(e) => setRenameId(e.target.value)}
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
+            <Field id="rename-id" className="space-y-1.5">
+              <FieldLabel>{t("conversations.detail.renameIdLabel")}</FieldLabel>
+              <FieldControl>
+                <Input
+                  value={renameId}
+                  onChange={(e) => setRenameId(e.target.value)}
+                  className="font-mono text-xs"
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("conversations.detail.renameIdHint")}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
