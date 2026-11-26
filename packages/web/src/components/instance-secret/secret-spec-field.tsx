@@ -4,7 +4,6 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,6 +17,7 @@ import { localizeText } from "@/lib/i18n/localized-text";
 import { BRAND_NAMES } from "@/lib/provider-secrets";
 import { RemoveKeyButton, SecretField, SecretStatusBadge } from "./secret-field";
 import type { SecretSpecsForm } from "./use-secret-specs";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * The fields a tool or hook declares in `requiredSecrets`, rendered one way
@@ -68,24 +68,25 @@ export interface ReadableFieldProps {
 
 export function ReadableField({ label, sublabel, value, onChange, configured, placeholder, onRemove, id }: ReadableFieldProps) {
   return (
-    <div className="space-y-2">
+    <Field id={id} className="space-y-2">
       <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{label}</Label>
+        <FieldLabel>{label}</FieldLabel>
         <SecretStatusBadge configured={configured} />
       </div>
-      {sublabel && <p className="text-xs text-muted-foreground">{sublabel}</p>}
+      {sublabel && <FieldDescription>{sublabel}</FieldDescription>}
       <div className="flex gap-2">
-        <Input
-          id={id}
-          type="text"
-          className="flex-1"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
+        <FieldControl>
+          <Input
+            type="text"
+            className="flex-1"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+          />
+        </FieldControl>
         {onRemove && <RemoveKeyButton onRemove={onRemove} />}
       </div>
-    </div>
+    </Field>
   );
 }
 
@@ -104,18 +105,20 @@ export interface SecretSelectFieldProps {
 export function SecretSelectField({ label, description, configured, value, choices, onChange, id }: SecretSelectFieldProps) {
   const { t } = useI18n();
   return (
-    <div className="space-y-2">
+    <Field id={id} className="space-y-2">
       <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{label}</Label>
+        <FieldLabel>{label}</FieldLabel>
         <Badge variant={configured ? "default" : "secondary"} className="text-xs">
           {configured ? t("settings.tab.configured") : t("settings.tab.notConfigured")}
         </Badge>
       </div>
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      {description && <FieldDescription>{description}</FieldDescription>}
       <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger id={id}>
-          <SelectValue placeholder={label} />
-        </SelectTrigger>
+        <FieldControl>
+          <SelectTrigger>
+            <SelectValue placeholder={label} />
+          </SelectTrigger>
+        </FieldControl>
         <SelectContent>
           {choices.map((c) => (
             <SelectItem key={c} value={c}>
@@ -124,7 +127,7 @@ export function SecretSelectField({ label, description, configured, value, choic
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </Field>
   );
 }
 

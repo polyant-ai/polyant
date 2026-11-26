@@ -26,6 +26,7 @@ import { useI18n } from "@/lib/i18n/context";
 import { providerFields, toSlug as toSlugLocal, type WizardDraft } from "@/lib/onboarding/wizard-actions";
 import { providerName } from "@/lib/provider-secrets";
 import { cn } from "@/lib/utils";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 export interface AgentRef {
   slug: string;
@@ -193,19 +194,21 @@ function ProviderStep({ p }: { p: StepProps }) {
           <p className="text-sm text-muted-foreground">{t("onboarding.provider.unknownKeys")}</p>
         )}
         {fields.map((field) => (
-          <div key={field.key} className="max-w-md space-y-1.5">
-            <Label htmlFor={`wizard-key-${field.key}`}>{t(field.labelKey)}</Label>
-            <Input
-              id={`wizard-key-${field.key}`}
-              type={field.sensitive === false ? "text" : "password"}
-              autoComplete="off"
-              value={p.draft.keys[field.key] ?? ""}
-              onChange={(e) => p.patchDraft({ keys: { ...p.draft.keys, [field.key]: e.target.value } })}
-            />
-          </div>
+          <Field key={field.key} id={`wizard-key-${field.key}`} className="max-w-md space-y-1.5">
+            <FieldLabel>{t(field.labelKey)}</FieldLabel>
+            <FieldControl>
+              <Input
+                type={field.sensitive === false ? "text" : "password"}
+                autoComplete="off"
+                aria-describedby="wizard-keys-hint"
+                value={p.draft.keys[field.key] ?? ""}
+                onChange={(e) => p.patchDraft({ keys: { ...p.draft.keys, [field.key]: e.target.value } })}
+              />
+            </FieldControl>
+          </Field>
         ))}
         {fields.length > 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p id="wizard-keys-hint" className="text-xs text-muted-foreground">
             {p.draft.provider === "bedrock" ? t("onboarding.provider.awsHint") : t("onboarding.provider.keyHint")}
           </p>
         )}
@@ -311,15 +314,16 @@ function AgentStep({ p }: { p: StepProps }) {
             }
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="wizard-slug">{t("instances.table.slug")}</Label>
-          <Input
-            id="wizard-slug"
-            value={p.draft.slug}
-            onChange={(e) => p.patchDraft({ slug: toSlugLocal(e.target.value), slugEdited: true })}
-          />
-          <p className="text-xs text-muted-foreground">{t("instances.create.slugHelp")}</p>
-        </div>
+        <Field id="wizard-slug" className="space-y-1.5">
+          <FieldLabel>{t("instances.table.slug")}</FieldLabel>
+          <FieldControl>
+            <Input
+              value={p.draft.slug}
+              onChange={(e) => p.patchDraft({ slug: toSlugLocal(e.target.value), slugEdited: true })}
+            />
+          </FieldControl>
+          <FieldDescription>{t("instances.create.slugHelp")}</FieldDescription>
+        </Field>
         <div className="space-y-1.5">
           <Label htmlFor="wizard-description">{t("instances.table.description")}</Label>
           <Input
@@ -329,17 +333,18 @@ function AgentStep({ p }: { p: StepProps }) {
             onChange={(e) => p.patchDraft({ description: e.target.value })}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="wizard-instructions">{t("onboarding.agent.instructions")}</Label>
-          <Textarea
-            id="wizard-instructions"
-            rows={5}
-            value={p.draft.instructions}
-            placeholder={t("onboarding.agent.instructionsPlaceholder")}
-            onChange={(e) => p.patchDraft({ instructions: e.target.value })}
-          />
-          <p className="text-xs text-muted-foreground">{t("onboarding.agent.instructionsHint")}</p>
-        </div>
+        <Field id="wizard-instructions" className="space-y-1.5">
+          <FieldLabel>{t("onboarding.agent.instructions")}</FieldLabel>
+          <FieldControl>
+            <Textarea
+              rows={5}
+              value={p.draft.instructions}
+              placeholder={t("onboarding.agent.instructionsPlaceholder")}
+              onChange={(e) => p.patchDraft({ instructions: e.target.value })}
+            />
+          </FieldControl>
+          <FieldDescription>{t("onboarding.agent.instructionsHint")}</FieldDescription>
+        </Field>
         {p.error && <p role="alert" className="text-sm text-destructive">{p.error}</p>}
         <Button type="submit" disabled={!valid || p.busy}>
           {p.busy ? t("instances.create.creating") : t("onboarding.agent.create")}
@@ -358,21 +363,25 @@ function ChannelsStep({ p }: { p: StepProps }) {
         <AgentGate p={p}>
           <div className="space-y-4">
             <div className="divide-y rounded-lg border px-4">
-              <div className="flex items-center justify-between gap-4 py-3">
+              <Field id="wizard-web" className="flex items-center justify-between gap-4 py-3">
                 <div>
-                  <Label htmlFor="wizard-web">{t("channels.tab.web")}</Label>
-                  <p className="text-sm text-muted-foreground">{t("onboarding.channels.webHelp")}</p>
+                  <FieldLabel>{t("channels.tab.web")}</FieldLabel>
+                  <FieldDescription className="text-sm text-muted-foreground">{t("onboarding.channels.webHelp")}</FieldDescription>
                 </div>
-                <Switch id="wizard-web" checked={p.web.enabled} disabled={!p.web.loaded || p.busy} onCheckedChange={p.onToggleWeb} />
-              </div>
+                <FieldControl>
+                  <Switch checked={p.web.enabled} disabled={!p.web.loaded || p.busy} onCheckedChange={p.onToggleWeb} />
+                </FieldControl>
+              </Field>
               {p.web.enabled && (
-                <div className="flex items-center justify-between gap-4 py-3">
+                <Field id="wizard-auth" className="flex items-center justify-between gap-4 py-3">
                   <div>
-                    <Label htmlFor="wizard-auth">{t("settings.tab.authEnabled")}</Label>
-                    <p className="text-sm text-muted-foreground">{t("onboarding.channels.authHelp")}</p>
+                    <FieldLabel>{t("settings.tab.authEnabled")}</FieldLabel>
+                    <FieldDescription className="text-sm text-muted-foreground">{t("onboarding.channels.authHelp")}</FieldDescription>
                   </div>
-                  <Switch id="wizard-auth" checked={p.web.authEnabled} disabled={p.busy} onCheckedChange={p.onToggleAuth} />
-                </div>
+                  <FieldControl>
+                    <Switch checked={p.web.authEnabled} disabled={p.busy} onCheckedChange={p.onToggleAuth} />
+                  </FieldControl>
+                </Field>
               )}
             </div>
             {p.web.enabled && !p.web.authEnabled && (
@@ -384,14 +393,16 @@ function ChannelsStep({ p }: { p: StepProps }) {
             {p.web.enabled && p.web.authEnabled && (
               <div className="space-y-2">
                 {p.web.freshKey ? (
-                  <>
-                    <Label htmlFor="wizard-agent-key">{t("settings.tab.authApiKey")}</Label>
+                  <Field id="wizard-agent-key" className="space-y-2">
+                    <FieldLabel>{t("settings.tab.authApiKey")}</FieldLabel>
                     <div className="flex gap-2">
-                      <Input id="wizard-agent-key" readOnly value={p.web.freshKey} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+                      <FieldControl>
+                        <Input readOnly value={p.web.freshKey} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+                      </FieldControl>
                       <CopyButton value={p.web.freshKey} label={t("onboarding.channels.copy")} variant="outline" />
                     </div>
-                    <p className="text-xs text-muted-foreground">{t("onboarding.channels.keyOnce")}</p>
-                  </>
+                    <FieldDescription>{t("onboarding.channels.keyOnce")}</FieldDescription>
+                  </Field>
                 ) : p.web.keyConfigured ? (
                   <p className="text-sm text-muted-foreground">{t("onboarding.channels.keyExists")}</p>
                 ) : null}
@@ -489,11 +500,13 @@ function KnowledgeStep({ p }: { p: StepProps }) {
                 <Label htmlFor="wizard-kb-title">{t("onboarding.knowledge.title")}</Label>
                 <Input id="wizard-kb-title" value={p.kb.title} onChange={(e) => p.kb.setTitle(e.target.value)} />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wizard-kb-text">{t("onboarding.knowledge.text")}</Label>
-                <Textarea id="wizard-kb-text" rows={6} value={p.kb.text} onChange={(e) => p.kb.setText(e.target.value)} />
-                <p className="text-xs text-muted-foreground">{t("onboarding.knowledge.hint")}</p>
-              </div>
+              <Field id="wizard-kb-text" className="space-y-1.5">
+                <FieldLabel>{t("onboarding.knowledge.text")}</FieldLabel>
+                <FieldControl>
+                  <Textarea rows={6} value={p.kb.text} onChange={(e) => p.kb.setText(e.target.value)} />
+                </FieldControl>
+                <FieldDescription>{t("onboarding.knowledge.hint")}</FieldDescription>
+              </Field>
               {p.error && <p role="alert" className="text-sm text-destructive">{p.error}</p>}
               <Button disabled={p.busy || !p.kb.text.trim()} onClick={p.kb.add}>
                 {t("onboarding.knowledge.add")}

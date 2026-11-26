@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, getUserErrorMessage, type RequiredEnvEntry } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { EnvVarsEditor, toEnvVarDefs, toRequiredEnv, type EnvVarDef } from "./env-vars-editor";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface SkillFormProps {
   mode: "create" | "edit";
@@ -100,11 +101,13 @@ export function SkillForm({ mode, initialData }: SkillFormProps) {
               <Label htmlFor="displayName">{t("skills.form.name")}</Label>
               <Input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={255} />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="slug">{t("skills.form.slug")}</Label>
-              <Input id="slug" value={name} readOnly className="font-mono opacity-60" />
-              <p className="text-xs text-muted-foreground">{t("skills.form.slugHint")}</p>
-            </div>
+            <Field id="slug" className="space-y-2">
+              <FieldLabel>{t("skills.form.slug")}</FieldLabel>
+              <FieldControl>
+                <Input value={name} readOnly className="font-mono opacity-60" />
+              </FieldControl>
+              <FieldDescription>{t("skills.form.slugHint")}</FieldDescription>
+            </Field>
           </>
         )}
 
