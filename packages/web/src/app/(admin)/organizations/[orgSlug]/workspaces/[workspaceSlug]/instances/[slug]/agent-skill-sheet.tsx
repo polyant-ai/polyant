@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { ArrowUpCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ListDrawer } from "@/components/list-drawer";
 import { ListLoading } from "@/components/list-states";
@@ -14,6 +13,7 @@ import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 import { api, getUserErrorMessage, type AgentSkillContent, type SkillState } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { SkillEnvPanel } from "./skill-env-panel";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * One skill of the agent, opened from its row: what it does, the controls that
@@ -103,21 +103,22 @@ export function AgentSkillSheet({
       {skill && (
         <>
           {enabled && (
-            <section className="flex items-start justify-between gap-4">
+            <Field id="skill-auto-load" className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <Label htmlFor="skill-auto-load" className="flex items-center gap-1.5">
+                <FieldLabel className="flex items-center gap-1.5">
                   <Zap className={`size-3.5 ${skill.autoLoad ? "text-warning" : "text-muted-foreground/50"}`} aria-hidden />
                   {t("skills.tab.autoLoad")}
-                </Label>
-                <p className="text-sm text-muted-foreground">{t("skills.tab.autoLoadTooltip")}</p>
+                </FieldLabel>
+                <FieldDescription className="text-sm text-muted-foreground">{t("skills.tab.autoLoadTooltip")}</FieldDescription>
               </div>
-              <Switch
-                id="skill-auto-load"
-                checked={skill.autoLoad ?? false}
-                disabled={togglingAutoLoad}
-                onCheckedChange={onAutoLoadChange}
-              />
-            </section>
+              <FieldControl>
+                <Switch
+                  checked={skill.autoLoad ?? false}
+                  disabled={togglingAutoLoad}
+                  onCheckedChange={onAutoLoadChange}
+                />
+              </FieldControl>
+            </Field>
           )}
           {enabled && hasEnv && <SkillEnvPanel slug={slug} skillName={skill.name} onSaved={onEnvSaved} />}
           {!enabled && <p className="text-sm text-muted-foreground">{t("skills.tab.disabledHint")}</p>}

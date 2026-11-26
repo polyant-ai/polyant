@@ -4,7 +4,6 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SecretField } from "@/components/instance-secret/secret-field";
 import { ReadableField } from "@/components/instance-secret/secret-spec-field";
@@ -13,6 +12,7 @@ import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * Attachment storage: the switch that keeps the files users send, and the
@@ -76,15 +76,17 @@ export function AttachmentStorageCard({
 
   return (
     <section className="space-y-4 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-4">
+      <Field id="agent-attachment-storage" className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Label htmlFor="agent-attachment-storage" className="text-base font-medium">
+          <FieldLabel className="text-base font-medium">
             {t("settings.tab.attachmentStorage")}
-          </Label>
-          <p className="text-sm text-muted-foreground">{t("settings.tab.attachmentStorageHelp")}</p>
+          </FieldLabel>
+          <FieldDescription className="text-sm text-muted-foreground">{t("settings.tab.attachmentStorageHelp")}</FieldDescription>
         </div>
-        <Switch id="agent-attachment-storage" checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
-      </div>
+        <FieldControl>
+          <Switch checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
+        </FieldControl>
+      </Field>
 
       {/* The bucket appears once storage is on: it is the switch's configuration,
           and showing it off reads as "fill these in first". */}

@@ -13,6 +13,7 @@ import { api, getUserErrorMessage } from "@/lib/api";
 import { ListDrawer } from "@/components/list-drawer";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   open: boolean;
@@ -121,16 +122,17 @@ export function CreateInstanceSheet({ open, onOpenChange, onCreated }: Props) {
         />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="slug">{t("instances.table.slug")}</Label>
-        <Input
-          id="slug"
-          placeholder={t("instances.create.slugPlaceholder")}
-          value={slug}
-          onChange={(e) => handleSlugChange(e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">{t("instances.create.slugHelp")}</p>
-      </div>
+      <Field id="slug" className="space-y-2">
+        <FieldLabel>{t("instances.table.slug")}</FieldLabel>
+        <FieldControl>
+          <Input
+            placeholder={t("instances.create.slugPlaceholder")}
+            value={slug}
+            onChange={(e) => handleSlugChange(e.target.value)}
+          />
+        </FieldControl>
+        <FieldDescription>{t("instances.create.slugHelp")}</FieldDescription>
+      </Field>
 
       <div className="space-y-2">
         <Label htmlFor="description">{t("instances.table.description")}</Label>

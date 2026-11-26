@@ -27,6 +27,7 @@ import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
 import { WebEndpointCard } from "./web-endpoint-card";
 import { FieldMappingEditor, mappingFromRows, type MappingRow, rowsFromMapping } from "./field-mapping-editor";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /** Same mapping regardless of key order: the engine stores an object, the editor a list. */
 function sameMapping(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -152,17 +153,18 @@ export function ChannelWebTab({ instance, onUpdate, channels, onChannelsChanged 
           <ChannelEnabledToggle enabled={webEnabled} disabled={!webLoaded} onChange={(v) => setWebDraft("enabled", v)} />
         </div>
 
-        <div className="flex items-center justify-between" data-tour="web-auth">
+        <Field id="agent-auth-enabled" className="flex items-center justify-between" data-tour="web-auth">
           <div className="space-y-0.5">
-            <Label htmlFor="agent-auth-enabled">{t("settings.tab.authEnabled")}</Label>
-            <p className="text-sm text-muted-foreground">{t("channels.tab.webAuthHelp")}</p>
+            <FieldLabel>{t("settings.tab.authEnabled")}</FieldLabel>
+            <FieldDescription className="text-sm text-muted-foreground">{t("channels.tab.webAuthHelp")}</FieldDescription>
           </div>
-          <Switch
-            id="agent-auth-enabled"
-            checked={authEnabled}
-            onCheckedChange={setAuthEnabled}
-          />
-        </div>
+          <FieldControl>
+            <Switch
+              checked={authEnabled}
+              onCheckedChange={setAuthEnabled}
+            />
+          </FieldControl>
+        </Field>
 
         {(authEnabled || mapsContext) && (
           <SecretField

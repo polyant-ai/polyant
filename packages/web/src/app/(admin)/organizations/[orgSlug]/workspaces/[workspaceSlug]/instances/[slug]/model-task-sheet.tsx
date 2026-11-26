@@ -42,6 +42,7 @@ import {
   type ModelTask,
   type STTProvider,
 } from "./model-tasks";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   /** The task the sheet is open on; null = closed. */
@@ -287,11 +288,11 @@ export function ModelTaskSheet({
   };
 
   const field = (id: string, label: string, control: ReactNode, help?: ReactNode) => (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
+    <Field id={id} className="space-y-2">
+      <FieldLabel>{label}</FieldLabel>
       {control}
-      {help && <p className="text-xs text-muted-foreground">{help}</p>}
-    </div>
+      {help && <FieldDescription>{help}</FieldDescription>}
+    </Field>
   );
 
   const choice = (
@@ -306,9 +307,11 @@ export function ModelTaskSheet({
       id,
       label,
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger id={id} className="w-full" aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
+        <FieldControl>
+          <SelectTrigger className="w-full" aria-label={label}>
+            <SelectValue />
+          </SelectTrigger>
+        </FieldControl>
         <SelectContent>
           {entries.map(([key, text]) => (
             <SelectItem key={key} value={key}>
@@ -339,9 +342,11 @@ export function ModelTaskSheet({
           "task-provider",
           t("settings.tab.provider"),
           <Select value={draft.provider} onValueChange={(value) => set({ provider: value, model: "", fastMode: false })}>
-            <SelectTrigger id="task-provider" className="w-full">
-              <SelectValue placeholder={t("settings.tab.systemDefault")} />
-            </SelectTrigger>
+            <FieldControl>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("settings.tab.systemDefault")} />
+              </SelectTrigger>
+            </FieldControl>
             <SelectContent>
               {providerNames.map((p) => (
                 <SelectItem key={p} value={p}>
@@ -363,9 +368,11 @@ export function ModelTaskSheet({
             }
             disabled={!draft.provider}
           >
-            <SelectTrigger id="task-model" className="w-full">
-              <SelectValue placeholder={t("settings.tab.systemDefault")} />
-            </SelectTrigger>
+            <FieldControl>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("settings.tab.systemDefault")} />
+              </SelectTrigger>
+            </FieldControl>
             <SelectContent>
               {availableModels.flatMap((m) => [
                 <SelectItem key={m.id} value={m.id}>
@@ -476,34 +483,37 @@ export function ModelTaskSheet({
     task === "chat" ? (
       <section className="space-y-5 border-t pt-6">
         <h3 className="text-sm font-medium">{t("settings.tab.modelTuning")}</h3>
-        <div className="flex items-start justify-between gap-4">
+        <Field id="task-thinking" className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <Label htmlFor="task-thinking">{t("settings.tab.thinking")}</Label>
-            <p className="text-xs text-muted-foreground">
+            <FieldLabel>{t("settings.tab.thinking")}</FieldLabel>
+            <FieldDescription>
               {alwaysOnThinking
                 ? t("settings.tab.thinkingAlwaysOn")
                 : canEnableThinking
                   ? t("settings.tab.thinkingHelp")
                   : t("settings.tab.thinkingUnavailable")}
-            </p>
+            </FieldDescription>
           </div>
-          <Switch
-            id="task-thinking"
-            checked={alwaysOnThinking || draft.thinkingEnabled}
-            disabled={!canEnableThinking || alwaysOnThinking}
-            onCheckedChange={(checked) => set({ thinkingEnabled: checked })}
-          />
-        </div>
+          <FieldControl>
+            <Switch
+              checked={alwaysOnThinking || draft.thinkingEnabled}
+              disabled={!canEnableThinking || alwaysOnThinking}
+              onCheckedChange={(checked) => set({ thinkingEnabled: checked })}
+            />
+          </FieldControl>
+        </Field>
         {effectiveThinkingEnabled && (
-          <div className="flex items-start justify-between gap-4">
+          <Field id="task-reasoning" className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <Label htmlFor="task-reasoning">{t("settings.tab.reasoningLevel")}</Label>
-              <p className="text-xs text-muted-foreground">{t("settings.tab.reasoningLevelHelp")}</p>
+              <FieldLabel>{t("settings.tab.reasoningLevel")}</FieldLabel>
+              <FieldDescription>{t("settings.tab.reasoningLevelHelp")}</FieldDescription>
             </div>
             <Select value={draft.thinkingLevel} onValueChange={(value) => set({ thinkingLevel: value })}>
-              <SelectTrigger id="task-reasoning" className="w-32">
-                <SelectValue />
-              </SelectTrigger>
+              <FieldControl>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+              </FieldControl>
               <SelectContent>
                 {(selectedModelInfo?.reasoningLevels?.length ? selectedModelInfo.reasoningLevels : ["low", "medium", "high"]).map((lvl) => (
                   <SelectItem key={lvl} value={lvl}>
@@ -512,48 +522,50 @@ export function ModelTaskSheet({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Field>
         )}
-        <div className="space-y-2">
-          <Label htmlFor="temperature">{t("settings.temperature.label")}</Label>
-          <Input
-            id="temperature"
-            type="number"
-            min={0}
-            max={2}
-            step={0.1}
-            disabled={!canSetTemperature}
-            value={draft.temperature ?? ""}
-            placeholder={t("settings.temperature.placeholder")}
-            onChange={(e) => set({ temperature: e.target.value === "" ? null : Number(e.target.value) })}
-          />
+        <Field id="temperature" className="space-y-2">
+          <FieldLabel>{t("settings.temperature.label")}</FieldLabel>
+          <FieldControl>
+            <Input
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              disabled={!canSetTemperature}
+              value={draft.temperature ?? ""}
+              placeholder={t("settings.temperature.placeholder")}
+              onChange={(e) => set({ temperature: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+          </FieldControl>
           {!canSetTemperature && (
-            <p className="text-xs text-muted-foreground">
+            <FieldDescription>
               {!selectedModelInfo?.supportsTemperature
                 ? t("settings.temperature.unsupportedReasoningHint")
                 : t("settings.temperature.unsupportedThinkingHint")}
-            </p>
+            </FieldDescription>
           )}
-        </div>
+        </Field>
         <div className="space-y-3">
-          <div className="flex items-start justify-between gap-4">
+          <Field id="task-cache" className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <Label htmlFor="task-cache">{t("settings.tab.cache")}</Label>
-              <p className="text-xs text-muted-foreground">
+              <FieldLabel>{t("settings.tab.cache")}</FieldLabel>
+              <FieldDescription>
                 {draft.provider === "openai"
                   ? t("settings.tab.cacheAutomaticHelp")
                   : draft.provider === "nebius"
                     ? t("settings.tab.cacheNebiusHelp")
                     : t("settings.tab.cacheHelp")}
-              </p>
+              </FieldDescription>
             </div>
-            <Switch
-              id="task-cache"
-              checked={draft.provider === "openai" || draft.provider === "nebius" ? true : draft.cacheEnabled}
-              onCheckedChange={(checked) => set({ cacheEnabled: checked })}
-              disabled={draft.provider === "openai" || draft.provider === "nebius"}
-            />
-          </div>
+            <FieldControl>
+              <Switch
+                checked={draft.provider === "openai" || draft.provider === "nebius" ? true : draft.cacheEnabled}
+                onCheckedChange={(checked) => set({ cacheEnabled: checked })}
+                disabled={draft.provider === "openai" || draft.provider === "nebius"}
+              />
+            </FieldControl>
+          </Field>
           {(draft.provider === "anthropic" || draft.provider === "bedrock") && draft.cacheEnabled && (
             <div className="flex items-center justify-between gap-4">
               <Label htmlFor="task-cache-ttl" className="text-sm">
@@ -575,19 +587,20 @@ export function ModelTaskSheet({
             </div>
           )}
           {(draft.provider === "anthropic" || draft.provider === "bedrock") && draft.cacheEnabled && (
-            <div className="flex items-start justify-between gap-4">
+            <Field id="task-cache-user-turn" className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <Label htmlFor="task-cache-user-turn" className="text-sm">
+                <FieldLabel className="text-sm">
                   {t("settings.tab.cacheUserTurn")}
-                </Label>
-                <p className="text-xs text-muted-foreground">{t("settings.tab.cacheUserTurnHelp")}</p>
+                </FieldLabel>
+                <FieldDescription>{t("settings.tab.cacheUserTurnHelp")}</FieldDescription>
               </div>
-              <Switch
-                id="task-cache-user-turn"
-                checked={draft.cacheUserTurn}
-                onCheckedChange={(checked) => set({ cacheUserTurn: checked })}
-              />
-            </div>
+              <FieldControl>
+                <Switch
+                  checked={draft.cacheUserTurn}
+                  onCheckedChange={(checked) => set({ cacheUserTurn: checked })}
+                />
+              </FieldControl>
+            </Field>
           )}
         </div>
       </section>

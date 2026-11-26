@@ -31,6 +31,7 @@ import {
   type McpTestResult,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 type StaticAuthType = "bearer" | "header";
 
@@ -353,24 +354,26 @@ export function McpServerSheet({
           </>
         ) : (
           <>
-            <div className="space-y-2">
-              <Label htmlFor="mcp-oauth-account">{t("mcp.form.oauthAccount")}</Label>
+            <Field id="mcp-oauth-account" className="space-y-2">
+              <FieldLabel>{t("mcp.form.oauthAccount")}</FieldLabel>
               <Select
                 value={form.oauthAccount}
                 onValueChange={(v) => setForm((f) => ({ ...f, oauthAccount: v as McpOAuthAccount }))}
               >
-                <SelectTrigger id="mcp-oauth-account">
-                  <SelectValue />
-                </SelectTrigger>
+                <FieldControl>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                </FieldControl>
                 <SelectContent>
                   <SelectItem value="conversation">{t("mcp.form.oauthAccount.conversation")}</SelectItem>
                   <SelectItem value="shared">{t("mcp.form.oauthAccount.shared")}</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
+              <FieldDescription>
                 {form.oauthAccount === "shared" ? t("mcp.form.sharedNote") : t("mcp.form.oauthNote")}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
             <div className="space-y-2">
               <Label>{t("mcp.form.scopes")}</Label>
               <Input

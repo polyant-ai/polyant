@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { ChannelEnabledToggle } from "./channel-enabled-toggle";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChannelDef, ChannelState } from "./channels-tab";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   def: ChannelDef;
@@ -92,20 +93,21 @@ export function ChannelSection({
         const visible = visibleFields[fieldId] ?? false;
 
         return (
-          <div key={field.key} className="space-y-1">
-            <Label htmlFor={fieldId}>{t(field.labelKey)}</Label>
+          <Field key={field.key} id={fieldId} className="space-y-1">
+            <FieldLabel>{t(field.labelKey)}</FieldLabel>
             {"helpKey" in field && field.helpKey && (
-              <p className="text-xs text-muted-foreground">{t(field.helpKey)}</p>
+              <FieldDescription>{t(field.helpKey)}</FieldDescription>
             )}
             <div className="relative">
-              <Input
-                id={fieldId}
-                type={field.sensitive && !visible ? "password" : "text"}
-                value={(state.config[field.key] as string | undefined) ?? ""}
-                onChange={(e) => onUpdateField(def.type, field.key, e.target.value)}
-                placeholder={isSet ? maskedValue : ""}
-                disabled={!state.enabled}
-              />
+              <FieldControl>
+                <Input
+                  type={field.sensitive && !visible ? "password" : "text"}
+                  value={(state.config[field.key] as string | undefined) ?? ""}
+                  onChange={(e) => onUpdateField(def.type, field.key, e.target.value)}
+                  placeholder={isSet ? maskedValue : ""}
+                  disabled={!state.enabled}
+                />
+              </FieldControl>
               {field.sensitive && (
                 <button
                   type="button"
@@ -117,7 +119,7 @@ export function ChannelSection({
                 </button>
               )}
             </div>
-          </div>
+          </Field>
         );
       })}
 
@@ -151,13 +153,15 @@ export function ChannelSection({
         from nothing is what that convention exists to avoid.
       */}
       {def.type === "agent" && (
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
+        <Field id="channel-a2a-enabled" className="flex items-start justify-between gap-4 border-t pt-4">
           <div className="space-y-1">
-            <Label htmlFor="channel-a2a-enabled" className="text-sm font-medium">{t("channels.tab.a2a")}</Label>
-            <p className="text-sm text-muted-foreground">{t("channels.tab.a2aHelp")}</p>
+            <FieldLabel className="text-sm font-medium">{t("channels.tab.a2a")}</FieldLabel>
+            <FieldDescription className="text-sm text-muted-foreground">{t("channels.tab.a2aHelp")}</FieldDescription>
           </div>
-          <Switch id="channel-a2a-enabled" checked={a2aEnabled} onCheckedChange={onA2aEnabledChange} />
-        </div>
+          <FieldControl>
+            <Switch checked={a2aEnabled} onCheckedChange={onA2aEnabledChange} />
+          </FieldControl>
+        </Field>
       )}
     </section>
   );

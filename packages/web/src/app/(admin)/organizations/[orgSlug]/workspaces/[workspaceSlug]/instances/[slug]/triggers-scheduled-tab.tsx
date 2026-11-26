@@ -41,6 +41,7 @@ import { useFormat } from "@/lib/use-format";
 import { useResource } from "@/hooks/use-resource";
 import { LoadFailed } from "@/components/ui/load-failed";
 import { SectionActions } from "./section-actions";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   slug: string;
@@ -515,17 +516,18 @@ export function TriggersScheduledTab({ slug }: Props) {
               </div>
             )}
 
-            <div className="flex items-center gap-2 border-t pt-4">
-              <Switch
-                id="task-keep-history"
-                checked={form.keepHistory}
-                onCheckedChange={(v) => setForm((f) => ({ ...f, keepHistory: v }))}
-              />
+            <Field id="task-keep-history" className="flex items-center gap-2 border-t pt-4">
+              <FieldControl>
+                <Switch
+                  checked={form.keepHistory}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, keepHistory: v }))}
+                />
+              </FieldControl>
               <div>
-                <Label htmlFor="task-keep-history" className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</Label>
-                <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.keepHistoryHelp")}</p>
+                <FieldLabel className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</FieldLabel>
+                <FieldDescription>{t("scheduledTasks.form.keepHistoryHelp")}</FieldDescription>
               </div>
-            </div>
+            </Field>
           </div>
 
       </ListDrawer>
