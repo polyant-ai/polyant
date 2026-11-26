@@ -92,7 +92,7 @@ export function LiveTurn({ events, showActivity }: { events: FeedEvent[]; showAc
   );
 
   return (
-    <div className="space-y-4" aria-live="polite">
+    <div className="space-y-4" aria-live="polite" data-private>
       {segments(turn).map(({ inbound, work }, index) => {
         const reply = work.find((evt) => eventKind(evt) === "reply");
         const activity = showActivity ? work.filter((evt) => eventKind(evt) !== "reply") : [];

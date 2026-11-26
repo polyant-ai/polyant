@@ -56,7 +56,7 @@ export function BacklogSection({ backlog, status, onStatusChange }: Props) {
   const open = backlog.find((event) => event.id === openId) ?? null;
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" data-private>
       <h2 className="text-lg font-semibold">{t("room.backlog.title")}</h2>
       <div className="flex gap-2">
         {BACKLOG_STATUSES.map((s) => (

@@ -194,7 +194,10 @@ const REHYPE_PLUGINS_STREAMING: PluggableList = [...REHYPE_PLUGINS, rehypeStream
 
 export function MarkdownRenderer({ content, className, streaming = false }: MarkdownRendererProps) {
   return (
-    <div className={cn("prose-sm max-w-none", className)}>
+    // `data-private` marks an element that renders end-user or conversation content
+    // (messages, transcripts, prompts, memories). Session-replay and analytics tools
+    // should not record it. It is a plain attribute: each deployment decides what reads it.
+    <div className={cn("prose-sm max-w-none", className)} data-private>
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={streaming ? REHYPE_PLUGINS_STREAMING : REHYPE_PLUGINS}

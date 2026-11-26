@@ -57,7 +57,7 @@ export function ActivityLogSection({ activity }: Props) {
   const open = activity.find((log) => log.id === openId) ?? null;
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" data-private>
       <h2 className="text-lg font-semibold">{t("room.activity.title")}</h2>
       {activity.length === 0 ? (
         <ListEmpty className="mt-8" title={t("room.activity.empty")} />

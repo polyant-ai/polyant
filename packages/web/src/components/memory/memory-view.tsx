@@ -123,7 +123,7 @@ export function MemoryView({
   const open = memories.find((m) => m.id === openId) ?? null;
 
   return (
-    <div>
+    <div data-private>
       <ListToolbar value={search} onChange={setSearch} label={t("memory.searchPlaceholder")}>
         {!lockedInstanceId && (
           <OptionalSelect
@@ -187,6 +187,7 @@ export function MemoryView({
       </div>
 
       <ListDrawer
+        private
         open={open !== null}
         onOpenChange={(next) => !next && setOpenId(null)}
         title={open ? truncate(open.content, 60) : ""}

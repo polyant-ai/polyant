@@ -28,6 +28,7 @@ export function ListDrawer({
   destructive,
   actions,
   primary,
+  private: isPrivate,
   children,
 }: {
   open: boolean;
@@ -43,12 +44,14 @@ export function ListDrawer({
   actions?: ReactNode;
   /** The primary button of a drawer that edits or creates; without it the drawer only shows and closes. */
   primary?: ReactNode;
+  /** The drawer shows end-user or conversation content: marks it `data-private` (see MarkdownRenderer). */
+  private?: boolean;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0">
+      <SheetContent side="right" className="w-full gap-0" data-private={isPrivate ? "" : undefined}>
         <SheetHeader className="gap-1 border-b p-5 pr-12">
           <SheetTitle className="break-words text-base font-medium">{title}</SheetTitle>
           <SheetDescription className="line-clamp-2">{description}</SheetDescription>
