@@ -49,15 +49,35 @@ export function generatePkcePair(): PkcePair {
  *  Derived from the provider name (no per-provider constant) — symmetric with
  *  oauthSecretKeys, so a new provider needs zero extra wiring. Shared by the
  *  callback (writer) and the per-service data tools (readers). */
-export function oauthTokenStateKey(providerName: string): string {
-  return `${providerName}_oauth_token`;
+export function oauthTokenStateKey(providerName: string, scope: OAuthProviderScope = null): string {
+  return `${scopePrefix(scope)}${providerName}_oauth_token`;
 }
 
 /** Vault key for a provider's refresh token (persisted alongside the access
  *  token when the provider issues one). */
-export function oauthRefreshStateKey(providerName: string): string {
-  return `${providerName}_oauth_refresh`;
+export function oauthRefreshStateKey(providerName: string, scope: OAuthProviderScope = null): string {
+  return `${scopePrefix(scope)}${providerName}_oauth_refresh`;
 }
+
+/** A scoped provider's tokens are kept apart from a same-name provider's in
+ *  another registry. The shared registry keeps the bare keys. */
+function scopePrefix(scope: OAuthProviderScope): string {
+  return scope === null ? "" : `${scope}:`;
+}
+
+/**
+ * Which registry a provider lives in. `null` is the shared registry: every
+ * provider registered without a scope, looked up by name alone. A distribution
+ * may register providers under an opaque scope instead: such a provider never
+ * collides with, shadows or stands in for a same-name provider of another
+ * registry, and only callers that pass the same scope resolve it. This is not
+ * the provider's OAuth `scope` field. The scope of a pending authorization
+ * reaches the callback through `oauth-authorization-scopes.port.ts`.
+ */
+export type OAuthProviderScope = string | null;
+
+const registryKey = (name: string, scope: OAuthProviderScope): string =>
+  scope === null ? name : `${scope}\u0000${name}`;
 
 export interface OAuthCredentials {
   clientId?: string;
@@ -91,8 +111,9 @@ function sameProvider(a: OAuthProvider, b: OAuthProvider): boolean {
 /** Register a provider (the only writer of REGISTRY). Dedup on an identical
  *  definition (no-op); a same-name DIVERGENT definition throws so the loader lets
  *  it abort the boot, like a duplicate tool name. */
-export function registerOAuthProvider(p: OAuthProvider): void {
-  const existing = REGISTRY.get(p.name);
+export function registerOAuthProvider(p: OAuthProvider, scope: OAuthProviderScope = null): void {
+  const key = registryKey(p.name, scope);
+  const existing = REGISTRY.get(key);
   if (existing) {
     if (!sameProvider(existing, p)) {
       throw new Error(
@@ -102,15 +123,23 @@ export function registerOAuthProvider(p: OAuthProvider): void {
     }
     return;
   }
-  REGISTRY.set(p.name, p);
+  REGISTRY.set(key, p);
 }
 
-export function getOAuthProvider(name: string): OAuthProvider | undefined {
-  return REGISTRY.get(name);
+/** The provider of that name in that registry only: a scope never falls back to the shared registry. */
+export function getOAuthProvider(name: string, scope: OAuthProviderScope = null): OAuthProvider | undefined {
+  return REGISTRY.get(registryKey(name, scope));
 }
 
+/** Whether a provider of this name is registered in any registry, scoped or shared. */
+export function hasOAuthProvider(name: string): boolean {
+  const scopedSuffix = `\u0000${name}`;
+  return REGISTRY.has(name) || Array.from(REGISTRY.keys()).some((key) => key.endsWith(scopedSuffix));
+}
+
+/** The shared registry's provider names. */
 export function knownProviderNames(): string[] {
-  return Array.from(REGISTRY.keys());
+  return Array.from(REGISTRY.keys()).filter((key) => !key.includes("\u0000"));
 }
 
 /** Test-only: clear the registry between tests. */

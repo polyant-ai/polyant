@@ -14,6 +14,7 @@ import {
   refreshAccessToken,
   oauthTokenStateKey,
   oauthRefreshStateKey,
+  type OAuthProviderScope,
 } from "./oauth-providers.js";
 
 // Refresh a bit BEFORE expiry so an in-flight call doesn't race the deadline.
@@ -29,19 +30,21 @@ export function needsRefresh(expiresAt: Date | null, now: number, skewMs = EXPIR
 /**
  * A valid access token for the provider on this conversation, refreshing if
  * needed. Returns null when there is no token, or when a needed refresh is not
- * possible/failed — the caller then surfaces a fresh connect link.
+ * possible/failed — the caller then surfaces a fresh connect link. `scope` is
+ * the provider registry the token belongs to (null: the shared one).
  */
 export async function getValidAccessToken(
   slug: InstanceSlug,
   conversationId: string,
   providerName: string,
+  scope: OAuthProviderScope = null,
 ): Promise<string | null> {
-  const access = await getPrincipalSecret(conversationId, oauthTokenStateKey(providerName));
+  const access = await getPrincipalSecret(conversationId, oauthTokenStateKey(providerName, scope));
   if (!access) return null;
   if (!needsRefresh(access.expiresAt, Date.now())) return access.value;
 
-  const refresh = await getPrincipalSecret(conversationId, oauthRefreshStateKey(providerName));
-  const provider = getOAuthProvider(providerName);
+  const refresh = await getPrincipalSecret(conversationId, oauthRefreshStateKey(providerName, scope));
+  const provider = getOAuthProvider(providerName, scope);
   if (!refresh || !provider) return null;
 
   const creds = await resolveOAuthCredentials(providerName, slug);
@@ -50,11 +53,11 @@ export async function getValidAccessToken(
   try {
     const res = await refreshAccessToken(provider, creds, refresh.value);
     const expiresAt = res.expiresIn ? new Date(Date.now() + res.expiresIn * 1000) : null;
-    await setPrincipalSecret(conversationId, slug, oauthTokenStateKey(providerName), res.accessToken, expiresAt);
+    await setPrincipalSecret(conversationId, slug, oauthTokenStateKey(providerName, scope), res.accessToken, expiresAt);
     // Google may omit refresh_token on refresh — only overwrite when present so
     // the original long-lived refresh token isn't clobbered with undefined.
     if (res.refreshToken) {
-      await setPrincipalSecret(conversationId, slug, oauthRefreshStateKey(providerName), res.refreshToken, null);
+      await setPrincipalSecret(conversationId, slug, oauthRefreshStateKey(providerName, scope), res.refreshToken, null);
     }
     return res.accessToken;
   } catch {
