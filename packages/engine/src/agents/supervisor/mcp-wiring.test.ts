@@ -153,6 +153,12 @@ describe("supervise + MCP tools", () => {
     expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ allowOAuth: false }));
   });
 
+  it("forwards the agent's provider so MCP tool names fit its limit (#424)", async () => {
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi", provider: "bedrock" });
+
+    expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ provider: "bedrock" }));
+  });
+
   it("forwards allowOAuth: true when the conversational caller opts in", async () => {
     await supervise({ instanceId: TEST_INSTANCE, message: "hi", conversationId: "conv-1", allowOAuth: true });
 

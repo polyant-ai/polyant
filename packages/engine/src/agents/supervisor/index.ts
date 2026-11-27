@@ -654,6 +654,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     abortSignal: input.abortSignal,
     allowOAuth: input.allowOAuth ?? false,
     servers: input.mcpServers,
+    provider: input.provider,
   });
 
   // Everything below opens no new resources, but it DOES await (DB calls in
