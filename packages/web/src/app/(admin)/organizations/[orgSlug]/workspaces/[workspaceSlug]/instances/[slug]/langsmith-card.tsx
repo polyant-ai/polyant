@@ -14,6 +14,7 @@ import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * LangSmith tracing, with its project and its key.
@@ -69,15 +70,17 @@ export function LangsmithCard({
 
   return (
     <section className="space-y-4 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-4">
+      <Field id="agent-langsmith" className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Label htmlFor="agent-langsmith" className="text-base font-medium">
+          <FieldLabel className="text-base font-medium">
             {t("settings.tab.langsmith")}
-          </Label>
-          <p className="text-sm text-muted-foreground">{t("settings.tab.langsmithHelp")}</p>
+          </FieldLabel>
+          <FieldDescription className="text-sm text-muted-foreground">{t("settings.tab.langsmithHelp")}</FieldDescription>
         </div>
-        <Switch id="agent-langsmith" checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
-      </div>
+        <FieldControl>
+          <Switch checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
+        </FieldControl>
+      </Field>
 
       {/* The project and the key appear only once tracing is on: they are its
           configuration, and showing them off reads as "fill these in first". */}

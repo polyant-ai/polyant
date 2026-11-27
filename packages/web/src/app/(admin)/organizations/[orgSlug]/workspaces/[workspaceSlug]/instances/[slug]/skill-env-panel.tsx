@@ -7,11 +7,11 @@ import { toast } from "sonner";
 import { Loader2, Eye, EyeOff, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { LoadFailed } from "@/components/ui/load-failed";
 import { useResource } from "@/hooks/use-resource";
 import { api, getUserErrorMessage, type SkillEnvStatus } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * The environment variables a skill needs, for one agent: read when the panel
@@ -107,33 +107,34 @@ function SkillEnvForm({
     <>
       <div className="space-y-4 py-2">
           {envStatus.map((env) => (
-            <div key={env.key} className="space-y-1.5">
+            <Field key={env.key} id={`env-${env.key}`} className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <Label htmlFor={`env-${env.key}`} className="font-mono text-sm">
+                <FieldLabel className="font-mono text-sm">
                   {env.key}
-                </Label>
+                </FieldLabel>
                 {env.configured && env.sensitive && !values[env.key] && (
                   <Check className="size-3.5 text-success" />
                 )}
               </div>
               {env.description && (
-                <p className="text-xs text-muted-foreground">{env.description}</p>
+                <FieldDescription>{env.description}</FieldDescription>
               )}
               <div className="relative">
-                <Input
-                  id={`env-${env.key}`}
-                  type={env.sensitive && !showValues[env.key] ? "password" : "text"}
-                  value={values[env.key] ?? ""}
-                  onChange={(e) =>
-                    setValues((prev) => ({ ...prev, [env.key]: e.target.value }))
-                  }
-                  placeholder={
-                    env.sensitive && env.configured
-                      ? t("skills.env.placeholderSet")
-                      : t("skills.env.placeholderEnter")
-                  }
-                  className="pr-10 font-mono text-sm"
-                />
+                <FieldControl>
+                  <Input
+                    type={env.sensitive && !showValues[env.key] ? "password" : "text"}
+                    value={values[env.key] ?? ""}
+                    onChange={(e) =>
+                      setValues((prev) => ({ ...prev, [env.key]: e.target.value }))
+                    }
+                    placeholder={
+                      env.sensitive && env.configured
+                        ? t("skills.env.placeholderSet")
+                        : t("skills.env.placeholderEnter")
+                    }
+                    className="pr-10 font-mono text-sm"
+                  />
+                </FieldControl>
                 {env.sensitive && (
                   <Button
                     type="button"
@@ -155,7 +156,7 @@ function SkillEnvForm({
                   </Button>
                 )}
               </div>
-            </div>
+            </Field>
           ))}
           {envStatus.length === 0 && (
             <p className="text-sm text-muted-foreground">

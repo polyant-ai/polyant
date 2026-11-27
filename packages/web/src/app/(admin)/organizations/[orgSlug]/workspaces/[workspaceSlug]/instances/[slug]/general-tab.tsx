@@ -13,6 +13,7 @@ import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   instance: Instance;
@@ -88,13 +89,15 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="gen-slug">{t("general.slug")}</Label>
-        <Input id="gen-slug" value={instance.slug} disabled />
-        <p className="text-xs text-muted-foreground">
+      <Field id="gen-slug" className="space-y-2">
+        <FieldLabel>{t("general.slug")}</FieldLabel>
+        <FieldControl>
+          <Input value={instance.slug} disabled />
+        </FieldControl>
+        <FieldDescription>
           {t("general.slugHelp")}
-        </p>
-      </div>
+        </FieldDescription>
+      </Field>
 
       <div className="space-y-2">
         <Label htmlFor="gen-desc">{t("general.description")}</Label>
@@ -106,19 +109,20 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         />
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border p-4">
+      <Field id="agent-status" className="flex items-center justify-between rounded-lg border p-4">
         <div>
-          <Label htmlFor="agent-status">{t("general.status")}</Label>
-          <p className="text-sm text-muted-foreground">
+          <FieldLabel>{t("general.status")}</FieldLabel>
+          <FieldDescription className="text-sm text-muted-foreground">
             {t("general.statusHelp")}
-          </p>
+          </FieldDescription>
         </div>
-        <Switch
-          id="agent-status"
-          checked={status === "active"}
-          onCheckedChange={(checked) => set("status", checked ? "active" : "inactive")}
-        />
-      </div>
+        <FieldControl>
+          <Switch
+            checked={status === "active"}
+            onCheckedChange={(checked) => set("status", checked ? "active" : "inactive")}
+          />
+        </FieldControl>
+      </Field>
 
 
       {/* LangSmith used to be here too. It went to Parametri with the memory

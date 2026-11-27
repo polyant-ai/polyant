@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   api,
@@ -18,6 +17,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /** Every policy as the form holds it: a string, because empty means "not set here". */
 type FormFields = Record<keyof PlatformSettings, string>;
@@ -153,22 +153,23 @@ export function PlatformTab() {
         <div key={group.title} className="max-w-xl space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground">{t(group.title)}</h3>
           {group.keys.map((key) => (
-            <div key={key} className="space-y-1">
-              <Label htmlFor={`platform-${key}`} className="text-sm font-medium">
+            <Field key={key} id={`platform-${key}`} className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t(`settings.platform.${key}` as TranslationKey)}
-              </Label>
-              <Input
-                id={`platform-${key}`}
-                type={key === "baseUrl" ? "url" : "number"}
-                {...(key === "baseUrl" ? {} : { min: 1 })}
-                value={fields[key]}
-                placeholder={String(data.effective[key])}
-                onChange={(e) => setFields((prev) => ({ ...prev, [key]: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type={key === "baseUrl" ? "url" : "number"}
+                  {...(key === "baseUrl" ? {} : { min: 1 })}
+                  value={fields[key]}
+                  placeholder={String(data.effective[key])}
+                  onChange={(e) => setFields((prev) => ({ ...prev, [key]: e.target.value }))}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t(`settings.platform.${key}Help` as TranslationKey)}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
           ))}
         </div>
       ))}

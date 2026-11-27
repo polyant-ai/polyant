@@ -14,6 +14,7 @@ import { api, getUserErrorMessage, type Instance, type IntermediateTextPolicy } 
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   instance: Instance;
@@ -124,42 +125,44 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             per-conversation state (read-only) into the system prompt. Default off
             keeps the state purely tool-to-tool. Not model-gated.
           */}
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <Field id="agent-state-in-prompt" className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-state-in-prompt" className="text-sm font-medium">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.stateInPrompt")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldDescription>
                 {t("settings.tab.stateInPromptHelp")}
-              </p>
+              </FieldDescription>
             </div>
-            <Switch
-              id="agent-state-in-prompt"
-              checked={stateInPromptEnabled}
-              onCheckedChange={(v) => set("stateInPromptEnabled", v)}
-            />
-          </div>
+            <FieldControl>
+              <Switch
+                checked={stateInPromptEnabled}
+                onCheckedChange={(v) => set("stateInPromptEnabled", v)}
+              />
+            </FieldControl>
+          </Field>
 
           {/*
             Datetime injection. When on, the engine injects the current date/time
             into every turn as a <current_datetime> tag. Default on; off = a
             time-agnostic assistant.
           */}
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <Field id="agent-datetime-injection" className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-datetime-injection" className="text-sm font-medium">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.datetimeInjection")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldDescription>
                 {t("settings.tab.datetimeInjectionHelp")}
-              </p>
+              </FieldDescription>
             </div>
-            <Switch
-              id="agent-datetime-injection"
-              checked={datetimeInjectionEnabled}
-              onCheckedChange={(v) => set("datetimeInjectionEnabled", v)}
-            />
-          </div>
+            <FieldControl>
+              <Switch
+                checked={datetimeInjectionEnabled}
+                onCheckedChange={(v) => set("datetimeInjectionEnabled", v)}
+              />
+            </FieldControl>
+          </Field>
 
           {/*
             The six behaviours that used to be set for the whole installation.
@@ -174,96 +177,102 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                 {t("settings.tab.agentOverridesHelp")}
               </p>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-datetime-timezone" className="text-sm font-medium">
+            <Field id="agent-datetime-timezone" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.datetimeTimezone")}
-              </Label>
-              <Input
-                id="agent-datetime-timezone"
-                type="text"
-                value={draft.datetimeTimezone}
-                placeholder="Europe/Rome"
-                onChange={(e) => set("datetimeTimezone", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="text"
+                  value={draft.datetimeTimezone}
+                  placeholder="Europe/Rome"
+                  onChange={(e) => set("datetimeTimezone", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.datetimeTimezoneHelp")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-datetime-locale" className="text-sm font-medium">
+              </FieldDescription>
+            </Field>
+            <Field id="agent-datetime-locale" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.datetimeLocale")}
-              </Label>
-              <Input
-                id="agent-datetime-locale"
-                type="text"
-                value={draft.datetimeLocale}
-                placeholder="it-IT"
-                onChange={(e) => set("datetimeLocale", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="text"
+                  value={draft.datetimeLocale}
+                  placeholder="it-IT"
+                  onChange={(e) => set("datetimeLocale", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.datetimeLocaleHelp")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-dedup-threshold" className="text-sm font-medium">
+              </FieldDescription>
+            </Field>
+            <Field id="agent-dedup-threshold" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.dedupSimilarityThreshold")}
-              </Label>
-              <Input
-                id="agent-dedup-threshold"
-                type="number"
-                value={draft.dedupSimilarityThreshold}
-                placeholder="0.90"
-                onChange={(e) => set("dedupSimilarityThreshold", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="number"
+                  value={draft.dedupSimilarityThreshold}
+                  placeholder="0.90"
+                  onChange={(e) => set("dedupSimilarityThreshold", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.dedupSimilarityThresholdHelp")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-message-debounce" className="text-sm font-medium">
+              </FieldDescription>
+            </Field>
+            <Field id="agent-message-debounce" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.messageSoftDebounceMs")}
-              </Label>
-              <Input
-                id="agent-message-debounce"
-                type="number"
-                value={draft.messageSoftDebounceMs}
-                placeholder="2000"
-                onChange={(e) => set("messageSoftDebounceMs", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="number"
+                  value={draft.messageSoftDebounceMs}
+                  placeholder="2000"
+                  onChange={(e) => set("messageSoftDebounceMs", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.messageSoftDebounceMsHelp")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-message-typing" className="text-sm font-medium">
+              </FieldDescription>
+            </Field>
+            <Field id="agent-message-typing" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.messageTypingDelayMs")}
-              </Label>
-              <Input
-                id="agent-message-typing"
-                type="number"
-                value={draft.messageTypingDelayMs}
-                placeholder="1500"
-                onChange={(e) => set("messageTypingDelayMs", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="number"
+                  value={draft.messageTypingDelayMs}
+                  placeholder="1500"
+                  onChange={(e) => set("messageTypingDelayMs", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.messageTypingDelayMsHelp")}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-message-restarts" className="text-sm font-medium">
+              </FieldDescription>
+            </Field>
+            <Field id="agent-message-restarts" className="space-y-1">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.messageMaxRestarts")}
-              </Label>
-              <Input
-                id="agent-message-restarts"
-                type="number"
-                value={draft.messageMaxRestarts}
-                placeholder="3"
-                onChange={(e) => set("messageMaxRestarts", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldControl>
+                <Input
+                  type="number"
+                  value={draft.messageMaxRestarts}
+                  placeholder="3"
+                  onChange={(e) => set("messageMaxRestarts", e.target.value)}
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("settings.tab.messageMaxRestartsHelp")}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
           </div>
 
           {/*
@@ -271,21 +280,22 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             tool_use/tool_result blocks (truncated) into the model's history so it
             retains what tools returned across turns. Default off (extra tokens).
           */}
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <Field id="agent-tool-results-history" className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-tool-results-history" className="text-sm font-medium">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.toolResultsInHistory")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldDescription>
                 {t("settings.tab.toolResultsInHistoryHelp")}
-              </p>
+              </FieldDescription>
             </div>
-            <Switch
-              id="agent-tool-results-history"
-              checked={toolResultsInHistoryEnabled}
-              onCheckedChange={(v) => set("toolResultsInHistoryEnabled", v)}
-            />
-          </div>
+            <FieldControl>
+              <Switch
+                checked={toolResultsInHistoryEnabled}
+                onCheckedChange={(v) => set("toolResultsInHistoryEnabled", v)}
+              />
+            </FieldControl>
+          </Field>
 
           {/*
             How those earlier turns come back: rebuilt with truncated results
@@ -293,22 +303,23 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             provider's prompt cache read the history. Only meaningful with the
             toggle above on.
           */}
-          <div className="flex items-start justify-between gap-4 pl-4">
+          <Field id="agent-exact-tool-history" className="flex items-start justify-between gap-4 pl-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-exact-tool-history" className="text-sm font-medium">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.exactToolHistory")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
+              </FieldLabel>
+              <FieldDescription>
                 {t("settings.tab.exactToolHistoryHelp")}
-              </p>
+              </FieldDescription>
             </div>
-            <Switch
-              id="agent-exact-tool-history"
-              checked={draft.exactToolHistory}
-              disabled={!toolResultsInHistoryEnabled}
-              onCheckedChange={(v) => set("exactToolHistory", v)}
-            />
-          </div>
+            <FieldControl>
+              <Switch
+                checked={draft.exactToolHistory}
+                disabled={!toolResultsInHistoryEnabled}
+                onCheckedChange={(v) => set("exactToolHistory", v)}
+              />
+            </FieldControl>
+          </Field>
 
           {/*
             Text the model writes alongside a tool call. Unset leaves each
@@ -372,15 +383,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             per turn, viewable from the playground / conversation message detail.
             Default off — heavy and stores PII at rest.
           */}
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <Field id="agent-debug" className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
-              <Label htmlFor="agent-debug" className="text-sm font-medium">
+              <FieldLabel className="text-sm font-medium">
                 {t("settings.tab.debug")}
-              </Label>
-              <p className="text-xs text-muted-foreground">{t("settings.tab.debugHelp")}</p>
+              </FieldLabel>
+              <FieldDescription>{t("settings.tab.debugHelp")}</FieldDescription>
             </div>
-            <Switch id="agent-debug" checked={debugEnabled} onCheckedChange={(v) => set("debugEnabled", v)} />
-          </div>
+            <FieldControl>
+              <Switch checked={debugEnabled} onCheckedChange={(v) => set("debugEnabled", v)} />
+            </FieldControl>
+          </Field>
         </section>
   );
 

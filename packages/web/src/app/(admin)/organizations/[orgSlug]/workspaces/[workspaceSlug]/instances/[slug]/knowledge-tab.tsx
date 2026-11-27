@@ -17,7 +17,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ListEmpty, ListLoading } from "@/components/list-states";
 import { SwitchList } from "@/components/switch-list";
 import { DrawerDeleteButton, ListDrawer } from "@/components/list-drawer";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from "@/lib/api";
 import { providerName } from "@/lib/provider-secrets";
@@ -30,6 +29,7 @@ import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
 import { AddTextSheet } from "@/components/knowledge/add-text-sheet";
 import { formatBytes, KnowledgeStatusBadge } from "@/components/knowledge/document-status";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * Every document of the agent. The engine answers one page at a time; the list
@@ -106,25 +106,26 @@ function KnowledgeToggle({
 
   return (
     <section className="mb-6 space-y-4 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-4">
+      <Field id="agent-knowledge" className="flex items-start justify-between gap-4">
         {/* Named for the CAPABILITY, not repeated from the tab: "Knowledge Base"
             here said the same word as the tab above it, and a bare "when this is
             on…" sentence made an important feature read like a footnote. The
             capability has a name — retrieval over the documents — so the row says
             it, with what it costs the agent underneath. */}
         <div className="space-y-1">
-          <Label htmlFor="agent-knowledge" className="text-base font-medium">
+          <FieldLabel className="text-base font-medium">
             {t("knowledge.tab.enableTitle")}
-          </Label>
-          <p className="text-sm text-muted-foreground">{t("knowledge.tab.enableHelp")}</p>
+          </FieldLabel>
+          <FieldDescription className="text-sm text-muted-foreground">{t("knowledge.tab.enableHelp")}</FieldDescription>
         </div>
-        <Switch
-          id="agent-knowledge"
-          checked={enabled}
-          disabled={saving}
-          onCheckedChange={(v) => set("enabled", v)}
-        />
-      </div>
+        <FieldControl>
+          <Switch
+            checked={enabled}
+            disabled={saving}
+            onCheckedChange={(v) => set("enabled", v)}
+          />
+        </FieldControl>
+      </Field>
 
 
       {/* Retrieval embeds every document, so without embedder credentials this

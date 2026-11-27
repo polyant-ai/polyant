@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { ListDrawer } from "@/components/list-drawer";
 import { useI18n } from "@/lib/i18n/context";
 import { api, getUserErrorMessage } from "@/lib/api";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   open: boolean;
@@ -97,24 +98,27 @@ export function CreateUserSheet({ open, onOpenChange, onCreated }: Props) {
             <Label htmlFor="cu-name">{t("users.create.nameLabel")}</Label>
             <Input id="cu-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+          <Field id="cu-platform-admin" className="flex items-center justify-between gap-4 rounded-lg border p-4">
             <div>
-              <Label htmlFor="cu-platform-admin">{t("users.role.platformAdmin")}</Label>
-              <p className="text-sm text-muted-foreground">{t("users.create.platformAdminHint")}</p>
+              <FieldLabel>{t("users.role.platformAdmin")}</FieldLabel>
+              <FieldDescription className="text-sm text-muted-foreground">{t("users.create.platformAdminHint")}</FieldDescription>
             </div>
-            <Switch id="cu-platform-admin" checked={isPlatformAdmin} onCheckedChange={setIsPlatformAdmin} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cu-password">{t("users.create.passwordLabel")}</Label>
-            <Input
-              id="cu-password"
-              type="text"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-            <p className="text-xs text-muted-foreground">{t("users.create.passwordHint")}</p>
-          </div>
+            <FieldControl>
+              <Switch checked={isPlatformAdmin} onCheckedChange={setIsPlatformAdmin} />
+            </FieldControl>
+          </Field>
+          <Field id="cu-password" className="flex flex-col gap-1.5">
+            <FieldLabel>{t("users.create.passwordLabel")}</FieldLabel>
+            <FieldControl>
+              <Input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </FieldControl>
+            <FieldDescription>{t("users.create.passwordHint")}</FieldDescription>
+          </Field>
         </form>
       )}
     </ListDrawer>

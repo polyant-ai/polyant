@@ -8,10 +8,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { OneTimeSecret } from "@/components/ui/one-time-secret";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ListDrawer } from "@/components/list-drawer";
 import { useI18n } from "@/lib/i18n/context";
 import { api, getUserErrorMessage } from "@/lib/api";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   orgSlug: string;
@@ -85,28 +85,30 @@ export function CreateApiKeySheet({ orgSlug, open, onOpenChange, onCreated }: Pr
         <OneTimeSecret value={token} copiedMessage={t("apiKeys.created.copied")} copyLabel={t("apiKeys.created.copy")} />
       ) : (
         <form id="create-api-key-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="api-key-name">{t("apiKeys.create.nameLabel")}</Label>
-            <Input
-              id="api-key-name"
-              required
-              maxLength={255}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">{t("apiKeys.create.nameHint")}</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="api-key-expiry">{t("apiKeys.create.expiryLabel")}</Label>
-            <Input
-              id="api-key-expiry"
-              type="date"
-              min={today()}
-              value={expiresOn}
-              onChange={(e) => setExpiresOn(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">{t("apiKeys.create.expiryHint")}</p>
-          </div>
+          <Field id="api-key-name" className="flex flex-col gap-1.5">
+            <FieldLabel>{t("apiKeys.create.nameLabel")}</FieldLabel>
+            <FieldControl>
+              <Input
+                required
+                maxLength={255}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </FieldControl>
+            <FieldDescription>{t("apiKeys.create.nameHint")}</FieldDescription>
+          </Field>
+          <Field id="api-key-expiry" className="flex flex-col gap-1.5">
+            <FieldLabel>{t("apiKeys.create.expiryLabel")}</FieldLabel>
+            <FieldControl>
+              <Input
+                type="date"
+                min={today()}
+                value={expiresOn}
+                onChange={(e) => setExpiresOn(e.target.value)}
+              />
+            </FieldControl>
+            <FieldDescription>{t("apiKeys.create.expiryHint")}</FieldDescription>
+          </Field>
         </form>
       )}
     </ListDrawer>

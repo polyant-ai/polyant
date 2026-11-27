@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { EnvVarsEditor, toEnvVarDefs, toRequiredEnv, type EnvVarDef } from "@/components/skills/env-vars-editor";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * One skill of the library, opened from its row: its content and its versions
@@ -184,11 +185,13 @@ export function SkillSheet({
         <Input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={255} />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="slug">{t("skills.form.slug")}</Label>
-        <Input id="slug" value={skill?.name ?? ""} readOnly className="font-mono opacity-60" />
-        <p className="text-xs text-muted-foreground">{t("skills.form.slugHint")}</p>
-      </div>
+      <Field id="slug" className="space-y-2">
+        <FieldLabel>{t("skills.form.slug")}</FieldLabel>
+        <FieldControl>
+          <Input value={skill?.name ?? ""} readOnly className="font-mono opacity-60" />
+        </FieldControl>
+        <FieldDescription>{t("skills.form.slugHint")}</FieldDescription>
+      </Field>
 
       <div className="space-y-2">
         <Label htmlFor="description">{t("skills.form.description")}</Label>

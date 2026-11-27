@@ -26,6 +26,7 @@ import { api, getUserErrorMessage, type ChannelConfig } from "@/lib/api";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 type AuthMode = "authToken" | "apiKey";
 
@@ -169,17 +170,17 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
 
   return (
     <section className="space-y-4 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
+      <Field id="whatsapp-enabled" className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Label htmlFor="whatsapp-enabled" className="text-base font-medium">{t("channels.tab.whatsapp")}</Label>
+            <FieldLabel className="text-base font-medium">{t("channels.tab.whatsapp")}</FieldLabel>
             {channel && (
               <Badge variant={channel.enabled ? "default" : "secondary"} className="text-xs">
                 {channel.enabled ? t("channels.tab.enabled") : t("channels.tab.disabled")}
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">{t("channels.tab.whatsappHelp")}</p>
+          <FieldDescription className="text-sm text-muted-foreground">{t("channels.tab.whatsappHelp")}</FieldDescription>
         </div>
         <div className="flex items-center gap-2">
           {channel && (
@@ -206,17 +207,18 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          <Switch
-            id="whatsapp-enabled"
-            checked={enabled}
-            onCheckedChange={(checked) => {
-              setEnabled(checked);
-              setDirty(true);
-            }}
-            disabled={saving}
-          />
+          <FieldControl>
+            <Switch
+              checked={enabled}
+              onCheckedChange={(checked) => {
+                setEnabled(checked);
+                setDirty(true);
+              }}
+              disabled={saving}
+            />
+          </FieldControl>
         </div>
-      </div>
+      </Field>
 
       <div className="space-y-1">
         <Label>{t("channels.tab.whatsappAuthMode")}</Label>

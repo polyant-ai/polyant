@@ -26,6 +26,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useI18n } from "@/lib/i18n/context";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 const OUTBOUND_CHANNELS = ["slack", "whatsapp", "telegram"];
 
@@ -57,19 +58,20 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
   */
   return (
     <section className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      <Field id="room-enabled" className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Label htmlFor="room-enabled" className="text-base font-medium">
+          <FieldLabel className="text-base font-medium">
             {t("room.config.title")}
-          </Label>
-          <p className="text-sm text-muted-foreground">{t("room.config.help")}</p>
+          </FieldLabel>
+          <FieldDescription className="text-sm text-muted-foreground">{t("room.config.help")}</FieldDescription>
         </div>
         <div className="flex items-center gap-3">
-          <Switch
-            id="room-enabled"
-            checked={form.enabled}
-            onCheckedChange={(v) => onChange({ ...form, enabled: v })}
-          />
+          <FieldControl>
+            <Switch
+              checked={form.enabled}
+              onCheckedChange={(v) => onChange({ ...form, enabled: v })}
+            />
+          </FieldControl>
           {!isNew && onDelete && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -89,19 +91,20 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
             </AlertDialog>
           )}
         </div>
-      </div>
+      </Field>
 
-      <div className="space-y-1">
-        <Label htmlFor="room-prompt">{t("room.config.prompt")}</Label>
-        <p className="text-xs text-muted-foreground">{t("room.config.promptHelp")}</p>
-        <Textarea
-          id="room-prompt"
-          className="min-h-[120px]"
-          placeholder={t("room.config.promptPlaceholder")}
-          value={form.prompt}
-          onChange={(e) => onChange({ ...form, prompt: e.target.value })}
-        />
-      </div>
+      <Field id="room-prompt" className="space-y-1">
+        <FieldLabel>{t("room.config.prompt")}</FieldLabel>
+        <FieldDescription>{t("room.config.promptHelp")}</FieldDescription>
+        <FieldControl>
+          <Textarea
+            className="min-h-[120px]"
+            placeholder={t("room.config.promptPlaceholder")}
+            value={form.prompt}
+            onChange={(e) => onChange({ ...form, prompt: e.target.value })}
+          />
+        </FieldControl>
+      </Field>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
@@ -118,11 +121,13 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="room-outbound-target">{t("room.config.outboundTarget")}</Label>
-          <p className="text-xs text-muted-foreground">{t("room.config.outboundTargetHelp")}</p>
-          <Input id="room-outbound-target" value={form.outboundTarget} onChange={(e) => onChange({ ...form, outboundTarget: e.target.value })} />
-        </div>
+        <Field id="room-outbound-target" className="space-y-1">
+          <FieldLabel>{t("room.config.outboundTarget")}</FieldLabel>
+          <FieldDescription>{t("room.config.outboundTargetHelp")}</FieldDescription>
+          <FieldControl>
+            <Input value={form.outboundTarget} onChange={(e) => onChange({ ...form, outboundTarget: e.target.value })} />
+          </FieldControl>
+        </Field>
       </div>
 
     </section>

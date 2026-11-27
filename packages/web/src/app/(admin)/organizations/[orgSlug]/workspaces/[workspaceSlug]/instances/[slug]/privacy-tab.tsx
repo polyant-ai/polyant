@@ -30,6 +30,7 @@ import { LoadFailed } from "@/components/ui/load-failed";
 import { useResource } from "@/hooks/use-resource";
 import { usePageSaveAction } from "./page-actions-context";
 import { useDraft } from "./use-draft";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   instance: Instance;
@@ -155,18 +156,19 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
         {enabled && (
           <>
             {/* Stop keywords */}
-            <div className="space-y-2">
-              <Label htmlFor="stop-keywords">{t("privacy.stopKeywords")}</Label>
-              <Input
-                id="stop-keywords"
-                value={stopKeywords}
-                onChange={(e) => set("stopKeywords", e.target.value)}
-                placeholder="STOP, UNSUBSCRIBE"
-              />
-              <p className="text-xs text-muted-foreground">
+            <Field id="stop-keywords" className="space-y-2">
+              <FieldLabel>{t("privacy.stopKeywords")}</FieldLabel>
+              <FieldControl>
+                <Input
+                  value={stopKeywords}
+                  onChange={(e) => set("stopKeywords", e.target.value)}
+                  placeholder="STOP, UNSUBSCRIBE"
+                />
+              </FieldControl>
+              <FieldDescription>
                 {t("privacy.keywordsHint")}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
 
             {/* Resume keywords */}
             <div className="space-y-2">
@@ -204,17 +206,19 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
             </div>
 
             {/* Inject prompt hint toggle */}
-            <div className="flex items-center justify-between border-t pt-4">
+            <Field id="privacy-inject-hint" className="flex items-center justify-between border-t pt-4">
               <div className="space-y-1">
-                <Label htmlFor="privacy-inject-hint" className="text-sm font-medium">
+                <FieldLabel className="text-sm font-medium">
                   {t("privacy.injectHint")}
-                </Label>
-                <p className="text-xs text-muted-foreground">
+                </FieldLabel>
+                <FieldDescription>
                   {t("privacy.injectHintHelp")}
-                </p>
+                </FieldDescription>
               </div>
-              <Switch id="privacy-inject-hint" checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
-            </div>
+              <FieldControl>
+                <Switch checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
+              </FieldControl>
+            </Field>
           </>
         )}
       </section>

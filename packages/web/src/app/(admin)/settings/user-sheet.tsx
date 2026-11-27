@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { DrawerDeleteButton, ListDrawer } from "@/components/list-drawer";
 import { useI18n } from "@/lib/i18n/context";
 import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
+import { Field, FieldControl, FieldDescription, FieldLabel } from "@/components/ui/field";
 
 /**
  * One account, opened from its row: its name and Platform Admin flag to edit, the
@@ -123,13 +124,15 @@ export function UserSheet({
                 <Label htmlFor="eu-name">{t("users.create.nameLabel")}</Label>
                 <Input id="eu-name" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
-              <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+              <Field id="eu-platform-admin" className="flex items-center justify-between gap-4 rounded-lg border p-4">
                 <div>
-                  <Label htmlFor="eu-platform-admin">{t("users.role.platformAdmin")}</Label>
-                  <p className="text-sm text-muted-foreground">{t("users.edit.platformAdminHint")}</p>
+                  <FieldLabel>{t("users.role.platformAdmin")}</FieldLabel>
+                  <FieldDescription className="text-sm text-muted-foreground">{t("users.edit.platformAdminHint")}</FieldDescription>
                 </div>
-                <Switch id="eu-platform-admin" checked={isPlatformAdmin} onCheckedChange={setIsPlatformAdmin} />
-              </div>
+                <FieldControl>
+                  <Switch checked={isPlatformAdmin} onCheckedChange={setIsPlatformAdmin} />
+                </FieldControl>
+              </Field>
             </form>
 
             <section className="space-y-3">
